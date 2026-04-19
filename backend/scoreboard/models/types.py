@@ -49,11 +49,16 @@ class KpiEnvelope:
     def to_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["freshness_state"] = self.freshness_state.value
+        payload["freshness_status"] = self.freshness_state.value
         payload["certification_state"] = self.certification_state.value
+        payload["certification_status"] = self.certification_state.value
         if self.as_of_timestamp is not None:
             payload["as_of_timestamp"] = self.as_of_timestamp.isoformat()
         if self.fail_state is not None:
             payload["fail_state"] = self.fail_state.to_dict()
+            payload["failure_reason"] = self.fail_state.reason
+        else:
+            payload["failure_reason"] = None
         return payload
 
 

@@ -1,12 +1,13 @@
 from backend.scoreboard.config import Settings
 from backend.scoreboard.connectors.acumatica import AcumaticaClient
 from backend.scoreboard.connectors.pipedrive import PipedriveClient
+from backend.scoreboard.kpis.financial import AcumaticaFinancialExtractor, FinancialKpiService
 from backend.scoreboard.kpis.services import SalesKpiService
 from backend.scoreboard.models.types import ApiListResponse, CertificationState, FreshnessState, KpiEnvelope
 from backend.scoreboard.normalization.mapper import build_normalization_scaffold
 
 
-def _build_dependencies() -> tuple[Settings, PipedriveClient, AcumaticaClient, SalesKpiService]:
+def _build_dependencies() -> tuple[Settings, PipedriveClient, AcumaticaClient, SalesKpiService, FinancialKpiService]:
     settings = Settings.from_env()
     normalization = build_normalization_scaffold(
         branch_entity_mapping=settings.branch_entity_mapping,
@@ -28,7 +29,12 @@ def _build_dependencies() -> tuple[Settings, PipedriveClient, AcumaticaClient, S
         auth_path=settings.acumatica_auth_path,
     )
     service = SalesKpiService(settings=settings, normalization=normalization)
-    return settings, pipedrive, acumatica, service
+    financial = FinancialKpiService(
+        settings=settings,
+        normalization=normalization,
+        extractor=AcumaticaFinancialExtractor(settings=settings, client=acumatica),
+    )
+    return settings, pipedrive, acumatica, service, financial
 
 
 def _records(payload: dict) -> list[dict]:
@@ -37,12 +43,12 @@ def _records(payload: dict) -> list[dict]:
 
 
 def leadership_flash() -> dict:
-    settings, pipedrive, _, service = _build_dependencies()
+    settings, pipedrive, _, service, financial = _build_dependencies()
     deals = _records(pipedrive.fetch_deals(settings.pipedrive_deals_path))
 
     items = [
-        service.financial_kpi_blocked_for_branch_scope("Invoiced Revenue MTD by Rep"),
-        service.financial_kpi_blocked_for_branch_scope("Gross Margin % MTD by Rep"),
+        financial.invoiced_revenue_mtd_by_rep(),
+        financial.gross_margin_pct_mtd_by_rep(),
         service.open_pipeline_by_rep(deals),
         KpiEnvelope(
             name="Freshness Status",
@@ -54,7 +60,7 @@ def leadership_flash() -> dict:
         KpiEnvelope(
             name="Certification Status",
             source_system="system",
-            value={"financial": "blocked_pending_extraction_and_tie_out", "sales_non_financial": "provisional"},
+            value={"financial": "certified_or_failed", "sales_non_financial": "provisional"},
             freshness_state=FreshnessState.FRESH,
             certification_state=CertificationState.PROVISIONAL,
         ),
@@ -63,13 +69,13 @@ def leadership_flash() -> dict:
 
 
 def sales_scoreboard() -> dict:
-    settings, pipedrive, _, service = _build_dependencies()
+    settings, pipedrive, _, service, financial = _build_dependencies()
     activities = _records(pipedrive.fetch_activities(settings.pipedrive_activities_path))
     deals = _records(pipedrive.fetch_deals(settings.pipedrive_deals_path))
 
     items = [
-        service.financial_kpi_blocked_for_branch_scope("Invoiced Revenue MTD by Rep"),
-        service.financial_kpi_blocked_for_branch_scope("Gross Margin % MTD by Rep"),
+        financial.invoiced_revenue_mtd_by_rep(),
+        financial.gross_margin_pct_mtd_by_rep(),
         service.activity_count_by_rep(activities),
         service.activity_vs_standard(activities, working_days_elapsed=1),
         service.open_pipeline_by_rep(deals),
@@ -78,15 +84,25 @@ def sales_scoreboard() -> dict:
     return ApiListResponse(read_only=True, items=items).to_dict()
 
 
+def financial_revenue_by_rep() -> dict:
+    _, _, _, _, financial = _build_dependencies()
+    return ApiListResponse(read_only=True, items=[financial.invoiced_revenue_mtd_by_rep()]).to_dict()
+
+
+def financial_margin_by_rep() -> dict:
+    _, _, _, _, financial = _build_dependencies()
+    return ApiListResponse(read_only=True, items=[financial.gross_margin_pct_mtd_by_rep()]).to_dict()
+
+
 def stale_opportunities() -> dict:
-    settings, pipedrive, _, service = _build_dependencies()
+    settings, pipedrive, _, service, _ = _build_dependencies()
     activities = _records(pipedrive.fetch_activities(settings.pipedrive_activities_path))
     deals = _records(pipedrive.fetch_deals(settings.pipedrive_deals_path))
     return ApiListResponse(read_only=True, items=[service.stale_opportunities(deals, activities)]).to_dict()
 
 
 def stuck_orders() -> dict:
-    settings, _, acumatica, service = _build_dependencies()
+    settings, _, acumatica, service, _ = _build_dependencies()
     orders_payload = acumatica.fetch_sales_orders(settings.acumatica_sales_orders_path)
     if "fail_state" in orders_payload:
         return ApiListResponse(read_only=True, items=[service.financial_kpi_blocked_for_branch_scope("Stuck Orders")]).to_dict()
@@ -94,7 +110,7 @@ def stuck_orders() -> dict:
 
 
 def platform_status() -> dict:
-    settings, pipedrive, acumatica, service = _build_dependencies()
+    settings, pipedrive, acumatica, service, _ = _build_dependencies()
     activities = _records(pipedrive.fetch_activities(settings.pipedrive_activities_path))
     deals = _records(pipedrive.fetch_deals(settings.pipedrive_deals_path))
     branches = _records(acumatica.fetch_branches(settings.acumatica_branches_path))
@@ -124,10 +140,7 @@ def platform_status() -> dict:
                 "branches": unmapped_branches,
                 "reps": unmapped_reps,
             },
-            "financial_certification_blockers": [
-                "certified_acumatica_extraction_not_implemented",
-                "certified_tie_out_not_implemented",
-            ],
+            "financial_certification_blockers": [],
         },
         freshness_state=FreshnessState.FRESH,
         certification_state=CertificationState.PROVISIONAL,
@@ -136,7 +149,7 @@ def platform_status() -> dict:
 
 
 def connector_status() -> dict:
-    settings, pipedrive, acumatica, _ = _build_dependencies()
+    settings, pipedrive, acumatica, _, _ = _build_dependencies()
     items = [
         pipedrive.fetch_users(settings.pipedrive_users_path),
         pipedrive.fetch_stages(settings.pipedrive_stages_path),
