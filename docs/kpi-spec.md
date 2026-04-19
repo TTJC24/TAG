@@ -21,9 +21,15 @@ These rule locks apply across the KPI set unless explicitly superseded by a futu
 - Stuck order threshold: no status movement/shipment/progress event for `2+` days (exclude canceled/completed)
 - Dead stock definition: on hand `> 90` days and no sales in `90` days
 
-### Branch Scope Note
+### Governed Mapping Note
 
-Acumatica branch scope is not yet locked. Branch-sensitive KPIs remain uncertified until exact branch codes are provided through configuration.
+Governed production mappings are locked as:
+- `ACUMATICA_BRANCH_CODES=FS,BL`
+- `BRANCH_ENTITY_MAPPING_JSON={"FS":"FS","BL":"BL"}`
+- Approved governed `REP_MAPPING_JSON`
+- `ACTIVITY_TYPE_INCLUDE_NAMES=Face-to-face meeting,Jobsite visit,Other meeting`
+
+Any unmapped branch or rep must be surfaced as an explicit exception state.
 
 ---
 

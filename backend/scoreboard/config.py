@@ -2,6 +2,28 @@ import json
 import os
 from dataclasses import dataclass
 
+GOVERNED_BRANCH_CODES: tuple[str, ...] = ("FS", "BL")
+GOVERNED_BRANCH_ENTITY_MAPPING: dict[str, str] = {"FS": "FS", "BL": "BL"}
+GOVERNED_REP_MAPPING: dict[str, str] = {
+    "Tim Clark": "Tim Clark",
+    "Nicholas Dorfmueller": "Nicholas Dorfmueller",
+    "Daniel Milavickas": "Daniel Milavickas",
+    "Mike Grant": "Mike Grant",
+    "Jeff Woods": "Jeff Woods",
+    "Tyler Shinn": "Tyler Shinn",
+    "Michael Stewart": "Michael Stewart",
+    "Scott Segal": "Scott Segal",
+    "Andrew sutt": "Andrew sutt",
+    "chris coghlan": "chris coghlan",
+    "Bill Potts": "Bill Potts",
+    "Cody Braden": "Cody Braden",
+}
+GOVERNED_ACTIVITY_TYPE_INCLUDE_NAMES: tuple[str, ...] = (
+    "Face-to-face meeting",
+    "Jobsite visit",
+    "Other meeting",
+)
+
 
 def _parse_csv(value: str) -> tuple[str, ...]:
     items = [item.strip() for item in value.split(",") if item.strip()]
@@ -118,9 +140,17 @@ class Settings:
             stuck_order_no_progress_days=int(os.getenv("STUCK_ORDER_NO_PROGRESS_DAYS", "2")),
             dead_stock_on_hand_days=int(os.getenv("DEAD_STOCK_ON_HAND_DAYS", "90")),
             dead_stock_no_sales_days=int(os.getenv("DEAD_STOCK_NO_SALES_DAYS", "90")),
-            acumatica_branch_codes=_parse_csv(os.getenv("ACUMATICA_BRANCH_CODES", "")),
-            branch_entity_mapping=_parse_json_object(os.getenv("BRANCH_ENTITY_MAPPING_JSON", ""), "BRANCH_ENTITY_MAPPING_JSON"),
-            rep_mapping=_parse_json_object(os.getenv("REP_MAPPING_JSON", ""), "REP_MAPPING_JSON"),
+            acumatica_branch_codes=_parse_csv(os.getenv("ACUMATICA_BRANCH_CODES", ",".join(GOVERNED_BRANCH_CODES))),
+            branch_entity_mapping=_parse_json_object(
+                os.getenv("BRANCH_ENTITY_MAPPING_JSON", json.dumps(GOVERNED_BRANCH_ENTITY_MAPPING)),
+                "BRANCH_ENTITY_MAPPING_JSON",
+            ),
+            rep_mapping=_parse_json_object(
+                os.getenv("REP_MAPPING_JSON", json.dumps(GOVERNED_REP_MAPPING)),
+                "REP_MAPPING_JSON",
+            ),
             stage_include_ids=_parse_csv(os.getenv("STAGE_INCLUDE_IDS", "")),
-            activity_type_include_names=_parse_csv(os.getenv("ACTIVITY_TYPE_INCLUDE_NAMES", "")),
+            activity_type_include_names=_parse_csv(
+                os.getenv("ACTIVITY_TYPE_INCLUDE_NAMES", ",".join(GOVERNED_ACTIVITY_TYPE_INCLUDE_NAMES))
+            ),
         )

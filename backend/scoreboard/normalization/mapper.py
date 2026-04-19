@@ -20,6 +20,9 @@ class NormalizationScaffold:
     def rep_mapping_is_provisional(self) -> bool:
         return not bool(self.rep_mapping)
 
+    def map_rep(self, rep_name: str) -> str | None:
+        return self.rep_mapping.get(rep_name)
+
     def include_stage(self, stage_id: str) -> bool:
         if not self.stage_include_ids:
             return True
@@ -30,6 +33,12 @@ class NormalizationScaffold:
         if not allowed:
             return False
         return activity_type_name.lower() in allowed
+
+    def unmapped_branch_codes(self, branch_codes: list[str]) -> list[str]:
+        return sorted({code for code in branch_codes if code and self.map_branch_to_entity(code) is None})
+
+    def unmapped_rep_names(self, rep_names: list[str]) -> list[str]:
+        return sorted({name for name in rep_names if name and self.map_rep(name) is None})
 
 
 def build_normalization_scaffold(
@@ -47,8 +56,8 @@ def build_normalization_scaffold(
 
 
 NORMALIZATION_TODOS = [
-    NormalizationTodo(dimension="rep", todo="Rep mapping remains provisional until user-approved mapping is configured."),
-    NormalizationTodo(dimension="branch", todo="Branch/entity mapping must be supplied explicitly via configuration."),
+    NormalizationTodo(dimension="rep", todo="Rep mapping is governed and must remain explicit in configuration."),
+    NormalizationTodo(dimension="branch", todo="Branch/entity mapping is governed and must remain explicit in configuration."),
     NormalizationTodo(dimension="stages", todo="Stage inclusion is controlled by explicit stage IDs when configured."),
-    NormalizationTodo(dimension="activity_types", todo="Activity inclusion is controlled by configured qualifying activity type names."),
+    NormalizationTodo(dimension="activity_types", todo="Activity inclusion is governed by configured qualifying activity type names."),
 ]

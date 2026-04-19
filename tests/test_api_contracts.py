@@ -38,6 +38,8 @@ def test_enums_are_exposed():
     for item in payload["items"]:
         assert item["freshness_state"] in {state.value for state in FreshnessState}
         assert item["certification_state"] in {state.value for state in CertificationState}
+        assert "mapping_completeness" in item["value"]
+        assert "unmapped_exceptions" in item["value"]
 
 
 def test_connector_status_route_exists():

@@ -54,7 +54,7 @@ def leadership_flash() -> dict:
         KpiEnvelope(
             name="Certification Status",
             source_system="system",
-            value={"financial": "blocked_pending_branch_scope", "sales_non_financial": "provisional"},
+            value={"financial": "blocked_pending_extraction_and_tie_out", "sales_non_financial": "provisional"},
             freshness_state=FreshnessState.FRESH,
             certification_state=CertificationState.PROVISIONAL,
         ),
@@ -94,14 +94,40 @@ def stuck_orders() -> dict:
 
 
 def platform_status() -> dict:
-    settings, _, _, _ = _build_dependencies()
-    branch_status = "configured" if settings.branch_scope_configured else "missing"
+    settings, pipedrive, acumatica, service = _build_dependencies()
+    activities = _records(pipedrive.fetch_activities(settings.pipedrive_activities_path))
+    deals = _records(pipedrive.fetch_deals(settings.pipedrive_deals_path))
+    branches = _records(acumatica.fetch_branches(settings.acumatica_branches_path))
+
+    runtime_branch_codes = [str(row.get("BranchCD") or row.get("branch_code") or row.get("id") or "") for row in branches]
+    runtime_rep_names = [
+        str(row.get("owner_name") or row.get("user_id") or "unassigned")
+        for row in [*activities, *deals]
+    ]
+    unmapped_branches = service.normalization.unmapped_branch_codes(runtime_branch_codes)
+    unmapped_reps = service.normalization.unmapped_rep_names(runtime_rep_names)
+    branch_mapping_complete = settings.branch_scope_configured and not unmapped_branches
+    rep_mapping_complete = bool(settings.rep_mapping) and not unmapped_reps
+
     item = KpiEnvelope(
         name="Certification Status",
         source_system="system",
         value={
-            "branch_scope": branch_status,
-            "rep_mapping": "provisional" if not settings.rep_mapping else "configured_unapproved",
+            "branch_scope": "configured" if settings.branch_scope_configured else "missing",
+            "branch_mapping_state": "governed_complete" if branch_mapping_complete else "governed_incomplete",
+            "rep_mapping_state": "governed_complete" if rep_mapping_complete else "governed_incomplete",
+            "mapping_completeness": {
+                "branch_mapping_complete": branch_mapping_complete,
+                "rep_mapping_complete": rep_mapping_complete,
+            },
+            "unmapped_exceptions": {
+                "branches": unmapped_branches,
+                "reps": unmapped_reps,
+            },
+            "financial_certification_blockers": [
+                "certified_acumatica_extraction_not_implemented",
+                "certified_tie_out_not_implemented",
+            ],
         },
         freshness_state=FreshnessState.FRESH,
         certification_state=CertificationState.PROVISIONAL,

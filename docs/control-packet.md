@@ -45,13 +45,19 @@ The following rules are locked for v1 and must be implemented exactly as stated:
 - Stuck order rule: open sales order with no status movement/shipment/progress event for `2+` days, excluding canceled/completed
 - Dead stock rule: on hand `> 90` days and no sales in `90` days
 
-## Branch Scope Constraint (Not Locked)
+## Governed Mapping Lock (Approved)
 
-Acumatica branch scope is **not locked**.
+The following production mappings are governed for v1 and are no longer provisional:
 
-- Branch codes must be supplied via configuration before production certification.
-- Do not infer branch codes.
-- Do not certify branch-sensitive KPIs until exact branch scope is provided.
+- `ACUMATICA_BRANCH_CODES=FS,BL`
+- `BRANCH_ENTITY_MAPPING_JSON={"FS":"FS","BL":"BL"}`
+- `REP_MAPPING_JSON` approved rep list
+- `ACTIVITY_TYPE_INCLUDE_NAMES=Face-to-face meeting,Jobsite visit,Other meeting`
+
+Operational requirement:
+- Surface unmapped branches and reps explicitly as exceptions.
+- Do not silently fall back to raw names for governed outputs.
+- Financial KPI certification still requires extraction and tie-out implementation.
 
 ## Source-of-Truth Hierarchy
 
