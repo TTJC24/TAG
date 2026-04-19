@@ -58,6 +58,28 @@ class NormalizedFinancialRow:
     gross_profit: Decimal
 
 
+@dataclass(frozen=True)
+class FinancialExtractionDiagnostics:
+    source_path: str
+    field_bindings: dict[str, str]
+    row_count_returned: int
+    branch_distribution: dict[str, int]
+    rep_distribution: dict[str, int]
+    min_transaction_date_utc: str | None
+    max_transaction_date_utc: str | None
+    cutoff_applied_utc: str
+    completeness_status: str
+    tie_out_status: str
+
+
+@dataclass(frozen=True)
+class FinancialExtractionResult:
+    rows: list[FinancialRow]
+    diagnostics: FinancialExtractionDiagnostics
+    error: str | None
+    completeness_certain: bool
+
+
 class FinancialCutoff:
     @staticmethod
     def prior_closed_cutoff_utc(now_utc: datetime, tz_name: str) -> datetime:
@@ -91,20 +113,81 @@ class AcumaticaFinancialExtractor:
             gross_profit_field=self.settings.acumatica_financial_gross_profit_field,
         )
 
-    def extract_financial_rows(self) -> tuple[list[FinancialRow], str | None]:
+    def _build_diagnostics(
+        self,
+        rows: list[FinancialRow],
+        cutoff_utc: datetime,
+        completeness_certain: bool,
+        tie_out_status: str,
+    ) -> FinancialExtractionDiagnostics:
+        branch_distribution: dict[str, int] = defaultdict(int)
+        rep_distribution: dict[str, int] = defaultdict(int)
+        min_dt: datetime | None = None
+        max_dt: datetime | None = None
+        for row in rows:
+            branch_distribution[row.branch_code] += 1
+            rep_distribution[row.rep_name] += 1
+            min_dt = row.source_timestamp if min_dt is None else min(min_dt, row.source_timestamp)
+            max_dt = row.source_timestamp if max_dt is None else max(max_dt, row.source_timestamp)
+
+        completeness_status = "complete" if completeness_certain else "uncertain"
+        return FinancialExtractionDiagnostics(
+            source_path=self.settings.acumatica_ar_invoices_path,
+            field_bindings={
+                "date_field": self.settings.acumatica_financial_date_field,
+                "branch_field": self.settings.acumatica_financial_branch_field,
+                "rep_field": self.settings.acumatica_financial_rep_field,
+                "revenue_field": self.settings.acumatica_financial_revenue_field,
+                "cost_field": self.settings.acumatica_financial_cost_field,
+                "gross_profit_field": self.settings.acumatica_financial_gross_profit_field,
+            },
+            row_count_returned=len(rows),
+            branch_distribution=dict(sorted(branch_distribution.items())),
+            rep_distribution=dict(sorted(rep_distribution.items())),
+            min_transaction_date_utc=min_dt.isoformat() if min_dt else None,
+            max_transaction_date_utc=max_dt.isoformat() if max_dt else None,
+            cutoff_applied_utc=cutoff_utc.isoformat(),
+            completeness_status=completeness_status,
+            tie_out_status=tie_out_status,
+        )
+
+    def extract_financial_rows(self, cutoff_utc: datetime) -> FinancialExtractionResult:
         missing_fields = self.source_fields.missing()
         if missing_fields:
-            return [], f"missing_financial_source_field_config:{','.join(missing_fields)}"
+            diagnostics = self._build_diagnostics([], cutoff_utc, False, "not_run")
+            return FinancialExtractionResult(
+                rows=[],
+                diagnostics=diagnostics,
+                error=f"missing_financial_source_field_config:{','.join(missing_fields)}",
+                completeness_certain=False,
+            )
 
         payload = self.client.fetch_ar_invoices(self.settings.acumatica_ar_invoices_path, top=self.settings.financial_extract_top)
         if "fail_state" in payload:
             fail_reason = payload.get("fail_state", {}).get("reason", "acumatica_financial_extraction_failed")
-            return [], f"acumatica_extraction_failed:{fail_reason}"
+            diagnostics = self._build_diagnostics([], cutoff_utc, False, "not_run")
+            return FinancialExtractionResult(
+                rows=[],
+                diagnostics=diagnostics,
+                error=f"acumatica_extraction_failed:{fail_reason}",
+                completeness_certain=False,
+            )
 
         raw_rows = payload.get("records", [])
         parsed: list[FinancialRow] = []
+        completeness_certain = len(raw_rows) < self.settings.financial_extract_top
         for index, row in enumerate(raw_rows):
             try:
+                for required_field in (
+                    self.source_fields.date_field,
+                    self.source_fields.branch_field,
+                    self.source_fields.rep_field,
+                    self.source_fields.revenue_field,
+                    self.source_fields.cost_field,
+                    self.source_fields.gross_profit_field,
+                ):
+                    if required_field not in row:
+                        raise KeyError(f"missing_required_field:{required_field}")
                 parsed.append(
                     FinancialRow(
                         source_timestamp=_parse_datetime(row[self.source_fields.date_field]),
@@ -116,18 +199,23 @@ class AcumaticaFinancialExtractor:
                     )
                 )
             except Exception as exc:  # explicit fail behavior for incomplete source field mapping
-                return [], f"financial_source_row_parse_error:index={index}:reason={exc}"
+                diagnostics = self._build_diagnostics(parsed, cutoff_utc, completeness_certain, "not_run")
+                return FinancialExtractionResult(
+                    rows=[],
+                    diagnostics=diagnostics,
+                    error=f"financial_source_row_parse_error:index={index}:reason={exc}",
+                    completeness_certain=completeness_certain,
+                )
 
-        return parsed, None
-
-    def extract_revenue_rows(self) -> tuple[list[FinancialRow], str | None]:
-        return self.extract_financial_rows()
-
-    def extract_cost_rows(self) -> tuple[list[FinancialRow], str | None]:
-        return self.extract_financial_rows()
-
-    def extract_gross_profit_inputs(self) -> tuple[list[FinancialRow], str | None]:
-        return self.extract_financial_rows()
+        diagnostics = self._build_diagnostics(parsed, cutoff_utc, completeness_certain, "not_run")
+        if not completeness_certain:
+            return FinancialExtractionResult(
+                rows=[],
+                diagnostics=diagnostics,
+                error=f"financial_extract_incomplete:row_count_hit_cap:{self.settings.financial_extract_top}",
+                completeness_certain=False,
+            )
+        return FinancialExtractionResult(rows=parsed, diagnostics=diagnostics, error=None, completeness_certain=True)
 
 
 @dataclass(frozen=True)
@@ -206,31 +294,27 @@ class FinancialKpiService:
 
         return failures
 
-    def _build_financial_rows(self, now_utc: datetime) -> tuple[list[NormalizedFinancialRow], datetime, datetime, list[str]]:
+    def _build_financial_rows(
+        self, now_utc: datetime
+    ) -> tuple[list[NormalizedFinancialRow], datetime, datetime, list[str], FinancialExtractionDiagnostics]:
         cutoff_utc = FinancialCutoff.prior_closed_cutoff_utc(now_utc, self.settings.financial_cutoff_timezone)
         month_start_utc = FinancialCutoff.month_start_utc(cutoff_utc, self.settings.financial_cutoff_timezone)
 
-        revenue_rows, err_revenue = self.extractor.extract_revenue_rows()
-        cost_rows, err_cost = self.extractor.extract_cost_rows()
-        gp_rows, err_gp = self.extractor.extract_gross_profit_inputs()
-        errors = [err for err in (err_revenue, err_cost, err_gp) if err]
-        if errors:
-            return [], cutoff_utc, month_start_utc, errors
-
-        if not (len(revenue_rows) == len(cost_rows) == len(gp_rows)):
-            return [], cutoff_utc, month_start_utc, ["financial_input_row_count_mismatch"]
+        extraction = self.extractor.extract_financial_rows(cutoff_utc)
+        if extraction.error:
+            return [], cutoff_utc, month_start_utc, [extraction.error], extraction.diagnostics
 
         filtered = [
             row
-            for row in revenue_rows
+            for row in extraction.rows
             if month_start_utc <= row.source_timestamp <= cutoff_utc
         ]
         normalized_rows, mapping_errors = self._normalize_rows(filtered)
-        return normalized_rows, cutoff_utc, month_start_utc, mapping_errors
+        return normalized_rows, cutoff_utc, month_start_utc, mapping_errors, extraction.diagnostics
 
     def financial_kpi_payload(self, kpi_name: str) -> KpiEnvelope:
         now_utc = self._now()
-        rows, cutoff_utc, month_start_utc, base_errors = self._build_financial_rows(now_utc)
+        rows, cutoff_utc, month_start_utc, base_errors, diagnostics = self._build_financial_rows(now_utc)
         if base_errors:
             return self._fail(kpi_name, ";".join(base_errors), as_of=cutoff_utc)
 
@@ -278,6 +362,18 @@ class FinancialKpiService:
                     "cost_field": self.settings.acumatica_financial_cost_field,
                     "gross_profit_field": self.settings.acumatica_financial_gross_profit_field,
                 },
+                "extraction_diagnostics": {
+                    "source_path": diagnostics.source_path,
+                    "field_bindings": diagnostics.field_bindings,
+                    "row_count_returned": diagnostics.row_count_returned,
+                    "branch_distribution": diagnostics.branch_distribution,
+                    "rep_distribution": diagnostics.rep_distribution,
+                    "min_transaction_date_utc": diagnostics.min_transaction_date_utc,
+                    "max_transaction_date_utc": diagnostics.max_transaction_date_utc,
+                    "cutoff_applied_utc": diagnostics.cutoff_applied_utc,
+                    "completeness_status": diagnostics.completeness_status,
+                    "tie_out_status": "passed",
+                },
             },
             as_of_timestamp=cutoff_utc,
             freshness_state=FreshnessState.FRESH,
@@ -299,6 +395,83 @@ class FinancialKpiService:
 
     def gross_margin_pct_mtd_by_rep(self) -> KpiEnvelope:
         return self.financial_kpi_payload("Gross Margin % MTD by Rep")
+
+    def financial_validation_status(self) -> KpiEnvelope:
+        now_utc = self._now()
+        rows, cutoff_utc, _, base_errors, diagnostics = self._build_financial_rows(now_utc)
+        branch_scope_complete = bool(self.settings.acumatica_branch_codes) and bool(self.settings.branch_entity_mapping) and not any(
+            error.startswith("branch_out_of_scope:") or error.startswith("unmapped_branch:")
+            for error in base_errors
+        )
+        rep_mapping_complete = bool(self.settings.rep_mapping) and not any(
+            error.startswith("unmapped_rep:")
+            for error in base_errors
+        )
+        field_binding_complete = not self.extractor.source_fields.missing()
+        extraction_complete = diagnostics.completeness_status == "complete"
+        certification_blockers = [*base_errors]
+        if not branch_scope_complete:
+            certification_blockers.append("branch_scope_incomplete")
+        if not rep_mapping_complete:
+            certification_blockers.append("rep_mapping_incomplete")
+        tie_out_status = "not_run"
+        if rows and not certification_blockers:
+            rep_totals: dict[str, dict[str, Decimal]] = defaultdict(
+                lambda: {"revenue": Decimal("0"), "cost": Decimal("0"), "gross_profit": Decimal("0")}
+            )
+            for row in rows:
+                rep_totals[row.rep]["revenue"] += row.revenue
+                rep_totals[row.rep]["cost"] += row.cost
+                rep_totals[row.rep]["gross_profit"] += row.gross_profit
+            tie_out_errors = self._reconcile(rows, rep_totals)
+            if tie_out_errors:
+                certification_blockers.extend(tie_out_errors)
+                tie_out_status = "failed"
+            else:
+                tie_out_status = "passed"
+        elif any("tie_out_failed" in err for err in certification_blockers):
+            tie_out_status = "failed"
+
+        cert_state = CertificationState.CERTIFIED if not certification_blockers else CertificationState.FAIL
+        return KpiEnvelope(
+            name="Financial Validation Status",
+            source_system="acumatica",
+            as_of_timestamp=cutoff_utc,
+            freshness_state=FreshnessState.FRESH if not certification_blockers else FreshnessState.FAILED,
+            certification_state=cert_state,
+            fail_state=None
+            if not certification_blockers
+            else FailState(
+                reason=";".join(sorted(set(certification_blockers))),
+                source="acumatica",
+                as_of=cutoff_utc,
+                state=CertificationState.FAIL,
+            ),
+            value={
+                "source_path_configured": self.settings.acumatica_ar_invoices_path,
+                "field_binding_completeness": field_binding_complete,
+                "branch_scope_completeness": branch_scope_complete,
+                "rep_mapping_completeness": rep_mapping_complete,
+                "extraction_completeness": extraction_complete,
+                "tie_out_status": tie_out_status,
+                "certification_blockers": sorted(set(certification_blockers)),
+                "diagnostics": {
+                    "source_path": diagnostics.source_path,
+                    "field_bindings": diagnostics.field_bindings,
+                    "row_count_returned": diagnostics.row_count_returned,
+                    "branch_distribution": diagnostics.branch_distribution,
+                    "rep_distribution": diagnostics.rep_distribution,
+                    "min_transaction_date_utc": diagnostics.min_transaction_date_utc,
+                    "max_transaction_date_utc": diagnostics.max_transaction_date_utc,
+                    "cutoff_applied_utc": diagnostics.cutoff_applied_utc,
+                    "completeness_status": diagnostics.completeness_status,
+                    "tie_out_status": tie_out_status,
+                },
+            },
+            notes=[
+                "Read-only certification preflight for Acumatica financial KPI extraction path.",
+            ],
+        )
 
 
 def _parse_datetime(value: Any) -> datetime:

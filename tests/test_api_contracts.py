@@ -60,3 +60,18 @@ def test_financial_kpi_endpoints_contract_shape():
         assert "freshness_status" in item
         assert "certification_status" in item
         assert "failure_reason" in item
+
+
+def test_financial_validation_endpoint_shape():
+    status, payload = resolve_path("/api/v1/financial/validation-status")
+    assert status == 200
+    assert payload["read_only"] is True
+    assert len(payload["items"]) == 1
+    value = payload["items"][0]["value"]
+    assert "source_path_configured" in value
+    assert "field_binding_completeness" in value
+    assert "branch_scope_completeness" in value
+    assert "rep_mapping_completeness" in value
+    assert "extraction_completeness" in value
+    assert "tie_out_status" in value
+    assert "certification_blockers" in value

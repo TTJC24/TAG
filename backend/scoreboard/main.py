@@ -11,6 +11,7 @@ ROUTES: dict[str, callable] = {
     "/api/v1/sales-scoreboard": routes.sales_scoreboard,
     "/api/v1/financial/revenue-by-rep": routes.financial_revenue_by_rep,
     "/api/v1/financial/margin-by-rep": routes.financial_margin_by_rep,
+    "/api/v1/financial/validation-status": routes.financial_validation_status,
     "/api/v1/exceptions/stale-opportunities": routes.stale_opportunities,
     "/api/v1/exceptions/stuck-orders": routes.stuck_orders,
     "/api/v1/platform/status": routes.platform_status,
