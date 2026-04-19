@@ -7,11 +7,13 @@ def test_connector_config_loading(monkeypatch):
     monkeypatch.setenv("ACUMATICA_PASSWORD", "p")
     monkeypatch.setenv("ACUMATICA_COMPANY", "c")
     monkeypatch.setenv("PIPEDRIVE_API_TOKEN", "token")
+    monkeypatch.setenv("ACUMATICA_BRANCH_CODES", "B1,B2")
 
     settings = Settings.from_env()
 
     assert settings.acumatica_base_url == "https://acu.example"
     assert settings.pipedrive_api_token == "token"
+    assert settings.acumatica_branch_codes == ("B1", "B2")
 
 
 def test_locked_business_rules_defaults():
@@ -32,6 +34,6 @@ def test_locked_business_rules_defaults():
     assert settings.dead_stock_no_sales_days == 90
 
 
-def test_branch_scope_todo_is_required():
+def test_branch_scope_remains_unconfigured_by_default():
     settings = Settings.from_env()
-    assert "TODO_REQUIRED" in settings.acumatica_branch_codes_required_todo
+    assert settings.branch_scope_configured is False

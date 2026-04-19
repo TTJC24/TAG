@@ -12,6 +12,7 @@ ROUTES: dict[str, callable] = {
     "/api/v1/exceptions/stale-opportunities": routes.stale_opportunities,
     "/api/v1/exceptions/stuck-orders": routes.stuck_orders,
     "/api/v1/platform/status": routes.platform_status,
+    "/api/v1/platform/connectors": routes.connector_status,
 }
 
 
