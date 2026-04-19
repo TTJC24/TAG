@@ -120,3 +120,53 @@ def test_certification_gate_requires_source_field_config(monkeypatch):
     kpi = service.invoiced_revenue_mtd_by_rep()
     assert kpi.certification_state == CertificationState.FAILED
     assert "missing_financial_source_field_config" in (kpi.fail_state.reason if kpi.fail_state else "")
+
+
+def test_extraction_cap_failure_behavior(monkeypatch):
+    monkeypatch.setenv("FINANCIAL_EXTRACT_TOP", "1")
+    service = _service(
+        monkeypatch,
+        records=[
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40"},
+        ],
+    )
+    kpi = service.invoiced_revenue_mtd_by_rep()
+    assert kpi.certification_state == CertificationState.FAILED
+    assert "financial_extract_incomplete:row_count_hit_cap:1" in (kpi.fail_state.reason if kpi.fail_state else "")
+
+
+def test_completeness_behavior_below_cap_allows_certification(monkeypatch):
+    monkeypatch.setenv("FINANCIAL_EXTRACT_TOP", "2")
+    service = _service(
+        monkeypatch,
+        records=[
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40"},
+        ],
+    )
+    kpi = service.gross_margin_pct_mtd_by_rep()
+    assert kpi.certification_state == CertificationState.CERTIFIED
+    assert kpi.value["extraction_diagnostics"]["completeness_status"] == "complete"
+
+
+def test_missing_required_field_behavior(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60"},
+        ],
+    )
+    kpi = service.gross_margin_pct_mtd_by_rep()
+    assert kpi.certification_state == CertificationState.FAILED
+    assert "missing_required_field:gross_profit" in (kpi.fail_state.reason if kpi.fail_state else "")
+
+
+def test_validation_endpoint_blockers(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Unknown Rep", "revenue": "100", "cost": "60", "gross_profit": "40"},
+        ],
+    )
+    payload = service.financial_validation_status()
+    assert payload.value["rep_mapping_completeness"] is False
+    assert "rep_mapping_incomplete" in payload.value["certification_blockers"]

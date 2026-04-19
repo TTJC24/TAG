@@ -94,6 +94,11 @@ def financial_margin_by_rep() -> dict:
     return ApiListResponse(read_only=True, items=[financial.gross_margin_pct_mtd_by_rep()]).to_dict()
 
 
+def financial_validation_status() -> dict:
+    _, _, _, _, financial = _build_dependencies()
+    return ApiListResponse(read_only=True, items=[financial.financial_validation_status()]).to_dict()
+
+
 def stale_opportunities() -> dict:
     settings, pipedrive, _, service, _ = _build_dependencies()
     activities = _records(pipedrive.fetch_activities(settings.pipedrive_activities_path))
