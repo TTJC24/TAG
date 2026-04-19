@@ -52,8 +52,8 @@ def test_branch_entity_scoped_extraction_behavior(monkeypatch):
     service = _service(
         monkeypatch,
         records=[
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40"},
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "XX", "rep": "Rep A", "revenue": "30", "cost": "10", "gross_profit": "20"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "XX", "rep": "Rep A", "revenue": "30", "cost": "10", "gross_profit": "20", "invoice_ref": "INV-2", "line_nbr": 1, "doc_type": "invoice"},
         ],
     )
     kpi = service.invoiced_revenue_mtd_by_rep()
@@ -65,7 +65,7 @@ def test_unmapped_row_fail_behavior(monkeypatch):
     service = _service(
         monkeypatch,
         records=[
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Unknown Rep", "revenue": "100", "cost": "60", "gross_profit": "40"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Unknown Rep", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
         ],
     )
     kpi = service.gross_margin_pct_mtd_by_rep()
@@ -77,8 +77,8 @@ def test_reconciliation_pass_behavior(monkeypatch):
     service = _service(
         monkeypatch,
         records=[
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40"},
-            {"invoice_date": "2026-04-06T12:00:00+00:00", "branch": "BL", "rep": "Rep B", "revenue": "50", "cost": "20", "gross_profit": "30"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
+            {"invoice_date": "2026-04-06T12:00:00+00:00", "branch": "BL", "rep": "Rep B", "revenue": "50", "cost": "20", "gross_profit": "30", "invoice_ref": "INV-2", "line_nbr": 1, "doc_type": "invoice"},
         ],
     )
     kpi = service.gross_margin_pct_mtd_by_rep()
@@ -90,7 +90,7 @@ def test_reconciliation_fail_behavior(monkeypatch):
     service = _service(
         monkeypatch,
         records=[
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
         ],
     )
 
@@ -104,12 +104,12 @@ def test_reconciliation_fail_behavior(monkeypatch):
 
 
 def test_certification_gate_requires_source_field_config(monkeypatch):
-    monkeypatch.delenv("ACUMATICA_FINANCIAL_DATE_FIELD", raising=False)
-    monkeypatch.delenv("ACUMATICA_FINANCIAL_BRANCH_FIELD", raising=False)
-    monkeypatch.delenv("ACUMATICA_FINANCIAL_REP_FIELD", raising=False)
-    monkeypatch.delenv("ACUMATICA_FINANCIAL_REVENUE_FIELD", raising=False)
-    monkeypatch.delenv("ACUMATICA_FINANCIAL_COST_FIELD", raising=False)
-    monkeypatch.delenv("ACUMATICA_FINANCIAL_GROSS_PROFIT_FIELD", raising=False)
+    monkeypatch.setenv("ACUMATICA_FINANCIAL_DATE_FIELD", "")
+    monkeypatch.setenv("ACUMATICA_FINANCIAL_BRANCH_FIELD", "")
+    monkeypatch.setenv("ACUMATICA_FINANCIAL_REP_FIELD", "")
+    monkeypatch.setenv("ACUMATICA_FINANCIAL_REVENUE_FIELD", "")
+    monkeypatch.setenv("ACUMATICA_FINANCIAL_COST_FIELD", "")
+    monkeypatch.setenv("ACUMATICA_FINANCIAL_GROSS_PROFIT_FIELD", "")
     settings = Settings.from_env()
     normalization = build_normalization_scaffold(settings.branch_entity_mapping, settings.rep_mapping, (), settings.qualifying_activity_types)
     service = FinancialKpiService(
@@ -127,7 +127,7 @@ def test_extraction_cap_failure_behavior(monkeypatch):
     service = _service(
         monkeypatch,
         records=[
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
         ],
     )
     kpi = service.invoiced_revenue_mtd_by_rep()
@@ -140,7 +140,7 @@ def test_completeness_behavior_below_cap_allows_certification(monkeypatch):
     service = _service(
         monkeypatch,
         records=[
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
         ],
     )
     kpi = service.gross_margin_pct_mtd_by_rep()
@@ -152,7 +152,7 @@ def test_missing_required_field_behavior(monkeypatch):
     service = _service(
         monkeypatch,
         records=[
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "invoice_ref": "INV-3", "line_nbr": 1, "doc_type": "invoice"},
         ],
     )
     kpi = service.gross_margin_pct_mtd_by_rep()
@@ -164,9 +164,140 @@ def test_validation_endpoint_blockers(monkeypatch):
     service = _service(
         monkeypatch,
         records=[
-            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Unknown Rep", "revenue": "100", "cost": "60", "gross_profit": "40"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Unknown Rep", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
         ],
     )
     payload = service.financial_validation_status()
     assert payload.value["rep_mapping_completeness"] is False
     assert "rep_mapping_incomplete" in payload.value["certification_blockers"]
+
+
+def test_approved_grain_behavior_requires_invoice_ref_plus_line_number(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {
+                "invoice_date": "2026-04-05T12:00:00+00:00",
+                "branch": "FS",
+                "rep": "Rep A",
+                "revenue": "100",
+                "cost": "60",
+                "gross_profit": "40",
+                "doc_type": "invoice",
+            },
+        ],
+    )
+    kpi = service.financial_validation_status()
+    assert kpi.certification_state == CertificationState.FAIL
+    assert "missing_required_field:certified_grain_key(invoice_ref+line_nbr)" in (kpi.fail_state.reason if kpi.fail_state else "")
+
+
+def test_rep_attribution_rule_requires_line_level_rep(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {
+                "invoice_date": "2026-04-05T12:00:00+00:00",
+                "branch": "FS",
+                "rep": "",
+                "revenue": "100",
+                "cost": "60",
+                "gross_profit": "40",
+                "invoice_ref": "INV-1",
+                "line_nbr": 1,
+                "doc_type": "invoice",
+            },
+        ],
+    )
+    kpi = service.invoiced_revenue_mtd_by_rep()
+    assert kpi.certification_state == CertificationState.FAILED
+    assert "rep_attribution_missing:INV-1:1" in (kpi.fail_state.reason if kpi.fail_state else "")
+
+
+def test_credit_memo_and_return_are_forced_negative(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {
+                "invoice_date": "2026-04-05T12:00:00+00:00",
+                "branch": "FS",
+                "rep": "Rep A",
+                "revenue": "50",
+                "cost": "20",
+                "gross_profit": "30",
+                "invoice_ref": "CM-1",
+                "line_nbr": 1,
+                "doc_type": "credit memo",
+            },
+            {
+                "invoice_date": "2026-04-06T12:00:00+00:00",
+                "branch": "FS",
+                "rep": "Rep A",
+                "revenue": "10",
+                "cost": "2",
+                "gross_profit": "8",
+                "invoice_ref": "RTN-1",
+                "line_nbr": 1,
+                "doc_type": "return",
+            },
+        ],
+    )
+    kpi = service.gross_margin_pct_mtd_by_rep()
+    row = kpi.value["rows"][0]
+    assert row["revenue_mtd"] == -60.0
+    assert row["cost_mtd"] == -22.0
+    assert row["gross_profit_mtd"] == -38.0
+
+
+def test_void_rows_are_excluded_from_certified_financial_totals(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {
+                "invoice_date": "2026-04-05T12:00:00+00:00",
+                "branch": "FS",
+                "rep": "Rep A",
+                "revenue": "100",
+                "cost": "60",
+                "gross_profit": "40",
+                "invoice_ref": "INV-1",
+                "line_nbr": 1,
+                "doc_type": "invoice",
+            },
+            {
+                "invoice_date": "2026-04-05T12:00:00+00:00",
+                "branch": "FS",
+                "rep": "Rep A",
+                "revenue": "999",
+                "cost": "999",
+                "gross_profit": "0",
+                "invoice_ref": "VOID-1",
+                "line_nbr": 1,
+                "doc_type": "void",
+            },
+        ],
+    )
+    kpi = service.invoiced_revenue_mtd_by_rep()
+    assert kpi.value["rows"][0]["revenue_mtd"] == 100.0
+
+
+def test_out_of_scope_branch_is_hard_fail(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {
+                "invoice_date": "2026-04-05T12:00:00+00:00",
+                "branch": "ZZ",
+                "rep": "Rep A",
+                "revenue": "100",
+                "cost": "60",
+                "gross_profit": "40",
+                "invoice_ref": "INV-1",
+                "line_nbr": 1,
+                "doc_type": "invoice",
+            },
+        ],
+    )
+    kpi = service.financial_validation_status()
+    assert kpi.certification_state == CertificationState.FAIL
+    assert "branch_out_of_scope:ZZ" in (kpi.fail_state.reason if kpi.fail_state else "")

@@ -12,6 +12,14 @@ from backend.scoreboard.connectors.acumatica import AcumaticaClient
 from backend.scoreboard.models.types import CertificationState, FailState, FreshnessState, KpiEnvelope
 from backend.scoreboard.normalization.mapper import NormalizationScaffold
 
+APPROVED_CERTIFIED_GRAIN = "acumatica_ar_invoice_line"
+APPROVED_REP_ATTRIBUTION_RULE = "line_level_rep_required_no_fallback"
+APPROVED_SIGNED_AMOUNT_POLICY = "credit_memo_and_return_negative_invoice_positive_void_excluded"
+APPROVED_OUT_OF_SCOPE_BRANCH_HANDLING = "hard_fail"
+APPROVED_VOID_DOC_TYPES = frozenset({"void", "voided"})
+APPROVED_NEGATIVE_DOC_TYPES = frozenset({"credit memo", "credit_memo", "creditmemo", "return"})
+APPROVED_POSITIVE_DOC_TYPES = frozenset({"invoice", "inv", "debit memo", "debit_memo"})
+
 
 @dataclass(frozen=True)
 class FinancialSourceFields:
@@ -42,6 +50,8 @@ class FinancialRow:
     source_timestamp: datetime
     branch_code: str
     rep_name: str
+    grain_key: str
+    doc_type: str
     revenue: Decimal
     cost: Decimal
     gross_profit: Decimal
@@ -68,6 +78,9 @@ class FinancialExtractionDiagnostics:
     min_transaction_date_utc: str | None
     max_transaction_date_utc: str | None
     cutoff_applied_utc: str
+    certified_grain: str
+    rep_attribution_rule: str
+    signed_amount_policy: str
     completeness_status: str
     tie_out_status: str
 
@@ -147,6 +160,9 @@ class AcumaticaFinancialExtractor:
             min_transaction_date_utc=min_dt.isoformat() if min_dt else None,
             max_transaction_date_utc=max_dt.isoformat() if max_dt else None,
             cutoff_applied_utc=cutoff_utc.isoformat(),
+            certified_grain=APPROVED_CERTIFIED_GRAIN,
+            rep_attribution_rule=APPROVED_REP_ATTRIBUTION_RULE,
+            signed_amount_policy=APPROVED_SIGNED_AMOUNT_POLICY,
             completeness_status=completeness_status,
             tie_out_status=tie_out_status,
         )
@@ -188,14 +204,26 @@ class AcumaticaFinancialExtractor:
                 ):
                     if required_field not in row:
                         raise KeyError(f"missing_required_field:{required_field}")
+                grain_key = _derive_grain_key(row)
+                doc_type = _derive_doc_type(row)
+                signed_revenue, signed_cost, signed_gross_profit, excluded = _apply_signed_amount_policy(
+                    doc_type=doc_type,
+                    revenue=Decimal(str(row[self.source_fields.revenue_field])),
+                    cost=Decimal(str(row[self.source_fields.cost_field])),
+                    gross_profit=Decimal(str(row[self.source_fields.gross_profit_field])),
+                )
+                if excluded:
+                    continue
                 parsed.append(
                     FinancialRow(
                         source_timestamp=_parse_datetime(row[self.source_fields.date_field]),
                         branch_code=str(row[self.source_fields.branch_field]).strip(),
                         rep_name=str(row[self.source_fields.rep_field]).strip(),
-                        revenue=Decimal(str(row[self.source_fields.revenue_field])),
-                        cost=Decimal(str(row[self.source_fields.cost_field])),
-                        gross_profit=Decimal(str(row[self.source_fields.gross_profit_field])),
+                        grain_key=grain_key,
+                        doc_type=doc_type,
+                        revenue=signed_revenue,
+                        cost=signed_cost,
+                        gross_profit=signed_gross_profit,
                     )
                 )
             except Exception as exc:  # explicit fail behavior for incomplete source field mapping
@@ -246,6 +274,9 @@ class FinancialKpiService:
         for row in rows:
             if row.branch_code not in self.settings.acumatica_branch_codes:
                 errors.append(f"branch_out_of_scope:{row.branch_code}")
+                continue
+            if not row.rep_name.strip():
+                errors.append(f"rep_attribution_missing:{row.grain_key}")
                 continue
             entity = self.normalization.map_branch_to_entity(row.branch_code)
             if entity is None:
@@ -371,6 +402,9 @@ class FinancialKpiService:
                     "min_transaction_date_utc": diagnostics.min_transaction_date_utc,
                     "max_transaction_date_utc": diagnostics.max_transaction_date_utc,
                     "cutoff_applied_utc": diagnostics.cutoff_applied_utc,
+                    "certified_grain": diagnostics.certified_grain,
+                    "rep_attribution_rule": diagnostics.rep_attribution_rule,
+                    "signed_amount_policy": diagnostics.signed_amount_policy,
                     "completeness_status": diagnostics.completeness_status,
                     "tie_out_status": "passed",
                 },
@@ -454,6 +488,9 @@ class FinancialKpiService:
                 "rep_mapping_completeness": rep_mapping_complete,
                 "extraction_completeness": extraction_complete,
                 "tie_out_status": tie_out_status,
+                "certified_grain": APPROVED_CERTIFIED_GRAIN,
+                "rep_attribution_rule": APPROVED_REP_ATTRIBUTION_RULE,
+                "signed_amount_policy": APPROVED_SIGNED_AMOUNT_POLICY,
                 "certification_blockers": sorted(set(certification_blockers)),
                 "diagnostics": {
                     "source_path": diagnostics.source_path,
@@ -464,6 +501,9 @@ class FinancialKpiService:
                     "min_transaction_date_utc": diagnostics.min_transaction_date_utc,
                     "max_transaction_date_utc": diagnostics.max_transaction_date_utc,
                     "cutoff_applied_utc": diagnostics.cutoff_applied_utc,
+                    "certified_grain": diagnostics.certified_grain,
+                    "rep_attribution_rule": diagnostics.rep_attribution_rule,
+                    "signed_amount_policy": diagnostics.signed_amount_policy,
                     "completeness_status": diagnostics.completeness_status,
                     "tie_out_status": tie_out_status,
                 },
@@ -482,3 +522,30 @@ def _parse_datetime(value: Any) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _derive_grain_key(row: dict[str, Any]) -> str:
+    invoice_ref = row.get("invoice_ref") or row.get("ref_nbr") or row.get("RefNbr") or row.get("invoice_number")
+    line_nbr = row.get("line_nbr") or row.get("LineNbr") or row.get("line_number")
+    if invoice_ref is None or line_nbr is None:
+        raise KeyError("missing_required_field:certified_grain_key(invoice_ref+line_nbr)")
+    return f"{invoice_ref}:{line_nbr}"
+
+
+def _derive_doc_type(row: dict[str, Any]) -> str:
+    doc_type = row.get("doc_type") or row.get("DocType")
+    if doc_type is None:
+        raise KeyError("missing_required_field:doc_type")
+    return str(doc_type).strip().lower()
+
+
+def _apply_signed_amount_policy(
+    doc_type: str, revenue: Decimal, cost: Decimal, gross_profit: Decimal
+) -> tuple[Decimal, Decimal, Decimal, bool]:
+    if doc_type in APPROVED_VOID_DOC_TYPES:
+        return Decimal("0"), Decimal("0"), Decimal("0"), True
+    if doc_type in APPROVED_NEGATIVE_DOC_TYPES:
+        return -abs(revenue), -abs(cost), -abs(gross_profit), False
+    if doc_type in APPROVED_POSITIVE_DOC_TYPES:
+        return abs(revenue), abs(cost), abs(gross_profit), False
+    raise ValueError(f"signed_amount_policy_doc_type_mismatch:{doc_type}")

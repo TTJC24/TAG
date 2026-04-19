@@ -31,6 +31,23 @@ Governed production mappings are locked as:
 
 Any unmapped branch or rep must be surfaced as an explicit exception state.
 
+### Certified Financial v1 Production Lock
+
+- `ACUMATICA_AR_INVOICES_PATH=/entity/Default/22.200.001/ARInvoice`
+- `ACUMATICA_FINANCIAL_DATE_FIELD=invoice_date`
+- `ACUMATICA_FINANCIAL_BRANCH_FIELD=branch`
+- `ACUMATICA_FINANCIAL_REP_FIELD=rep`
+- `ACUMATICA_FINANCIAL_REVENUE_FIELD=revenue`
+- `ACUMATICA_FINANCIAL_COST_FIELD=cost`
+- `ACUMATICA_FINANCIAL_GROSS_PROFIT_FIELD=gross_profit`
+- Certified grain: `acumatica_ar_invoice_line` (`invoice_ref` + `line_nbr`)
+- Rep attribution: line-level rep required, no fallback inference
+- Signed amount policy:
+  - invoice / debit memo => positive signed amounts
+  - credit memo / return => negative signed amounts
+  - void / voided => excluded from certified totals
+- Out-of-scope branch rows are hard-fail blockers for certification.
+
 ---
 
 ## 1. Invoiced Revenue MTD by Rep
