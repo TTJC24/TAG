@@ -4,6 +4,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from decimal import Decimal
+import json
+from pathlib import Path
 from zoneinfo import ZoneInfo
 from typing import Any
 
@@ -83,6 +85,8 @@ class FinancialExtractionDiagnostics:
     signed_amount_policy: str
     completeness_status: str
     tie_out_status: str
+    excluded_void_voided_count: int
+    signed_negative_row_count: int
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,30 @@ class FinancialExtractionResult:
     diagnostics: FinancialExtractionDiagnostics
     error: str | None
     completeness_certain: bool
+
+
+@dataclass(frozen=True)
+class FinancialValidationArtifact:
+    run_timestamp_utc: str
+    configured_source_path: str
+    configured_field_bindings: dict[str, str]
+    certified_grain: str
+    rep_attribution_rule: str
+    signed_amount_policy: str
+    branch_scope: list[str]
+    row_count_extracted: int
+    min_transaction_date_utc: str | None
+    max_transaction_date_utc: str | None
+    branch_distribution: dict[str, int]
+    rep_distribution: dict[str, int]
+    excluded_void_voided_count: int
+    credit_memo_return_signed_row_count: int
+    unmapped_rep_count: int
+    out_of_scope_branch_count: int
+    completeness_status: str
+    tie_out_status: str
+    certification_status: str
+    blocker_list: list[str]
 
 
 class FinancialCutoff:
@@ -132,6 +160,8 @@ class AcumaticaFinancialExtractor:
         cutoff_utc: datetime,
         completeness_certain: bool,
         tie_out_status: str,
+        excluded_void_voided_count: int = 0,
+        signed_negative_row_count: int = 0,
     ) -> FinancialExtractionDiagnostics:
         branch_distribution: dict[str, int] = defaultdict(int)
         rep_distribution: dict[str, int] = defaultdict(int)
@@ -165,6 +195,8 @@ class AcumaticaFinancialExtractor:
             signed_amount_policy=APPROVED_SIGNED_AMOUNT_POLICY,
             completeness_status=completeness_status,
             tie_out_status=tie_out_status,
+            excluded_void_voided_count=excluded_void_voided_count,
+            signed_negative_row_count=signed_negative_row_count,
         )
 
     def extract_financial_rows(self, cutoff_utc: datetime) -> FinancialExtractionResult:
@@ -191,6 +223,8 @@ class AcumaticaFinancialExtractor:
 
         raw_rows = payload.get("records", [])
         parsed: list[FinancialRow] = []
+        excluded_void_voided_count = 0
+        signed_negative_row_count = 0
         completeness_certain = len(raw_rows) < self.settings.financial_extract_top
         for index, row in enumerate(raw_rows):
             try:
@@ -213,7 +247,10 @@ class AcumaticaFinancialExtractor:
                     gross_profit=Decimal(str(row[self.source_fields.gross_profit_field])),
                 )
                 if excluded:
+                    excluded_void_voided_count += 1
                     continue
+                if doc_type in APPROVED_NEGATIVE_DOC_TYPES:
+                    signed_negative_row_count += 1
                 parsed.append(
                     FinancialRow(
                         source_timestamp=_parse_datetime(row[self.source_fields.date_field]),
@@ -227,7 +264,14 @@ class AcumaticaFinancialExtractor:
                     )
                 )
             except Exception as exc:  # explicit fail behavior for incomplete source field mapping
-                diagnostics = self._build_diagnostics(parsed, cutoff_utc, completeness_certain, "not_run")
+                diagnostics = self._build_diagnostics(
+                    parsed,
+                    cutoff_utc,
+                    completeness_certain,
+                    "not_run",
+                    excluded_void_voided_count=excluded_void_voided_count,
+                    signed_negative_row_count=signed_negative_row_count,
+                )
                 return FinancialExtractionResult(
                     rows=[],
                     diagnostics=diagnostics,
@@ -235,7 +279,14 @@ class AcumaticaFinancialExtractor:
                     completeness_certain=completeness_certain,
                 )
 
-        diagnostics = self._build_diagnostics(parsed, cutoff_utc, completeness_certain, "not_run")
+        diagnostics = self._build_diagnostics(
+            parsed,
+            cutoff_utc,
+            completeness_certain,
+            "not_run",
+            excluded_void_voided_count=excluded_void_voided_count,
+            signed_negative_row_count=signed_negative_row_count,
+        )
         if not completeness_certain:
             return FinancialExtractionResult(
                 rows=[],
@@ -254,6 +305,33 @@ class FinancialKpiService:
 
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
+
+    def _persist_validation_artifact(self, artifact: FinancialValidationArtifact) -> None:
+        target = Path(self.settings.financial_validation_artifact_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "run_timestamp_utc": artifact.run_timestamp_utc,
+            "configured_source_path": artifact.configured_source_path,
+            "configured_field_bindings": artifact.configured_field_bindings,
+            "certified_grain": artifact.certified_grain,
+            "rep_attribution_rule": artifact.rep_attribution_rule,
+            "signed_amount_policy": artifact.signed_amount_policy,
+            "branch_scope": artifact.branch_scope,
+            "row_count_extracted": artifact.row_count_extracted,
+            "min_transaction_date_utc": artifact.min_transaction_date_utc,
+            "max_transaction_date_utc": artifact.max_transaction_date_utc,
+            "branch_distribution": artifact.branch_distribution,
+            "rep_distribution": artifact.rep_distribution,
+            "excluded_void_voided_count": artifact.excluded_void_voided_count,
+            "credit_memo_return_signed_row_count": artifact.credit_memo_return_signed_row_count,
+            "unmapped_rep_count": artifact.unmapped_rep_count,
+            "out_of_scope_branch_count": artifact.out_of_scope_branch_count,
+            "completeness_status": artifact.completeness_status,
+            "tie_out_status": artifact.tie_out_status,
+            "certification_status": artifact.certification_status,
+            "blocker_list": artifact.blocker_list,
+        }
+        target.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     def _fail(self, kpi_name: str, reason: str, as_of: datetime | None = None) -> KpiEnvelope:
         event_ts = as_of or self._now()
@@ -407,6 +485,8 @@ class FinancialKpiService:
                     "signed_amount_policy": diagnostics.signed_amount_policy,
                     "completeness_status": diagnostics.completeness_status,
                     "tie_out_status": "passed",
+                    "excluded_void_voided_count": diagnostics.excluded_void_voided_count,
+                    "credit_memo_return_signed_row_count": diagnostics.signed_negative_row_count,
                 },
             },
             as_of_timestamp=cutoff_utc,
@@ -467,6 +547,34 @@ class FinancialKpiService:
             tie_out_status = "failed"
 
         cert_state = CertificationState.CERTIFIED if not certification_blockers else CertificationState.FAIL
+        blocker_list = sorted(set(certification_blockers))
+        unmapped_rep_count = sum(1 for error in base_errors if error.startswith("unmapped_rep:"))
+        out_of_scope_branch_count = sum(
+            1 for error in base_errors if error.startswith("branch_out_of_scope:") or error.startswith("unmapped_branch:")
+        )
+        artifact = FinancialValidationArtifact(
+            run_timestamp_utc=now_utc.isoformat(),
+            configured_source_path=self.settings.acumatica_ar_invoices_path,
+            configured_field_bindings=diagnostics.field_bindings,
+            certified_grain=APPROVED_CERTIFIED_GRAIN,
+            rep_attribution_rule=APPROVED_REP_ATTRIBUTION_RULE,
+            signed_amount_policy=APPROVED_SIGNED_AMOUNT_POLICY,
+            branch_scope=list(self.settings.acumatica_branch_codes),
+            row_count_extracted=diagnostics.row_count_returned,
+            min_transaction_date_utc=diagnostics.min_transaction_date_utc,
+            max_transaction_date_utc=diagnostics.max_transaction_date_utc,
+            branch_distribution=diagnostics.branch_distribution,
+            rep_distribution=diagnostics.rep_distribution,
+            excluded_void_voided_count=diagnostics.excluded_void_voided_count,
+            credit_memo_return_signed_row_count=diagnostics.signed_negative_row_count,
+            unmapped_rep_count=unmapped_rep_count,
+            out_of_scope_branch_count=out_of_scope_branch_count,
+            completeness_status=diagnostics.completeness_status,
+            tie_out_status=tie_out_status,
+            certification_status=cert_state.value,
+            blocker_list=blocker_list,
+        )
+        self._persist_validation_artifact(artifact)
         return KpiEnvelope(
             name="Financial Validation Status",
             source_system="acumatica",
@@ -482,16 +590,31 @@ class FinancialKpiService:
                 state=CertificationState.FAIL,
             ),
             value={
-                "source_path_configured": self.settings.acumatica_ar_invoices_path,
+                "run_timestamp_utc": artifact.run_timestamp_utc,
+                "artifact_path": self.settings.financial_validation_artifact_path,
+                "configured_source_path": artifact.configured_source_path,
+                "configured_field_bindings": artifact.configured_field_bindings,
+                "certified_grain": artifact.certified_grain,
+                "rep_attribution_rule": artifact.rep_attribution_rule,
+                "signed_amount_policy": artifact.signed_amount_policy,
+                "branch_scope": artifact.branch_scope,
+                "row_count_extracted": artifact.row_count_extracted,
+                "min_transaction_date_utc": artifact.min_transaction_date_utc,
+                "max_transaction_date_utc": artifact.max_transaction_date_utc,
+                "branch_distribution": artifact.branch_distribution,
+                "rep_distribution": artifact.rep_distribution,
+                "excluded_void_voided_count": artifact.excluded_void_voided_count,
+                "credit_memo_return_signed_row_count": artifact.credit_memo_return_signed_row_count,
+                "unmapped_rep_count": artifact.unmapped_rep_count,
+                "out_of_scope_branch_count": artifact.out_of_scope_branch_count,
+                "completeness_status": artifact.completeness_status,
                 "field_binding_completeness": field_binding_complete,
                 "branch_scope_completeness": branch_scope_complete,
                 "rep_mapping_completeness": rep_mapping_complete,
                 "extraction_completeness": extraction_complete,
-                "tie_out_status": tie_out_status,
-                "certified_grain": APPROVED_CERTIFIED_GRAIN,
-                "rep_attribution_rule": APPROVED_REP_ATTRIBUTION_RULE,
-                "signed_amount_policy": APPROVED_SIGNED_AMOUNT_POLICY,
-                "certification_blockers": sorted(set(certification_blockers)),
+                "tie_out_status": artifact.tie_out_status,
+                "certification_status": artifact.certification_status,
+                "blocker_list": artifact.blocker_list,
                 "diagnostics": {
                     "source_path": diagnostics.source_path,
                     "field_bindings": diagnostics.field_bindings,
@@ -506,6 +629,8 @@ class FinancialKpiService:
                     "signed_amount_policy": diagnostics.signed_amount_policy,
                     "completeness_status": diagnostics.completeness_status,
                     "tie_out_status": tie_out_status,
+                    "excluded_void_voided_count": diagnostics.excluded_void_voided_count,
+                    "credit_memo_return_signed_row_count": diagnostics.signed_negative_row_count,
                 },
             },
             notes=[

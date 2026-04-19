@@ -1,4 +1,6 @@
 from datetime import datetime, timezone
+import json
+import os
 
 from backend.scoreboard.config import Settings
 from backend.scoreboard.kpis.financial import AcumaticaFinancialExtractor, FinancialCutoff, FinancialKpiService
@@ -24,6 +26,8 @@ def _settings(monkeypatch) -> Settings:
     monkeypatch.setenv("ACUMATICA_BRANCH_CODES", "FS,BL")
     monkeypatch.setenv("BRANCH_ENTITY_MAPPING_JSON", '{"FS":"FS","BL":"BL"}')
     monkeypatch.setenv("REP_MAPPING_JSON", '{"Rep A":"Rep A","Rep B":"Rep B"}')
+    if "FINANCIAL_VALIDATION_ARTIFACT_PATH" not in os.environ:
+        monkeypatch.setenv("FINANCIAL_VALIDATION_ARTIFACT_PATH", "artifacts/financial_validation/test-latest.json")
     return Settings.from_env()
 
 
@@ -169,7 +173,52 @@ def test_validation_endpoint_blockers(monkeypatch):
     )
     payload = service.financial_validation_status()
     assert payload.value["rep_mapping_completeness"] is False
-    assert "rep_mapping_incomplete" in payload.value["certification_blockers"]
+    assert "rep_mapping_incomplete" in payload.value["blocker_list"]
+
+
+def test_validation_artifact_shape_and_write(monkeypatch, tmp_path):
+    artifact_path = tmp_path / "financial-validation.json"
+    monkeypatch.setenv("FINANCIAL_VALIDATION_ARTIFACT_PATH", str(artifact_path))
+    service = _service(
+        monkeypatch,
+        records=[
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
+        ],
+    )
+    payload = service.financial_validation_status()
+    assert artifact_path.exists()
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifact["configured_source_path"] == payload.value["configured_source_path"]
+    assert artifact["configured_field_bindings"] == payload.value["configured_field_bindings"]
+    assert artifact["certification_status"] == payload.value["certification_status"]
+    assert artifact["blocker_list"] == payload.value["blocker_list"]
+
+
+def test_signed_amount_and_void_diagnostics(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "10", "cost": "4", "gross_profit": "6", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "2", "cost": "1", "gross_profit": "1", "invoice_ref": "CM-1", "line_nbr": 1, "doc_type": "credit memo"},
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "999", "cost": "999", "gross_profit": "0", "invoice_ref": "VOID-1", "line_nbr": 1, "doc_type": "void"},
+        ],
+    )
+    payload = service.financial_validation_status()
+    assert payload.value["credit_memo_return_signed_row_count"] == 1
+    assert payload.value["excluded_void_voided_count"] == 1
+
+
+def test_tie_out_and_certification_payload_structure(monkeypatch):
+    service = _service(
+        monkeypatch,
+        records=[
+            {"invoice_date": "2026-04-05T12:00:00+00:00", "branch": "FS", "rep": "Rep A", "revenue": "100", "cost": "60", "gross_profit": "40", "invoice_ref": "INV-1", "line_nbr": 1, "doc_type": "invoice"},
+        ],
+    )
+    payload = service.financial_validation_status()
+    assert payload.value["tie_out_status"] == "passed"
+    assert payload.value["certification_status"] == CertificationState.CERTIFIED.value
+    assert isinstance(payload.value["blocker_list"], list)
 
 
 def test_approved_grain_behavior_requires_invoice_ref_plus_line_number(monkeypatch):

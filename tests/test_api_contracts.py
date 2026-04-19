@@ -68,10 +68,20 @@ def test_financial_validation_endpoint_shape():
     assert payload["read_only"] is True
     assert len(payload["items"]) == 1
     value = payload["items"][0]["value"]
-    assert "source_path_configured" in value
+    assert "run_timestamp_utc" in value
+    assert "artifact_path" in value
+    assert "configured_source_path" in value
+    assert "configured_field_bindings" in value
+    assert "row_count_extracted" in value
+    assert "excluded_void_voided_count" in value
+    assert "credit_memo_return_signed_row_count" in value
+    assert "unmapped_rep_count" in value
+    assert "out_of_scope_branch_count" in value
+    assert "completeness_status" in value
     assert "field_binding_completeness" in value
     assert "branch_scope_completeness" in value
     assert "rep_mapping_completeness" in value
     assert "extraction_completeness" in value
     assert "tie_out_status" in value
-    assert "certification_blockers" in value
+    assert "certification_status" in value
+    assert "blocker_list" in value
