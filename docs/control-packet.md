@@ -59,6 +59,22 @@ Operational requirement:
 - Do not silently fall back to raw names for governed outputs.
 - Financial KPI certification still requires extraction and tie-out implementation.
 
+### Locked Certified Financial Bindings and Signoff Rules (Approved)
+
+- `ACUMATICA_AR_INVOICES_PATH=/entity/Default/22.200.001/ARInvoice`
+- `ACUMATICA_FINANCIAL_DATE_FIELD=invoice_date`
+- `ACUMATICA_FINANCIAL_BRANCH_FIELD=branch`
+- `ACUMATICA_FINANCIAL_REP_FIELD=rep`
+- `ACUMATICA_FINANCIAL_REVENUE_FIELD=revenue`
+- `ACUMATICA_FINANCIAL_COST_FIELD=cost`
+- `ACUMATICA_FINANCIAL_GROSS_PROFIT_FIELD=gross_profit`
+- Certified grain: `acumatica_ar_invoice_line` (`invoice_ref` + `line_nbr`, no fallback grain)
+- Rep attribution rule: `line_level_rep_required_no_fallback`
+- Credit memo / return handling: force signed negative amounts
+- Invoice / debit memo handling: force signed positive amounts
+- Void handling: exclude void/voided document rows from certified KPI totals
+- Out-of-scope branch handling: hard FAIL (no partial certification)
+
 ## Source-of-Truth Hierarchy
 
 ### Acumatica

@@ -46,3 +46,10 @@ def test_governed_mapping_defaults_are_loaded():
     assert settings.acumatica_branch_codes == ("FS", "BL")
     assert settings.branch_entity_mapping["FS"] == "FS"
     assert settings.rep_mapping["Tim Clark"] == "Tim Clark"
+    assert settings.acumatica_ar_invoices_path == "/entity/Default/22.200.001/ARInvoice"
+    assert settings.acumatica_financial_date_field == "invoice_date"
+    assert settings.acumatica_financial_branch_field == "branch"
+    assert settings.acumatica_financial_rep_field == "rep"
+    assert settings.acumatica_financial_revenue_field == "revenue"
+    assert settings.acumatica_financial_cost_field == "cost"
+    assert settings.acumatica_financial_gross_profit_field == "gross_profit"
