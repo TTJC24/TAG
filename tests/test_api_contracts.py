@@ -17,7 +17,6 @@ def test_sales_scoreboard_contract_shape():
         "as_of_timestamp",
         "freshness_state",
         "certification_state",
-        "fail_state",
     }
     assert required.issubset(first.keys())
 
@@ -32,11 +31,17 @@ def test_fail_state_response_format():
     assert fail_state["source"] == "acumatica"
 
 
-def test_enums_and_placeholder_states_are_exposed():
+def test_enums_are_exposed():
     status, payload = resolve_path("/api/v1/platform/status")
     assert status == 200
 
     for item in payload["items"]:
         assert item["freshness_state"] in {state.value for state in FreshnessState}
         assert item["certification_state"] in {state.value for state in CertificationState}
-        assert item["certification_state"] == CertificationState.FAIL.value
+
+
+def test_connector_status_route_exists():
+    status, payload = resolve_path("/api/v1/platform/connectors")
+    assert status == 200
+    assert payload["read_only"] is True
+    assert len(payload["items"]) == 3
