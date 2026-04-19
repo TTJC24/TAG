@@ -4,6 +4,27 @@
 
 This file defines the initial v1 metrics for the scoreboard. Each KPI must remain explicit, versioned, and testable.
 
+## Global v1 Rule Locks
+
+These rule locks apply across the KPI set unless explicitly superseded by a future versioned spec update.
+
+- Entities in v1 scope: `FS`, `BL`
+- Pipedrive owner scope: all salespeople
+- Qualifying activity types:
+  - face-to-face meeting
+  - jobsite visit
+  - other meeting
+- Activity standard: `8` qualifying touches per workday for all salespeople
+- Open pipeline scope: all active non-won/non-lost stages
+- Financial cutoff: prior closed day at `11:59:59 PM` ET
+- Stale opportunity threshold: no qualifying activity in `7` days OR unchanged stage for `14+` days
+- Stuck order threshold: no status movement/shipment/progress event for `2+` days (exclude canceled/completed)
+- Dead stock definition: on hand `> 90` days and no sales in `90` days
+
+### Branch Scope Note
+
+Acumatica branch scope is not yet locked. Branch-sensitive KPIs remain uncertified until exact branch codes are provided through configuration.
+
 ---
 
 ## 1. Invoiced Revenue MTD by Rep
@@ -98,7 +119,7 @@ This file defines the initial v1 metrics for the scoreboard. Each KPI must remai
   - stage breakdown if available
   - freshness timestamp
 - Notes:
-  - included/excluded stages must be defined in implementation
+  - included stages are all active non-won/non-lost stages
   - pipeline is not revenue truth
 
 ---
@@ -109,6 +130,8 @@ This file defines the initial v1 metrics for the scoreboard. Each KPI must remai
 - Source of truth: Pipedrive
 - Description: Opportunities lacking required follow-up cadence or aging in stage beyond threshold
 - Refresh model: near-real-time
+- Rule lock:
+  - stale if no qualifying activity in 7 days OR same stage for 14+ days
 - Required output:
   - opportunity
   - owner
@@ -117,7 +140,6 @@ This file defines the initial v1 metrics for the scoreboard. Each KPI must remai
   - next activity due
   - freshness timestamp
 - Notes:
-  - stale threshold must be defined explicitly in code/config
   - should power exception widget
 
 ---
@@ -142,6 +164,9 @@ This file defines the initial v1 metrics for the scoreboard. Each KPI must remai
 - Source of truth: Acumatica
 - Description: Orders on hold, stalled, or aged beyond expected movement thresholds
 - Refresh model: near-real-time
+- Rule lock:
+  - open sales order with no status movement/shipment/progress event for 2+ days
+  - exclude canceled/completed orders
 - Required output:
   - order number
   - customer
@@ -150,7 +175,6 @@ This file defines the initial v1 metrics for the scoreboard. Each KPI must remai
   - days stalled
   - freshness timestamp
 - Notes:
-  - exact stuck-order criteria must be defined explicitly
   - this is an exception queue KPI, not just a count
 
 ---
@@ -161,6 +185,8 @@ This file defines the initial v1 metrics for the scoreboard. Each KPI must remai
 - Source of truth: Acumatica
 - Description: Movement of items classified as dead stock under approved business rule
 - Refresh model: daily or near-real-time depending on implementation
+- Rule lock:
+  - dead stock = on hand > 90 days and no sales in 90 days
 - Required output:
   - rep if attributable
   - item
@@ -169,7 +195,6 @@ This file defines the initial v1 metrics for the scoreboard. Each KPI must remai
   - period
   - freshness timestamp
 - Notes:
-  - dead stock classification rule must be explicitly defined
   - this metric is intended to support scoreboarding and reduction efforts
 
 ---
@@ -205,3 +230,4 @@ This file defines the initial v1 metrics for the scoreboard. Each KPI must remai
   - provisional
   - stale
   - failed
+  - FAIL
