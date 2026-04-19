@@ -47,3 +47,16 @@ def test_connector_status_route_exists():
     assert status == 200
     assert payload["read_only"] is True
     assert len(payload["items"]) == 3
+
+
+def test_financial_kpi_endpoints_contract_shape():
+    for path in ("/api/v1/financial/revenue-by-rep", "/api/v1/financial/margin-by-rep"):
+        status, payload = resolve_path(path)
+        assert status == 200
+        assert payload["read_only"] is True
+        assert len(payload["items"]) == 1
+        item = payload["items"][0]
+        assert "as_of_timestamp" in item
+        assert "freshness_status" in item
+        assert "certification_status" in item
+        assert "failure_reason" in item

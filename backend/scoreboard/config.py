@@ -58,6 +58,13 @@ class Settings:
     acumatica_sales_orders_path: str
     acumatica_ar_invoices_path: str
     acumatica_inventory_path: str
+    acumatica_financial_date_field: str
+    acumatica_financial_branch_field: str
+    acumatica_financial_rep_field: str
+    acumatica_financial_revenue_field: str
+    acumatica_financial_cost_field: str
+    acumatica_financial_gross_profit_field: str
+    financial_extract_top: int
 
     pipedrive_base_url: str
     pipedrive_api_token: str
@@ -113,6 +120,13 @@ class Settings:
                 "ACUMATICA_AR_INVOICES_PATH", "/entity/Default/22.200.001/ARInvoice"
             ),
             acumatica_inventory_path=os.getenv("ACUMATICA_INVENTORY_PATH", "/entity/Default/22.200.001/StockItem"),
+            acumatica_financial_date_field=os.getenv("ACUMATICA_FINANCIAL_DATE_FIELD", ""),
+            acumatica_financial_branch_field=os.getenv("ACUMATICA_FINANCIAL_BRANCH_FIELD", ""),
+            acumatica_financial_rep_field=os.getenv("ACUMATICA_FINANCIAL_REP_FIELD", ""),
+            acumatica_financial_revenue_field=os.getenv("ACUMATICA_FINANCIAL_REVENUE_FIELD", ""),
+            acumatica_financial_cost_field=os.getenv("ACUMATICA_FINANCIAL_COST_FIELD", ""),
+            acumatica_financial_gross_profit_field=os.getenv("ACUMATICA_FINANCIAL_GROSS_PROFIT_FIELD", ""),
+            financial_extract_top=int(os.getenv("FINANCIAL_EXTRACT_TOP", "5000")),
             pipedrive_base_url=os.getenv("PIPEDRIVE_BASE_URL", "https://api.pipedrive.com/v1"),
             pipedrive_api_token=os.getenv("PIPEDRIVE_API_TOKEN", ""),
             pipedrive_timeout_seconds=int(os.getenv("PIPEDRIVE_TIMEOUT_SECONDS", "30")),
