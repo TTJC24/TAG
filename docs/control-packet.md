@@ -28,6 +28,31 @@ v1 excludes:
 - uncontrolled custom KPI sprawl
 - replacing Acumatica or Pipedrive workflows
 
+## Locked v1 Business Rules
+
+The following rules are locked for v1 and must be implemented exactly as stated:
+
+- Entities in scope: `FS` and `BL`
+- Pipedrive owners in scope: all salespeople
+- Activity standard: `8` qualifying touches per workday for all salespeople
+- Qualifying activity types:
+  - face-to-face meeting
+  - jobsite visit
+  - other meeting
+- Open pipeline scope: all active non-won/non-lost Pipedrive stages
+- Financial cutoff: prior closed day at `11:59:59 PM` ET
+- Stale opportunity rule: no qualifying activity in `7` days OR same stage for `14+` days
+- Stuck order rule: open sales order with no status movement/shipment/progress event for `2+` days, excluding canceled/completed
+- Dead stock rule: on hand `> 90` days and no sales in `90` days
+
+## Branch Scope Constraint (Not Locked)
+
+Acumatica branch scope is **not locked**.
+
+- Branch codes must be supplied via configuration before production certification.
+- Do not infer branch codes.
+- Do not certify branch-sensitive KPIs until exact branch scope is provided.
+
 ## Source-of-Truth Hierarchy
 
 ### Acumatica

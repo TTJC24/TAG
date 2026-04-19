@@ -1,4 +1,5 @@
 from backend.scoreboard.main import resolve_path
+from backend.scoreboard.models.types import CertificationState, FreshnessState
 
 
 def test_sales_scoreboard_contract_shape():
@@ -26,6 +27,16 @@ def test_fail_state_response_format():
     assert status == 200
 
     fail_state = payload["items"][0]["fail_state"]
-    assert fail_state["state"] == "FAIL"
+    assert fail_state["state"] == CertificationState.FAIL.value
     assert isinstance(fail_state["reason"], str)
     assert fail_state["source"] == "acumatica"
+
+
+def test_enums_and_placeholder_states_are_exposed():
+    status, payload = resolve_path("/api/v1/platform/status")
+    assert status == 200
+
+    for item in payload["items"]:
+        assert item["freshness_state"] in {state.value for state in FreshnessState}
+        assert item["certification_state"] in {state.value for state in CertificationState}
+        assert item["certification_state"] == CertificationState.FAIL.value

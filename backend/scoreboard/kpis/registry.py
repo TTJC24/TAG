@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from backend.scoreboard.models.types import FailState, KpiEnvelope
+from backend.scoreboard.models.types import CertificationState, FailState, FreshnessState, KpiEnvelope
 
 
 @dataclass(frozen=True)
@@ -31,16 +31,16 @@ def placeholder_kpi(defn: KpiDefinition) -> KpiEnvelope:
         name=defn.name,
         source_system=defn.source_system,
         as_of_timestamp=now,
-        freshness_state="unknown",
-        certification_state="FAIL",
+        freshness_state=FreshnessState.UNKNOWN,
+        certification_state=CertificationState.FAIL,
         fail_state=FailState(
-            reason="KPI implementation pending business-rule lock and source adapters.",
+            reason="KPI implementation pending source integration and tie-out certification checks.",
             source=defn.source_system,
             as_of=now,
         ),
         notes=[
-            "TODO: Implement certified KPI logic per docs/kpi-spec.md.",
-            "No fallback or inferred financial logic is permitted.",
+            "Locked v1 business rules are defined in docs/control-packet.md and docs/kpi-spec.md.",
+            "Financial and branch-sensitive KPIs remain uncertified until branch scope is provided.",
         ],
     )
 
