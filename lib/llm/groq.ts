@@ -6,8 +6,24 @@ import type { LLMProvider } from "./provider";
 import {
   type LLMCompleteOptions,
   type LLMCompleteResult,
+  type LLMToolChoice,
   LLMProviderError,
 } from "./types";
+
+/** Map our `toolChoice` to Groq/OpenAI's `tool_choice` string. */
+function toGroqToolChoice(
+  choice: LLMToolChoice | undefined,
+): "auto" | "required" | "none" {
+  switch (choice) {
+    case "any":
+      return "required";
+    case "none":
+      return "none";
+    case "auto":
+    case undefined:
+      return "auto";
+  }
+}
 
 export interface GroqProviderConfig {
   apiKey: string;
@@ -27,20 +43,21 @@ export class GroqProvider implements LLMProvider {
 
   async complete(opts: LLMCompleteOptions): Promise<LLMCompleteResult> {
     try {
+      const hasTools = opts.tools.length > 0;
       const res = await this.client.chat.completions.create({
         model: this.model,
         messages: opts.messages.map((m) => ({ role: m.role, content: m.content })),
-        tools:
-          opts.tools.length > 0
-            ? opts.tools.map((t) => ({
-                type: "function" as const,
-                function: {
-                  name: t.name,
-                  description: t.description,
-                  parameters: t.parameters as Record<string, unknown>,
-                },
-              }))
-            : undefined,
+        tools: hasTools
+          ? opts.tools.map((t) => ({
+              type: "function" as const,
+              function: {
+                name: t.name,
+                description: t.description,
+                parameters: t.parameters as Record<string, unknown>,
+              },
+            }))
+          : undefined,
+        tool_choice: hasTools ? toGroqToolChoice(opts.toolChoice) : undefined,
         max_tokens: opts.maxTokens ?? 1024,
         temperature: opts.temperature ?? 0,
       });

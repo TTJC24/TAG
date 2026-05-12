@@ -31,9 +31,20 @@ export interface LLMToolCall {
   args: Record<string, unknown>;
 }
 
+/** Whether the model must / may / must-not call a tool.
+ *  - "auto" (default): model decides.
+ *  - "any": model must call one of the provided tools.
+ *  - "none": model must respond in plain text.
+ *
+ *  Voice and transcript paths in this product set "any" because the system
+ *  prompt requires a tool call (including `clarify` when ambiguous). */
+export type LLMToolChoice = "auto" | "any" | "none";
+
 export interface LLMCompleteOptions {
   messages: LLMMessage[];
   tools: LLMToolDefinition[];
+  /** Default "auto". */
+  toolChoice?: LLMToolChoice;
   /** Hard cap on response size. Sensible default per provider. */
   maxTokens?: number;
   /** Default 0 for deterministic tool-call behavior. */

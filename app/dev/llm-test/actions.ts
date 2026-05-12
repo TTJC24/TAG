@@ -41,11 +41,12 @@ export async function runLLMSmoke(
         {
           role: "system",
           content:
-            "You are a smoke-test tool. When asked, call the say_hi tool with the name from the user message and a casual tone. Do not respond in plain text.",
+            "You are a smoke-test tool. When asked, call the say_hi tool with the name from the user message and a casual tone.",
         },
         { role: "user", content: "Greet Tim." },
       ],
       tools: [SAY_HI],
+      toolChoice: "any",
       latency: prefer === "gemini" ? "batch" : "voice",
       prefer: prefer === "auto" ? undefined : prefer,
       maxTokens: 64,

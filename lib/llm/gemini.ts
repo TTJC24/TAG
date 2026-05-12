@@ -4,6 +4,7 @@
 import {
   GoogleGenerativeAI,
   SchemaType,
+  FunctionCallingMode,
   type FunctionDeclarationSchema,
 } from "@google/generative-ai";
 import type { LLMProvider } from "./provider";
@@ -11,6 +12,7 @@ import {
   type LLMCompleteOptions,
   type LLMCompleteResult,
   type LLMMessage,
+  type LLMToolChoice,
   type LLMToolDefinition,
   LLMProviderError,
 } from "./types";
@@ -33,13 +35,20 @@ export class GeminiProvider implements LLMProvider {
 
   async complete(opts: LLMCompleteOptions): Promise<LLMCompleteResult> {
     const { systemInstruction, contents } = toGeminiMessages(opts.messages);
+    const hasTools = opts.tools.length > 0;
     const model = this.client.getGenerativeModel({
       model: this.model,
       systemInstruction,
-      tools:
-        opts.tools.length > 0
-          ? [{ functionDeclarations: opts.tools.map(toGeminiTool) }]
-          : undefined,
+      tools: hasTools
+        ? [{ functionDeclarations: opts.tools.map(toGeminiTool) }]
+        : undefined,
+      toolConfig: hasTools
+        ? {
+            functionCallingConfig: {
+              mode: toGeminiToolChoice(opts.toolChoice),
+            },
+          }
+        : undefined,
       generationConfig: {
         maxOutputTokens: opts.maxTokens ?? 1024,
         temperature: opts.temperature ?? 0,
@@ -85,6 +94,18 @@ function toGeminiMessages(messages: LLMMessage[]): {
     parts: [{ text: m.content }],
   }));
   return { systemInstruction, contents };
+}
+
+function toGeminiToolChoice(choice: LLMToolChoice | undefined): FunctionCallingMode {
+  switch (choice) {
+    case "any":
+      return FunctionCallingMode.ANY;
+    case "none":
+      return FunctionCallingMode.NONE;
+    case "auto":
+    case undefined:
+      return FunctionCallingMode.AUTO;
+  }
 }
 
 function toGeminiTool(t: LLMToolDefinition) {

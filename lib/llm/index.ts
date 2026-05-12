@@ -12,6 +12,7 @@ export type {
   LLMMessage,
   LLMToolDefinition,
   LLMToolCall,
+  LLMToolChoice,
   LLMCompleteOptions,
   LLMCompleteResult,
   LLMProviderName,
