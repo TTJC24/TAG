@@ -62,7 +62,7 @@ A meeting in `live` state writes to a Liveblocks room scoped per meeting. On `co
 | When | Trigger | What happens |
 |---|---|---|
 | On "End & Send Recap" | UI button | Snapshot the week's scorecard entries; freeze `meetings.notes` and `cascadingMessages`; compute `rating` average; send recap email + Teams cascade. |
-| When Fireflies webhook fires | external | Match to meeting (calendar event ID or title); fetch + normalize; queue Claude pass; notify Tim in Teams with "N proposed updates — review here". |
+| When Fireflies webhook fires | external | Match to meeting (calendar event ID or title); fetch + normalize; queue LLM pass; notify Tim in Teams with "N proposed updates — review here". |
 | Diff review accepted | Tim | Updates write via the same server actions as manual edits; `source` set on every audit row. |
 | Monday 9am | cron | "Open To-Dos older than 3 days" nudge to owners. |
 | Friday 5pm | cron | "Heads up for L10" + last-week recap link. |

@@ -95,6 +95,34 @@ Each ADR is dated and numbered. Format: context → decision → consequences. D
 
 ---
 
+## ADR-0010 — Free-tier LLM + STT providers behind a provider abstraction
+
+**Date:** 2026-05-12
+**Status:** Accepted (revises the brand choices in ADR-0003 and the stack table in `KICKOFF.md`)
+
+**Context.** Pay-per-call APIs are out of scope for v1. The AI surface (voice copilot + transcript intelligence) must run on free tiers. We also want a clean upgrade path: if Tim later decides quality is worth a few dollars a month, swapping in Claude or hosted Whisper should be a 20-line change, not a refactor.
+
+**Decision.**
+
+- **Primary LLM:** **Gemini 2.5 Flash** via Google AI Studio (`@google/generative-ai`). Free tier 1,500 requests/day. Default for transcript ingestion (batch).
+- **Fallback LLM:** **Groq — Llama 3.3 70B** via `groq-sdk`. Free tier 14,400 requests/day. Default for voice copilot calls (latency-sensitive).
+- **STT:** **Web Speech API** (browser-native `SpeechRecognition`). No key, no package. Documented limits: works best with clear speech in quiet rooms; Chrome's implementation sends audio to Google's servers — flag for privacy-sensitive meetings.
+- **Provider abstraction ships from day one.** Two interfaces live in `lib/`:
+  - `lib/llm/LLMProvider` — `complete(messages, tools): Promise<ToolCall[]>` plus `name` and `health()`. v1 implementations: `GeminiProvider`, `GroqProvider`. Future: `ClaudeProvider`, `OllamaProvider`.
+  - `lib/stt/STTProvider` — start / stop / interim + final transcript events. v1 implementations: `WebSpeechProvider`. Future: `LocalWhisperProvider`, `DeepgramProvider`.
+- A small `lib/llm/router.ts` picks the provider per call based on (a) the caller's `latency` requirement (`voice` → Groq, `batch` → Gemini), (b) the cached rate-limit state per provider, and (c) explicit config overrides.
+- **Anthropic SDK and Deepgram are removed from the stack table** for v1. They remain valid future drop-ins.
+
+**Consequences.**
+
+- One indirection layer between AI features and any specific vendor. Pays for itself the first time we swap providers. The tool-definition format (`docs/ai-tools.md`) is unchanged — it was always vendor-neutral in shape.
+- Web Speech API has real accuracy limits. v1 surfaces this in the copilot dock UI (a "noisy room? type instead" affordance) and in the dev mic-test page.
+- Privacy: Chrome's Web Speech sends audio to Google. For privacy-sensitive meetings the v2 plan is local Whisper via `STTProvider`.
+- Phase 6 (AI Meeting Layer) is **back in scope** for v1, implemented against the abstraction.
+- Rate-limit caching belongs in the router (Redis-or-equivalent later; in-memory for v1). Treat a 429 from one provider as a signal to flip to the other for the next N seconds.
+
+---
+
 ## ADR-0009 — Three independent orgs, no parent, no combined meetings
 
 **Date:** 2026-05-12
@@ -128,4 +156,4 @@ Each ADR is dated and numbered. Format: context → decision → consequences. D
 
 **Decision.** `computeStatus(entry, measurable, history): { status, intensity, reason }` is a pure function in `lib/shading/`. Minimum 20 test scenarios are written **before** the implementation. The function depends only on its inputs — no DB, no `Date.now()` (history is passed in).
 
-**Consequences.** TDD on this module is non-negotiable. Note classification is async (Claude call), so its result is cached on the entry and consumed synchronously by the function — keeps the function pure.
+**Consequences.** TDD on this module is non-negotiable. Note classification is async (an LLM call), so its result is cached on the entry and consumed synchronously by the function — keeps the function pure.

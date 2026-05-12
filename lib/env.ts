@@ -1,9 +1,9 @@
 // Server-side env access with explicit names.
 //
 // We don't pull in zod here in Phase 1 — keep the surface small. Each external
-// integration (Clerk, Liveblocks, Deepgram, Resend, Graph, Fireflies,
-// Anthropic) will add its own helper that throws a useful error if the value
-// is missing at runtime. The full required-vs-optional list lives in
+// integration (Clerk, Liveblocks, Resend, Graph, Fireflies, Google AI Studio,
+// Groq) will add its own helper that throws a useful error if the value is
+// missing at runtime. The full required-vs-optional list lives in
 // .env.example.
 
 export function requireEnv(name: string): string {

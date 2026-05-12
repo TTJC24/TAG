@@ -24,7 +24,7 @@ If `--meeting-id` is not provided, list the recent `meetings` rows in `scheduled
    - Otherwise → `lib/ai/transcript/manual.ts`
 2. Normalize to `{ utterances, rawText, durationSec }`.
 3. Pull current scorecard schema + open Rocks + open To-Dos + open Issues for the meeting's org scope.
-4. Call Claude Sonnet 4 with the tool definitions in `docs/ai-tools.md` and the system prompt from `lib/ai/prompts/transcript.ts`. The model emits a batch of tool calls; do **not** execute them — collect them.
+4. Call the LLM router (`lib/llm/router.ts`) with `latency: "batch"` so it picks Gemini 2.5 Flash by default. Pass the tool definitions in `docs/ai-tools.md` and the system prompt from `lib/ai/prompts/transcript.ts`. The model emits a batch of tool calls; do **not** execute them — collect them.
 5. For each proposed tool call, compute the before/after diff against the live DB (without writing).
 6. Render the diff sorted by `confidence` ascending (lowest first), grouped by section (Scorecard → Rocks → To-Dos → Issues → Meeting). Each row shows:
    - The tool call name + resolved target

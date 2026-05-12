@@ -12,7 +12,7 @@ Three pillars:
 
 1. **Real-time collaborative editing** — owners log in pre-meeting to update their own measurables, rocks, to-dos. Live presence, live cursors, optimistic shared state during the meeting.
 2. **Voice-driven AI copilot during the meeting** — push-to-talk (spacebar) or scribe mode. Utterances become tool calls (`update_actual`, `create_todo`, etc.) with a 3-second cancellable diff preview.
-3. **Post-meeting transcript ingestion** — Fireflies (primary) / Teams native / manual paste, all flowing through one adapter and one Claude pass that emits the same tool calls. Diff review screen with per-row accept.
+3. **Post-meeting transcript ingestion** — Fireflies (primary) / Teams native / manual paste, all flowing through one adapter and one LLM pass that emits the same tool calls. Diff review screen with per-row accept.
 
 The Excel template is functional but clunky (new tab per meeting, no history, no presence, no shading, no pre-meeting workflow, single editor). Every shortcoming listed in `KICKOFF.md` §"What's broken" is a user story; solving them is the bar.
 
@@ -32,8 +32,8 @@ Do not add a library that is not in this table without asking.
 | DB | Postgres (Neon) + Drizzle ORM | Serverless Postgres, type-safe ORM |
 | Auth / multi-tenant | Clerk Organizations | Exactly three orgs: FS, BL, USA. No parent. |
 | Real-time collab | **Liveblocks** | Presence, live cursors, optimistic shared state |
-| Speech-to-text | **Deepgram Nova-3 streaming** | Sub-300ms latency |
-| AI brain | **Anthropic SDK — Claude Sonnet 4 with tool use** | Same tool defs for voice + transcript |
+| AI brain | **Gemini 2.5 Flash** (primary, batch) + **Groq Llama 3.3 70B** (fallback, voice) via a provider abstraction | Free tiers only (1,500/day Gemini, 14,400/day Groq). `lib/llm/LLMProvider` interface so swapping to Claude / Ollama later is a 20-line change. See ADR-0010. |
+| Speech-to-text | **Web Speech API** (browser-native `SpeechRecognition`) via a provider abstraction | Free; no key. `lib/stt/STTProvider` interface so local Whisper / Deepgram can land later without touching callers. |
 | Teams integration | **Microsoft Graph + MSAL** | Pre-meeting Teams chat, recaps, optional native transcript |
 | Transcript sourcing | Adapter: Fireflies (primary) / Teams native / manual paste | Survives vendor changes; Fireflies already in use |
 | Email (fallback) | Resend | Reminders, PDF board packets |
@@ -71,7 +71,7 @@ Entities and people: see `KICKOFF.md` §"Entities + people" for the people list.
   docs/
     kpi-definitions.md          KPI formulas (pulled from reference Appendix)
     meeting-flow.md             L10 agenda mapped to UI screens
-    ai-tools.md                 Anthropic tool defs shared by voice + transcript
+    ai-tools.md                 LLM tool defs shared by voice + transcript (provider-agnostic)
     permissions.md              role matrix + write-path contract
   .claude/
     commands/                   slash commands for in-session use
@@ -82,15 +82,23 @@ Entities and people: see `KICKOFF.md` §"Entities + people" for the people list.
     db/                         Drizzle schema, migrations, queries
     auth/                       Clerk wrappers
     liveblocks/                 room providers, presence helpers
+    llm/                        LLM provider abstraction (per ADR-0010)
+      provider.ts               LLMProvider interface
+      gemini.ts                 GeminiProvider (primary, batch)
+      groq.ts                   GroqProvider (fallback, voice)
+      router.ts                 picks provider by latency req + rate-limit state
+    stt/                        STT provider abstraction
+      provider.ts               STTProvider interface
+      web-speech.ts             WebSpeechProvider (browser-native)
     ai/
-      tools.ts                  the Anthropic tool definitions (single source)
-      voice-router.ts           Deepgram → Claude → tool-call pipeline
+      tools.ts                  the shared LLM tool definitions (single source)
+      voice-router.ts           Web Speech → LLM router → tool-call pipeline
       transcript/
         source.ts               TranscriptSource adapter interface
         fireflies.ts            Path A
         teams.ts                Path B
         manual.ts               Path C
-        parser.ts               normalized transcript → Claude → diff
+        parser.ts               normalized transcript → LLM router → diff
     shading/
       compute-status.ts         pure function: entry, measurable, history → status
       compute-status.test.ts    >=20 scenarios, written first
@@ -113,7 +121,7 @@ Signals that combine:
 1. **Threshold vs `goalDirection`** (`gte` | `lte` | `eq` | `between` | `trend_down` | `trend_up`). For trend directions, the slope over the last 4 weeks decides.
 2. **Variance magnitude** — how far off goal scales intensity.
 3. **Streak / trend** — third consecutive red darkens; a recovery week lightens.
-4. **Note semantics** — Claude classifies each note as `explained_one_off | structural_issue | on_plan_to_recover | no_context` (cached on the entry). Adjusts intensity ±1 step. An "explained one-off" red is muted; a "no context" red is louder.
+4. **Note semantics** — the LLM classifies each note as `explained_one_off | structural_issue | on_plan_to_recover | no_context` (cached on the entry). Adjusts intensity ±1 step. An "explained one-off" red is muted; a "no context" red is louder.
 5. **Forecast tint** — if the 4-week slope predicts a breach in the next 2 weeks, add a subtle warning border even on a green week.
 6. **Goal-relative band** — within 5% in the wrong direction is yellow, not red.
 
@@ -123,29 +131,31 @@ The function is pure, lives in `lib/shading/`, and has test scenarios written be
 
 ## How the AI copilot works
 
-**Voice path and transcript path share one set of Anthropic tool definitions** (`docs/ai-tools.md` / `lib/ai/tools.ts`). Whatever the modality, Claude emits the same tool calls; every tool call hits the same server actions that handle permission checks, DB writes, Liveblocks broadcasts, and audit logging.
+**Voice path and transcript path share one set of LLM tool definitions** (`docs/ai-tools.md` / `lib/ai/tools.ts`). Whatever the modality and whichever provider answers, the model emits the same tool calls; every tool call hits the same server actions that handle permission checks, DB writes, Liveblocks broadcasts, and audit logging.
+
+The LLM and STT providers sit behind interfaces in `lib/llm/` and `lib/stt/` (ADR-0010). v1 ships **Gemini 2.5 Flash** + **Groq Llama 3.3 70B** as LLM providers and **Web Speech API** as the only STT provider. Future drop-ins (Claude, Ollama, local Whisper, Deepgram) implement the same interface — call sites do not change.
 
 ```
-        ┌──────────────────────────────────────┐
-        │   Voice (Deepgram stream → Claude)   │
-        │   Transcript (Fireflies / Teams /    │──┐
-        │   manual paste → Claude)             │  │
-        └──────────────────────────────────────┘  │  same tool calls
-                                                   ▼
-                                       ┌────────────────────────┐
-                                       │  Server action         │
-                                       │  - permission check    │
-                                       │  - DB write (Drizzle)  │
-                                       │  - audit log row       │
-                                       │  - Liveblocks broadcast│
-                                       └────────────────────────┘
+        ┌──────────────────────────────────────────────────┐
+        │  Voice  (Web Speech API → LLM router → tools)    │
+        │  Transcript (Fireflies / Teams / manual paste    │──┐
+        │     → LLM router → tools)                        │  │
+        └──────────────────────────────────────────────────┘  │  same tool calls
+                                                               ▼
+                                              ┌────────────────────────┐
+                                              │  Server action         │
+                                              │  - permission check    │
+                                              │  - DB write (Drizzle)  │
+                                              │  - audit log row       │
+                                              │  - Liveblocks broadcast│
+                                              └────────────────────────┘
 ```
 
-**Voice path:** spacebar → Deepgram streaming session → final transcript → Claude with meeting context + tool defs → tool calls → diff preview in copilot dock → 3s auto-apply countdown (cancellable). Confidence < 0.8 requires explicit click. Ambiguous references trigger the `clarify` tool, which speaks the question back. Tagged `source='voice'`.
+**Voice path:** spacebar → Web Speech API browser session → final transcript text → LLM router (prefers **Groq** for voice latency, falls back to Gemini if Groq's rate budget is exhausted) with meeting context + tool defs → tool calls → diff preview in copilot dock → 3s auto-apply countdown (cancellable). Confidence < 0.8 requires explicit click. Ambiguous references trigger the `clarify` tool, which speaks the question back. Tagged `source='voice'`.
 
-**Transcript path:** webhook (Fireflies / Teams) or manual upload → adapter normalizes to `{ utterances: [{ speaker, text, ts }], rawText, durationSec }` → Claude pass with the same tool defs + current scorecard schema + open Rocks/To-Dos/Issues as JSON context → batched tool calls (never auto-applied) → diff review screen sorted by confidence ascending → accept all / per-section / per-row → tagged `source='fireflies' | 'teams_native' | 'transcript_manual'`. When the source includes diarization, `attributedToPersonId` is set to the actual speaker, not the facilitator.
+**Transcript path:** webhook (Fireflies / Teams) or manual upload → adapter normalizes to `{ utterances: [{ speaker, text, ts }], rawText, durationSec }` → LLM router (prefers **Gemini** for batch) with the same tool defs + current scorecard schema + open Rocks/To-Dos/Issues as JSON context → batched tool calls (never auto-applied) → diff review screen sorted by confidence ascending → accept all / per-section / per-row → tagged `source='fireflies' | 'teams_native' | 'transcript_manual'`. When the source includes diarization, `attributedToPersonId` is set to the actual speaker, not the facilitator.
 
-**Hard rule:** Claude never invents numbers. If a measurable wasn't discussed, it stays untouched. The system prompt enforces this and the diff review surfaces low-confidence proposals first so humans see the iffy ones.
+**Hard rule:** the LLM never invents numbers. If a measurable wasn't discussed, it stays untouched. The system prompt enforces this and the diff review surfaces low-confidence proposals first so humans see the iffy ones.
 
 ---
 

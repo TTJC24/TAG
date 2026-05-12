@@ -1,6 +1,6 @@
 # AI Tools — Shared by Voice + Transcript
 
-A single set of Anthropic tool-use definitions powers both the live voice copilot and the post-meeting transcript ingestion. The tools are intent-only — they describe **what** the user said, not **how** to write to the DB. Every tool resolves to a server action that runs permission checks, performs the write through the standard pipeline, and emits an audit log row.
+A single set of LLM tool-call definitions powers both the live voice copilot and the post-meeting transcript ingestion. They are provider-agnostic by design — the same JSON shape feeds Gemini's `functionDeclarations`, Groq's OpenAI-compatible `tools`, and any future Claude or Ollama provider (ADR-0010). The tools are intent-only — they describe **what** the user said, not **how** to write to the DB. Every tool resolves to a server action that runs permission checks, performs the write through the standard pipeline, and emits an audit log row.
 
 This file is the canonical definition; `lib/ai/tools.ts` is the runtime mirror and must stay in sync.
 
@@ -10,9 +10,9 @@ This file is the canonical definition; `lib/ai/tools.ts` is the runtime mirror a
 
 1. **One tool = one user intent.** No god-tools. Easier to reason about, easier to audit.
 2. **Inputs that name a person or measurable use `*Hint` fields.** They take strings like `"Daniel"`, `"Daniel's revenue"`, `"fill rate FS"`. The server resolves the hint via fuzzy match against the live org members + active measurables. Ambiguous → the call falls through to `clarify`.
-3. **Numbers always come pre-cast.** Claude is responsible for converting "one sixty-eight seven oh two" to `168702`, and percentages to decimals (`0.50`, never `50`). Currency in dollars; the server multiplies by 100 to store cents.
+3. **Numbers always come pre-cast.** The LLM is responsible for converting "one sixty-eight seven oh two" to `168702`, and percentages to decimals (`0.50`, never `50`). Currency in dollars; the server multiplies by 100 to store cents.
 4. **Every tool requires a `confidence` 0–1.** Voice path: <0.8 cancels auto-apply. Transcript path: low-confidence proposals are surfaced first so the reviewer sees them.
-5. **No tool ever invents a number.** If the input is "Daniel mentioned his revenue but not the value", Claude calls `clarify`, not `update_actual`.
+5. **No tool ever invents a number.** If the input is "Daniel mentioned his revenue but not the value", the LLM calls `clarify`, not `update_actual`.
 6. **`weekId` resolves to the current week unless explicitly stated.** The runtime passes the active week as context; tool inputs accept `"this week"`, `"last week"`, an ISO date, or omit it.
 
 ---
@@ -146,7 +146,7 @@ Used when the input is ambiguous or numbers are missing. Returns a question to t
 
 ---
 
-## Context passed to Claude
+## Context passed to the LLM
 
 Every call (voice or transcript) includes:
 

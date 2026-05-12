@@ -118,8 +118,8 @@ Pull the formula definitions verbatim from the reference Appendix into `docs/kpi
 | DB | Postgres (Neon) + Drizzle ORM | Serverless Postgres, type-safe ORM |
 | Auth + multi-tenant | Clerk Organizations | FS/BL/USA = orgs; battle-tested |
 | **Real-time collab** | **Liveblocks** | Presence, live cursors, optimistic shared state; purpose-built for this UX |
-| **Speech-to-text** | **Deepgram Nova-3 streaming** | Sub-300ms latency, best-in-class for live meetings |
-| AI brain | **Anthropic SDK — Claude Sonnet 4 with tool use** | Both the voice copilot and the transcript parser use the same tool definitions |
+| **Speech-to-text** | **Web Speech API** (browser-native `SpeechRecognition`) behind a `lib/stt/STTProvider` interface | Free, no key. Best in quiet rooms with clear speech. Local Whisper / Deepgram deferred to v2 (ADR-0010). |
+| AI brain | **Gemini 2.5 Flash** (primary, batch) + **Groq Llama 3.3 70B** (fallback, voice) behind a `lib/llm/LLMProvider` interface | Free tiers (1,500/day Gemini, 14,400/day Groq). Same tool definitions used by voice and transcript. Swap to Claude / Ollama is a 20-line provider drop-in (ADR-0010). |
 | **Teams integration** | **Microsoft Graph API + MSAL** | Pre-meeting reminders via Teams chat, post-meeting recaps to channels, optional native transcript pull |
 | **Transcript sourcing** | **Adapter pattern: Fireflies (primary) → Teams native → manual paste** | Already in use by team; speaker diarization included; survives vendor changes |
 | Email (fallback) | Resend | Email reminders for anyone who prefers it; PDF board packets |
@@ -134,7 +134,7 @@ Pull the formula definitions verbatim from the reference Appendix into `docs/kpi
    - Domain glossary (EOS terms above)
    - File structure
    - "How shading works" in plain English
-   - "How the AI copilot works" — voice path + transcript path share the same Claude tool definitions
+   - "How the AI copilot works" — voice path + transcript path share the same LLM tool definitions
    - "How real-time sync works" — Liveblocks rooms scoped per meeting, Postgres is the source of truth, Liveblocks pushes optimistic updates
    - Permissions model (below)
    - Definition of done
@@ -146,7 +146,7 @@ Pull the formula definitions verbatim from the reference Appendix into `docs/kpi
 3. `docs/`:
    - `kpi-definitions.md` (from the reference Appendix)
    - `meeting-flow.md` (L10 agenda mapped to UI screens)
-   - `ai-tools.md` (the Claude tool definitions shared between voice + transcript)
+   - `ai-tools.md` (the LLM tool definitions shared between voice + transcript)
    - `permissions.md` (role matrix)
 
 4. `DECISIONS.md` for ADRs.
@@ -161,7 +161,8 @@ Pull the formula definitions verbatim from the reference Appendix into `docs/kpi
 - Clerk wired with Organizations: FS, BL, USA, plus "Clark Holdings" parent org for combined views
 - Drizzle schema + initial migration (see Phase 2)
 - Liveblocks set up with a room-per-meeting model and a permanent room-per-scorecard for pre-meeting collab
-- Deepgram client wired up but not yet connected to UI — just verify a working streaming transcription endpoint with a "hello world" mic test page
+- Web Speech API wired in a "hello world" mic test page (no server-side STT in v1 — browser-native). The `lib/stt/STTProvider` interface is scaffolded with `WebSpeechProvider` as the only implementation; Local Whisper / Deepgram are noted as v2 drop-ins.
+- `lib/llm/LLMProvider` abstraction scaffolded with `GeminiProvider` (Google AI Studio) and `GroqProvider` implementations. Smoke each with a dev page that emits one tool call.
 - Resend configured for transactional email fallback
 - **Microsoft Graph API** wired with MSAL: admin consent flow for the tenant, scopes for `Chat.ReadWrite`, `OnlineMeetings.Read.All`, `OnlineMeetingTranscript.Read.All`. Verify with a "send a test message to Tim's Teams chat" smoke test.
 - **Fireflies API** wired: store the workspace API key in env, set up the webhook endpoint at `/api/webhooks/fireflies` to receive `Transcription completed` events. Verify by triggering a test webhook.
@@ -327,7 +328,7 @@ Signals:
 1. **Threshold check** vs `goalDirection`. For `trend_down`/`trend_up`, slope over last 4 weeks.
 2. **Variance magnitude** — intensity scales with how far off goal.
 3. **Streak / trend** — third consecutive red darkens; recovery lightens.
-4. **Note semantics** — Claude classifies the note into `explained_one_off` | `structural_issue` | `on_plan_to_recover` | `no_context`. Adjust intensity ±1 step. Cache the classification on the entry.
+4. **Note semantics** — the LLM classifies the note into `explained_one_off` | `structural_issue` | `on_plan_to_recover` | `no_context`. Adjust intensity ±1 step. Cache the classification on the entry.
 5. **Forecast tint** — if 4-week slope predicts next 2 weeks breach, add subtle warning border even on a green week.
 6. **Goal-relative band** — within 5% in the wrong direction is yellow, not red.
 
@@ -343,11 +344,11 @@ Same engine applies to:
 
 ## Phase 6 — AI Meeting Layer (the headline feature)
 
-Two modalities sharing the same Claude tool definitions.
+Two modalities sharing the same LLM tool definitions.
 
 ### 6.1 Shared tool definitions (`docs/ai-tools.md`)
 
-Define these as Anthropic tool-use schemas. Every modality calls the same backend functions, which run permission checks and write `auditLog`:
+Define these as LLM tool-call schemas (provider-agnostic — the same shape works for Gemini's `functionDeclarations`, Groq's OpenAI-compatible `tools`, and any future Claude / Ollama provider). Every modality calls the same backend functions, which run permission checks and write `auditLog`:
 
 ```ts
 tools = [
@@ -373,19 +374,19 @@ Every tool that resolves a person ("Daniel", "Craig") or a measurable ("Daniel's
 
 **Trigger modes:**
 - **Push-to-talk** (default): hold spacebar (or click the mic button), speak, release. Visual indicator at all times. Like a walkie-talkie. Safest.
-- **Scribe mode** (optional): always listening, only acts on utterances starting with the wake word "TractionOS" or "Claude". Used hands-free for fast meetings.
+- **Scribe mode** (optional): always listening, only acts on utterances starting with the wake word "TractionOS". Used hands-free for fast meetings.
 
 **Flow:**
-1. User holds spacebar → Deepgram streaming session opens
-2. Audio streams to Deepgram; partial transcripts appear in a copilot dock
-3. Release spacebar → final transcript sent to Claude with:
+1. User holds spacebar → Web Speech API browser session opens
+2. Browser emits interim transcripts as the user speaks; they appear in a copilot dock
+3. Release spacebar → final transcript text sent to the LLM router (voice path defaults to **Groq Llama 3.3 70B** for latency, falls back to Gemini on rate limit) with:
    - Current meeting context (active scorecard, open rocks/todos/issues, current agenda segment)
    - Tool definitions above
    - System prompt that knows EOS vocabulary + this team's specific people/entities
-4. Claude returns tool calls
+4. The LLM returns tool calls
 5. **Diff preview** appears in the copilot dock: highlighted cell, before/after value, 3-second auto-apply countdown with cancel button
 6. Sub-0.8 confidence → no auto-apply, requires explicit click
-7. Ambiguous reference → Claude calls `clarify` → TTS reads the question + shows text → user responds via voice
+7. Ambiguous reference → the LLM calls `clarify` → TTS reads the question + shows text → user responds via voice
 8. Applied changes flow through the standard write path (permissions check → DB write → Liveblocks broadcast → audit log row with `source='voice'`)
 
 **Sample utterances to support out of the gate:**
@@ -420,7 +421,7 @@ interface TranscriptSource {
 1. Fireflies bot joins the L10 (via calendar auto-join — configured once at the workspace level)
 2. When transcription completes, Fireflies fires webhook → `/api/webhooks/fireflies`
 3. Match the webhook's meeting metadata (calendar event ID or title) to a `meetings` row in our DB
-4. Pull the full transcript via the Fireflies API, normalize it, kick off Claude processing
+4. Pull the full transcript via the Fireflies API, normalize it, kick off LLM processing
 5. **Speaker diarization is included** — voice/transcript-driven changes get attributed to the actual speaker, not just the facilitator. Daniel saying "my revenue is 168k" in the transcript writes to `auditLog` with Daniel's `personId`, not Tim's.
 6. Tim gets a Teams chat: "L10 transcript ready — 14 proposed updates, click to review"
 
@@ -431,15 +432,15 @@ For meetings held in Teams when Fireflies didn't run, or if you migrate off Fire
 Slash command `/ingest-transcript` in the meeting runner, or a file upload on the meeting summary page. Accepts `.txt`, `.vtt`, `.docx`, or paste-from-clipboard. For in-person-only meetings or when both A and B fall through.
 
 **Shared processing (all three paths converge here):**
-1. Normalized transcript + current scorecard schema + open Rocks + open To-Dos + open Issues sent to Claude Sonnet 4 with the tool definitions from 6.1
-2. Claude makes a sequence of tool calls (batched, not auto-applied)
+1. Normalized transcript + current scorecard schema + open Rocks + open To-Dos + open Issues sent to the LLM router (transcript path defaults to **Gemini 2.5 Flash** for batch quality and the larger free quota) with the tool definitions from 6.1
+2. The LLM makes a sequence of tool calls (batched, not auto-applied)
 3. **Diff review screen**: proposed updates side-by-side with current state, each with a checkbox, sorted by confidence (lowest first so humans see the iffy ones). For Fireflies-sourced transcripts, each proposed change shows the speaker who said it.
 4. Accept all / per-section / per-row → entries written, shading recomputes, audit log entries tagged with `source` (`fireflies` | `teams_native` | `transcript_manual`) and `attributedToPersonId` (when diarization is available)
 5. Transcript stored linked to meeting; re-runnable if the extractor improves
 
 **Prompt notes:**
 - System prompt explains EOS / L10 format + this team's vocabulary
-- Pass current Measurables + open Rocks/To-Dos/Issues as JSON context so Claude can match references precisely
+- Pass current Measurables + open Rocks/To-Dos/Issues as JSON context so the LLM can match references precisely
 - Few-shot examples from anonymized reference data
 - Require `confidence` on every field
 - **Never invent numbers** — if a measurable wasn't discussed, omit it. Hallucinated actuals would destroy trust.
