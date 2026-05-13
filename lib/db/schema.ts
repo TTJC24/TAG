@@ -131,8 +131,10 @@ export const people = pgTable(
     email: text("email").notNull(),
     avatarUrl: text("avatar_url"),
     defaultOrgId: uuid("default_org_id").references(() => organizations.id),
-    // Role is a sensible default; per-org role is governed by Clerk membership.
-    // Stored here so that simple admin checks don't require a round trip.
+    // Per-org role lives in `org_memberships`. This column is a transitional
+    // mirror — read paths now source role via getAuthContext → org_memberships
+    // joined to the active org. Will be dropped once all consumers are
+    // migrated. See DATA_MODEL_DECISION.md §3.
     role: personRole("role").notNull().default("member"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -143,6 +145,40 @@ export const people = pgTable(
       t.clerkUserId,
     ),
     emailIdx: index("people_email_idx").on(t.email),
+  }),
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Org memberships (canonical roster — see DATA_MODEL_DECISION.md §3)
+// ─────────────────────────────────────────────────────────────────────────────
+// Mirrors Clerk per-org membership into Postgres so "people in this org" is
+// a join, not an inference from ownership tables. Role lives here, not on
+// `people` (which had a single global role — wrong shape for a multi-org
+// platform). Sync direction: Clerk → Postgres, written by the seed today
+// and (later) by a Clerk webhook.
+
+export const orgMemberships = pgTable(
+  "org_memberships",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => people.id),
+    role: personRole("role").notNull().default("member"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    orgPersonUnique: uniqueIndex("org_memberships_org_person_unique").on(
+      t.orgId,
+      t.personId,
+    ),
+    orgIdx: index("org_memberships_org_idx").on(t.orgId),
+    personIdx: index("org_memberships_person_idx").on(t.personId),
   }),
 );
 
@@ -520,6 +556,9 @@ export type NewOrganization = typeof organizations.$inferInsert;
 
 export type Person = typeof people.$inferSelect;
 export type NewPerson = typeof people.$inferInsert;
+
+export type OrgMembership = typeof orgMemberships.$inferSelect;
+export type NewOrgMembership = typeof orgMemberships.$inferInsert;
 
 export type Measurable = typeof measurables.$inferSelect;
 export type NewMeasurable = typeof measurables.$inferInsert;

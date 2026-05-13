@@ -6,10 +6,10 @@
 // page load even when many components ask for the context.
 
 import { auth } from "@clerk/nextjs/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { cache } from "react";
 import { db } from "@/lib/db/client";
-import { organizations, people } from "@/lib/db/schema";
+import { orgMemberships, organizations, people } from "@/lib/db/schema";
 
 export interface AuthContext {
   /** Clerk user id (`user_…`). */
@@ -35,7 +35,8 @@ export class AuthContextError extends Error {
       | "no_session"
       | "no_active_org"
       | "person_not_seeded"
-      | "org_not_seeded",
+      | "org_not_seeded"
+      | "not_a_member",
   ) {
     super(message);
     this.name = "AuthContextError";
@@ -73,10 +74,25 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
       "org_not_seeded",
     );
 
+  // Per-org role lives in org_memberships. Falls back to people.role only
+  // during the transition while the seed catches up — once the table is
+  // populated for every (org, person) pair, the fallback can be removed
+  // along with the people.role column. See DATA_MODEL_DECISION.md §3.
+  const [membership] = await db
+    .select({ role: orgMemberships.role })
+    .from(orgMemberships)
+    .where(
+      and(
+        eq(orgMemberships.orgId, org.id),
+        eq(orgMemberships.personId, person.id),
+      ),
+    )
+    .limit(1);
+
   return {
     clerkUserId: userId,
     personId: person.id,
-    role: person.role,
+    role: membership?.role ?? person.role,
     clerkOrgId: orgId,
     orgId: org.id,
     orgSlug: orgSlug ?? org.code.toLowerCase(),

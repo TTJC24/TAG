@@ -40,3 +40,5 @@ test-results/
 # drizzle generated artifacts that we DO commit (./drizzle/*) — only ignore
 # kit's local cache:
 .drizzle/
+
+.vercel
