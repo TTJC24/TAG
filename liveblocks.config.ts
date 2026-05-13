@@ -30,8 +30,19 @@ declare global {
         orgSlug: string;
       };
     };
-    /** Reserved for client-broadcast events (e.g., toast notifications). */
-    RoomEvent: Record<string, never>;
+    /** Server-broadcast events fired by lib/realtime/broadcast.ts after a
+     *  successful write. Clients listen and call router.refresh() so other
+     *  tabs reflect the change without polling. */
+    RoomEvent:
+      | {
+          kind: "entry-updated";
+          entryId: string;
+          measurableId: string;
+          weekId: string;
+        }
+      | { kind: "rock-updated"; rockId: string }
+      | { kind: "todo-updated"; todoId: string }
+      | { kind: "issue-updated"; issueId: string };
     /** Room metadata accessible via useRoomInfo. */
     RoomInfo: { orgId: string };
   }
