@@ -13,6 +13,7 @@ import type {
 } from "@/lib/shading/types";
 import { formatActual, formatGoal } from "@/lib/format";
 import { EditableEntryCell } from "@/components/editable-entry-cell";
+import { LiveSync } from "@/components/live-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,7 @@ export default async function ScorecardPage() {
 
   return (
     <main className="container space-y-6 py-8">
+      <LiveSync clerkOrgId={ctx.clerkOrgId} />
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
           {ctx.orgSlug.toUpperCase()} · Scorecard

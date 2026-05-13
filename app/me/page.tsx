@@ -20,6 +20,7 @@ import { EditableEntryCell } from "@/components/editable-entry-cell";
 import { ReadinessBanner } from "@/components/readiness-banner";
 import { RockStatusPill } from "@/components/rock-status-pill";
 import { TodoCheckbox } from "@/components/todo-checkbox";
+import { LiveSync } from "@/components/live-sync";
 
 export const dynamic = "force-dynamic";
 
@@ -94,6 +95,7 @@ export default async function MePage() {
 
   return (
     <main className="container space-y-8 py-8">
+      <LiveSync clerkOrgId={ctx.clerkOrgId} />
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
           {ctx.orgSlug.toUpperCase()} · L10 prep

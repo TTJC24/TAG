@@ -79,7 +79,7 @@ export async function updateRockStatus(
       source: "manual",
     });
 
-    await broadcastScorecard(rock.orgId, {
+    await broadcastScorecard(ctx.clerkOrgId, {
       kind: "rock-updated",
       rockId: rock.id,
     });

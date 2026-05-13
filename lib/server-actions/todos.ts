@@ -53,7 +53,7 @@ export async function setTodoDone(
       source: "manual",
     });
 
-    await broadcastScorecard(todo.orgId, {
+    await broadcastScorecard(ctx.clerkOrgId, {
       kind: "todo-updated",
       todoId: todo.id,
     });

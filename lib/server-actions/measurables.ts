@@ -100,7 +100,7 @@ export async function updateActual(
       source: "manual",
     });
 
-    await broadcastScorecard(m.orgId, {
+    await broadcastScorecard(ctx.clerkOrgId, {
       kind: "entry-updated",
       entryId,
       measurableId: input.measurableId,

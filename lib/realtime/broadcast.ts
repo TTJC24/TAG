@@ -32,18 +32,22 @@ export type RoomEvent =
   | { kind: "todo-updated"; todoId: string }
   | { kind: "issue-updated"; issueId: string };
 
-/** Broadcasts a room event. No-ops if Liveblocks isn't configured — the DB
- *  is still the source of truth and the actor's own UI re-renders via
- *  revalidatePath, so absence of Liveblocks degrades to "no live updates
- *  for other tabs" rather than breakage. */
+/** Broadcasts a room event into `scorecard:{clerkOrgId}`. Room IDs are keyed
+ *  on the Clerk org id (matches the auth endpoint at /api/liveblocks-auth)
+ *  so clients and server agree on the same room name.
+ *
+ *  No-ops if Liveblocks isn't configured — the DB is still the source of
+ *  truth and the actor's own UI re-renders via revalidatePath, so absence
+ *  of Liveblocks degrades to "no live updates for other tabs" rather than
+ *  breakage. */
 export async function broadcastScorecard(
-  orgId: string,
+  clerkOrgId: string,
   event: RoomEvent,
 ): Promise<void> {
   const lb = client();
   if (!lb) return;
   try {
-    await lb.broadcastEvent(ROOM.scorecard(orgId), event);
+    await lb.broadcastEvent(ROOM.scorecard(clerkOrgId), event);
   } catch (err) {
     // Best-effort. A failed broadcast must not abort the underlying write.
     console.warn("[broadcast] scorecard broadcast failed:", err);
