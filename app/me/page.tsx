@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import {
+  getNextMeeting,
   getRecentWeeks,
   getMyIssues,
   getMyMeasurables,
@@ -14,7 +15,9 @@ import type {
   ShadingResult,
 } from "@/lib/shading/types";
 import { formatActual, formatGoal } from "@/lib/format";
+import { computeReadiness } from "@/lib/readiness/compute-readiness";
 import { EditableEntryCell } from "@/components/editable-entry-cell";
+import { ReadinessBanner } from "@/components/readiness-banner";
 import { RockStatusPill } from "@/components/rock-status-pill";
 import { TodoCheckbox } from "@/components/todo-checkbox";
 
@@ -34,12 +37,14 @@ export default async function MePage() {
 
   const weeks = await getRecentWeeks(4);
   const weekIds = weeks.map((w) => w.id);
-  const [myMeasurables, myRocks, myTodos, myIssues] = await Promise.all([
-    getMyMeasurables(ctx.personId, ctx.orgId, weekIds),
-    getMyRocks(ctx.personId, ctx.orgId),
-    getMyOpenTodos(ctx.personId, ctx.orgId),
-    getMyIssues(ctx.personId, ctx.orgId),
-  ]);
+  const [myMeasurables, myRocks, myTodos, myIssues, nextMeeting] =
+    await Promise.all([
+      getMyMeasurables(ctx.personId, ctx.orgId, weekIds),
+      getMyRocks(ctx.personId, ctx.orgId),
+      getMyOpenTodos(ctx.personId, ctx.orgId),
+      getMyIssues(ctx.personId, ctx.orgId),
+      getNextMeeting(ctx.orgId),
+    ]);
 
   // Pre-compute shading for the most recent week's cell so the "red first"
   // sort + the cell color stay in sync.
@@ -78,8 +83,17 @@ export default async function MePage() {
     return b.result.intensity - a.result.intensity;
   });
 
+  const readiness = computeReadiness({
+    measurables: measurablesWithStatus.map((row) => ({
+      measurableId: row.measurable.id,
+      currentActual: parseNumeric(row.currentEntry?.actual),
+    })),
+    openTodos: myTodos.map((t) => ({ todoId: t.id, dueDate: t.dueDate })),
+    today: new Date().toISOString().slice(0, 10),
+  });
+
   return (
-    <main className="container space-y-10 py-8">
+    <main className="container space-y-8 py-8">
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
           {ctx.orgSlug.toUpperCase()} · L10 prep
@@ -91,6 +105,11 @@ export default async function MePage() {
           Your measurables, rocks, to-dos, and issues for this week. Red first.
         </p>
       </header>
+
+      <ReadinessBanner
+        result={readiness}
+        nextMeetingDate={nextMeeting?.scheduledFor.toISOString() ?? null}
+      />
 
       {/* ─── Measurables ─────────────────────────────────────────── */}
       <section className="space-y-4">

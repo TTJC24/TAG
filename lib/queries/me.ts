@@ -2,18 +2,20 @@
 // every query joins on org_id from the caller's AuthContext so cross-org
 // reads are impossible by construction.
 
-import { and, asc, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   entries,
   issues,
   measurables,
+  meetings,
   rocks,
   todos,
   weeks,
   type Entry,
   type Issue,
   type Measurable,
+  type Meeting,
   type Rock,
   type Todo,
   type Week,
@@ -105,4 +107,25 @@ export async function getMyIssues(personId: string, orgId: string): Promise<Issu
       ),
     )
     .orderBy(asc(issues.createdAt));
+}
+
+/** Next scheduled L10 for this org, or null if none. Used by the readiness
+ *  banner on /me to show "Next L10: …". */
+export async function getNextMeeting(
+  orgId: string,
+  now: Date = new Date(),
+): Promise<Meeting | null> {
+  const [row] = await db
+    .select()
+    .from(meetings)
+    .where(
+      and(
+        eq(meetings.orgId, orgId),
+        eq(meetings.status, "scheduled"),
+        gte(meetings.scheduledFor, now),
+      ),
+    )
+    .orderBy(asc(meetings.scheduledFor))
+    .limit(1);
+  return row ?? null;
 }
