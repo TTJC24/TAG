@@ -15,6 +15,8 @@ import type {
 } from "@/lib/shading/types";
 import { formatActual, formatGoal } from "@/lib/format";
 import { EditableEntryCell } from "@/components/editable-entry-cell";
+import { RockStatusPill } from "@/components/rock-status-pill";
+import { TodoCheckbox } from "@/components/todo-checkbox";
 
 export const dynamic = "force-dynamic";
 
@@ -175,7 +177,11 @@ export default async function MePage() {
                   <span className="text-sm font-medium leading-tight">
                     {r.description}
                   </span>
-                  <RockStatusPill status={r.status} />
+                  <RockStatusPill
+                    rockId={r.id}
+                    status={r.status}
+                    readOnly={ctx.role === "viewer"}
+                  />
                 </div>
                 {r.notes && (
                   <p className="font-mono text-xs text-muted-foreground">
@@ -202,9 +208,14 @@ export default async function MePage() {
             {myTodos.map((t) => (
               <li
                 key={t.id}
-                className="flex items-center justify-between rounded border border-border bg-card px-3 py-2"
+                className="flex items-center gap-3 rounded border border-border bg-card px-3 py-2"
               >
-                <span className="text-sm">{t.description}</span>
+                <TodoCheckbox
+                  todoId={t.id}
+                  done={t.status === "done"}
+                  readOnly={ctx.role === "viewer"}
+                />
+                <span className="flex-1 text-sm">{t.description}</span>
                 <span className="font-mono text-xs text-muted-foreground">
                   {t.dueDate ?? ""}
                   {t.rolloverCount > 0 ? ` · rolled ${t.rolloverCount}×` : ""}
@@ -338,19 +349,3 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
-function RockStatusPill({ status }: { status: string }) {
-  const label = status.replace("_", " ");
-  const color =
-    status === "on_track"
-      ? "bg-status-green/15 text-status-green"
-      : status === "off_track"
-        ? "bg-status-red/15 text-status-red"
-        : "bg-muted text-muted-foreground";
-  return (
-    <span
-      className={`rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${color}`}
-    >
-      {label}
-    </span>
-  );
-}
