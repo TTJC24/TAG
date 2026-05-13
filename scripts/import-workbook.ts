@@ -731,70 +731,149 @@ async function main() {
   }
   console.log(`[import] inserted ${todosInserted} todos`);
 
-  // ─── 8) Wipe + insert issues from workbook (latest occurrence wins) ─
+  // ─── 8) Wipe + insert issues from workbook ──────────────────────────
+  // Two-pass to avoid the "earlier week says blank, later week says TIm,
+  // but the report still shows blank" bug. First pass collects every
+  // ownerRaw seen across all weeks for each unique title; second pass
+  // resolves owner from those candidates, then from an explicit
+  // override table, then defaults to Tim and surfaces only the
+  // truly-unresolved titles.
   await db.delete(issues);
-  const issueMap = new Map<string, { title: string; priority: "critical" | "high" | "medium" | "low"; ownerSlug: string; org: OrgCode; rootCause: string | null }>();
+
+  /** Explicit owner overrides for issues whose workbook Owner column is
+   *  consistently blank across all three weeks. Per the latest user
+   *  decision: map the obvious ones deterministically. */
+  const ISSUE_OWNER_OVERRIDES: { match: RegExp; ownerSlug: string; org: OrgCode }[] = [
+    { match: /^need to know when special orders are received/i, ownerSlug: "chip", org: "FS" },
+    { match: /^how do we reduce cycle time on receiving/i, ownerSlug: "chip", org: "BL" },
+    { match: /^dead stock report cadence/i, ownerSlug: "craig", org: "FS" },
+    { match: /^premature invoices/i, ownerSlug: "tim", org: "BL" },
+  ];
+
+  interface IssueDedupe {
+    title: string;
+    priority: "critical" | "high" | "medium" | "low";
+    /** Every non-empty owner string seen across weeks. */
+    ownerRaws: string[];
+    /** Last seen entity from the workbook (null if never specified). */
+    entityFromWorkbook: OrgCode | "ALL" | null;
+    rootCause: string | null;
+  }
+  const issueMap = new Map<string, IssueDedupe>(); // key = title.toLowerCase().trim()
+
   for (const week of parsed) {
     for (const i of week.issues) {
-      if (!i.title.trim()) continue;
-      // Skip rows that are obviously not real issues.
-      if (i.title.length < 5) continue;
-      if (/^issue dumping ground$/i.test(i.title.trim())) continue;
-      if (/^update rocks\s*\?\s*$/i.test(i.title.trim())) continue;
-      const ownerSlug = resolveOwner(i.ownerRaw, i.entity ?? null);
-      if (!ownerSlug) {
-        // Many issues in the workbook have empty owner column. Default
-        // to Tim — flag it so it's visible.
-        flag(`issue "${i.title}" has no owner — defaulting to Tim`);
-      }
-      const slug = ownerSlug ?? "tim";
-      let org: OrgCode;
-      if (i.entity === "ALL" || i.entity === null) {
-        org = PRIMARY_ORG_BY_SLUG[slug] ?? "BL";
+      const t = i.title.trim();
+      if (!t || t.length < 5) continue;
+      if (/^issue dumping ground$/i.test(t)) continue;
+      if (/^update rocks\s*\?\s*$/i.test(t)) continue;
+
+      const key = t.toLowerCase();
+      const existing = issueMap.get(key);
+      const ownerRawTrimmed = i.ownerRaw.trim();
+      if (existing) {
+        if (ownerRawTrimmed) existing.ownerRaws.push(ownerRawTrimmed);
+        if (i.entity) existing.entityFromWorkbook = i.entity;
+        if (i.rootCause) existing.rootCause = i.rootCause;
+        existing.priority = i.priority;
       } else {
-        org = i.entity;
+        issueMap.set(key, {
+          title: t,
+          priority: i.priority,
+          ownerRaws: ownerRawTrimmed ? [ownerRawTrimmed] : [],
+          entityFromWorkbook: i.entity,
+          rootCause: i.rootCause,
+        });
       }
-      const key = `${org}::${i.title.toLowerCase().trim()}`;
-      issueMap.set(key, { title: i.title.trim(), priority: i.priority, ownerSlug: slug, org, rootCause: i.rootCause });
     }
   }
+
+  const unresolvedIssueOwners: string[] = [];
   let issuesInserted = 0;
-  for (const i of issueMap.values()) {
-    const orgId = orgIdByCode.get(i.org)!;
-    const ownerId = personIdForSlug(i.ownerSlug);
+  for (const e of issueMap.values()) {
+    // 1. Resolve owner from any non-empty raw owner seen across weeks.
+    let ownerSlug: string | null = null;
+    const entityForChris =
+      e.entityFromWorkbook && e.entityFromWorkbook !== "ALL"
+        ? e.entityFromWorkbook
+        : null;
+    for (const raw of e.ownerRaws) {
+      const slug = resolveOwner(raw, entityForChris);
+      if (slug) {
+        ownerSlug = slug;
+        break;
+      }
+    }
+
+    // 2. Apply explicit override (also fixes the landing org).
+    const override = ISSUE_OWNER_OVERRIDES.find((o) => o.match.test(e.title));
+
+    let org: OrgCode;
+    if (override) {
+      ownerSlug = ownerSlug ?? override.ownerSlug;
+      org = override.org;
+    } else if (e.entityFromWorkbook === "ALL" || e.entityFromWorkbook === null) {
+      org = PRIMARY_ORG_BY_SLUG[ownerSlug ?? "tim"] ?? "BL";
+    } else {
+      org = e.entityFromWorkbook;
+    }
+
+    // 3. If still no owner, default to Tim AND surface as unresolved.
+    let trulyUnresolved = false;
+    if (!ownerSlug) {
+      ownerSlug = "tim";
+      trulyUnresolved = true;
+      unresolvedIssueOwners.push(e.title);
+    }
+
+    const orgId = orgIdByCode.get(org)!;
+    const ownerId = personIdForSlug(ownerSlug);
     if (!ownerId) {
-      flag(`issue "${i.title}" owner slug ${i.ownerSlug} not resolvable`);
+      flag(`issue "${e.title}" owner slug "${ownerSlug}" not resolvable`);
       continue;
     }
     await db.insert(issues).values({
       orgId,
-      title: i.title,
-      priority: i.priority,
+      title: e.title,
+      priority: e.priority,
       ownerId,
-      rootCause: i.rootCause,
+      rootCause: e.rootCause,
       status: "open",
     });
     issuesInserted++;
+    if (trulyUnresolved) {
+      // intentional: counts toward the inserted total but flagged below
+    }
   }
   console.log(`[import] inserted ${issuesInserted} issues`);
 
   // ─── Final report ──────────────────────────────────────────────────
   console.log("");
   console.log(`[import] DONE`);
-  console.log(`  measurables canonical:   ${measurableIdByKey.size}`);
-  console.log(`  measurables dropped:     ${droppedMeasurables}`);
-  console.log(`  weeks:                   ${weekIdByDate.size}`);
-  console.log(`  entries inserted:        ${entriesInserted}`);
-  console.log(`  rocks inserted:          ${rocksInserted}`);
-  console.log(`  todos inserted:          ${todosInserted}`);
-  console.log(`  issues inserted:         ${issuesInserted}`);
-  if (ambiguities.length > 0) {
+  console.log(`  weeks imported:          ${weekIdByDate.size}  (${[...weekIdByDate.keys()].join(", ")})`);
+  console.log(`  metrics (measurables):   ${measurableIdByKey.size}  canonical, ${droppedMeasurables} dropped`);
+  console.log(`  entries from workbook:   ${entriesInserted}`);
+  console.log(`  rocks:                   ${rocksInserted}`);
+  console.log(`  todos:                   ${todosInserted}`);
+  console.log(`  issues:                  ${issuesInserted}`);
+
+  if (unresolvedIssueOwners.length > 0) {
     console.log("");
-    console.log(`[import] AMBIGUITIES (${ambiguities.length}):`);
-    for (const a of ambiguities) console.log(`  - ${a}`);
+    console.log(
+      `[import] UNRESOLVED issue owners (${unresolvedIssueOwners.length}) — defaulted to Tim, please assign:`,
+    );
+    for (const t of unresolvedIssueOwners) console.log(`  - ${t}`);
   } else {
     console.log("");
-    console.log(`[import] no ambiguities surfaced`);
+    console.log(`[import] all issue owners resolved`);
+  }
+
+  // Other ambiguities (unresolvable rock/todo owners, parse warnings).
+  // Kept separate from the issue-owner report above.
+  if (ambiguities.length > 0) {
+    console.log("");
+    console.log(`[import] other warnings (${ambiguities.length}):`);
+    for (const a of ambiguities) console.log(`  - ${a}`);
   }
 }
 
