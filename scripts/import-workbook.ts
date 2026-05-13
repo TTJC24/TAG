@@ -617,33 +617,47 @@ async function main() {
   console.log(`[import] dropped ${droppedMeasurables} measurables not in canonical set`);
 
   // ─── 5) Insert entries from workbook scorecards ────────────────────
+  // Percent normalization rule (single source of normalization, per the
+  // user's "choose one place" directive):
+  //   - All percent-format measurables store entries as decimal fractions
+  //     (0..1) so that the formatter's Intl percent style — which
+  //     multiplies by 100 — renders correctly.
+  //   - The workbook is inconsistent: most rows store whole percents
+  //     (59.68 = 59.68%), a few store decimals (0.187 = 18.7%).
+  //   - Heuristic: if formatHint==="percent" and value > 1, divide by 100.
+  //     Values already in 0..1 are passed through. KPIs in this scorecard
+  //     are bounded 0..100% so the heuristic is safe.
   let entriesInserted = 0;
+  let percentNormalized = 0;
   for (const week of parsed) {
     const weekId = weekIdByDate.get(week.weekEndingDate);
     if (!weekId) continue;
     for (const sc of week.scorecard) {
-      // For each canonical measurable, find the workbook row that maps.
       for (const cm of CANONICAL_MEASURABLES) {
         if (!cm.fromWorkbook) continue;
         if (!cm.fromWorkbook.kpi.test(sc.kpi)) continue;
         if (cm.fromWorkbook.entity !== sc.entity) continue;
-        // For an ALL row, we still want to write into every per-org
-        // canonical measurable. The outer loop iterates all canonicals,
-        // so each org's DSO/DPO/etc. gets a write when sc.entity==="ALL".
         const measurableId = measurableIdByKey.get(`${cm.org}::${cm.name}`);
         if (!measurableId) continue;
         if (sc.actual === null) continue;
+        let actualToStore = sc.actual;
+        if (cm.formatHint === "percent" && actualToStore > 1) {
+          actualToStore = actualToStore / 100;
+          percentNormalized++;
+        }
         await db.insert(entries).values({
           measurableId,
           weekId,
-          actual: String(sc.actual),
+          actual: String(actualToStore),
           source: "system",
         });
         entriesInserted++;
       }
     }
   }
-  console.log(`[import] inserted ${entriesInserted} entries from workbook`);
+  console.log(
+    `[import] inserted ${entriesInserted} entries from workbook (${percentNormalized} percent values normalized)`,
+  );
 
   // ─── 6) Wipe + insert rocks from workbook (latest week wins) ───────
   await db.delete(rocks);
