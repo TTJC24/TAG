@@ -308,8 +308,8 @@ export function KPIRowControls({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:bg-muted hover:text-foreground"
-        title="edit KPI"
+        className="rounded border border-border bg-card px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/40 hover:bg-muted"
+        title="edit KPI (name, owner, goal, format, cadence, formula)"
       >
         edit
       </button>
@@ -317,8 +317,8 @@ export function KPIRowControls({
         <button
           type="button"
           onClick={() => setArchiving(true)}
-          className="rounded px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:bg-rose-500/15 hover:text-rose-200"
-          title="archive KPI"
+          className="rounded border border-border bg-card px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-100"
+          title="archive KPI (preserves history)"
         >
           archive
         </button>

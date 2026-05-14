@@ -12,8 +12,9 @@ import type {
   ShadingResult,
   StatusColor,
 } from "@/lib/shading/types";
-import { formatActual, formatGoal } from "@/lib/format";
+import { formatActual } from "@/lib/format";
 import { EditableEntryCell } from "@/components/editable-entry-cell";
+import { EditableGoalCell } from "@/components/editable-goal-cell";
 import { LiveSync } from "@/components/live-sync";
 import { AddKPIButton, KPIRowControls } from "@/components/kpi-dialogs";
 import {
@@ -199,13 +200,16 @@ function ScorecardRowView({
       <Td>
         <OwnerChip name={row.owner?.name ?? null} />
       </Td>
-      <Td className="text-muted-foreground tabular font-mono text-xs">
-        {formatGoal(
-          row.measurable.goalDirection,
-          parseNumeric(row.measurable.goalValue),
-          parseNumeric(row.measurable.goalSecondary),
-          row.measurable.formatHint,
-        )}
+      <Td>
+        <EditableGoalCell
+          measurableId={row.measurable.id}
+          goalDirection={row.measurable.goalDirection as
+            | "gte" | "lte" | "eq" | "between" | "trend_down" | "trend_up"}
+          goalValue={parseNumeric(row.measurable.goalValue)}
+          goalSecondary={parseNumeric(row.measurable.goalSecondary)}
+          formatHint={row.measurable.formatHint}
+          readOnly={readOnly}
+        />
       </Td>
       <Td className="text-right">
         {currentWeek ? (
