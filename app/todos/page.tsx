@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getOrgTodos } from "@/lib/queries/org-lists";
+import { TodoCheckbox } from "@/components/todo-checkbox";
+import { TodoNotesEditor } from "@/components/todo-notes-editor";
+import { TodoRolloverButton } from "@/components/todo-rollover-button";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -31,7 +34,7 @@ export default async function TodosPage() {
           Open to-do&apos;s
         </h1>
         <p className="text-sm text-muted-foreground">
-          7-day action items. Active org only. Overdue first, then by due date.
+          Tick to mark done. &quot;Carry forward&quot; rolls a to-do into next week.
         </p>
       </header>
 
@@ -50,18 +53,30 @@ export default async function TodosPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/40">
               <tr className="text-left text-xs uppercase tracking-widest text-muted-foreground">
+                <th className="px-3 py-2 font-medium">Done</th>
                 <th className="px-3 py-2 font-medium">To-Do</th>
                 <th className="px-3 py-2 font-medium">Owner</th>
                 <th className="px-3 py-2 font-medium tabular">Due</th>
-                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 font-medium">Notes</th>
                 <th className="px-3 py-2 font-medium tabular">Rollover</th>
+                <th className="px-3 py-2 font-medium" />
               </tr>
             </thead>
             <tbody>
               {rows.map(({ todo, owner }) => {
+                const isOwner = todo.ownerId === ctx.personId;
+                const readOnly =
+                  ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
                 const isOverdue = !!(todo.dueDate && todo.dueDate < today);
                 return (
                   <tr key={todo.id} className="border-t border-border align-top">
+                    <td className="px-3 py-2">
+                      <TodoCheckbox
+                        todoId={todo.id}
+                        done={todo.status === "done"}
+                        readOnly={readOnly}
+                      />
+                    </td>
                     <td className="px-3 py-2 font-medium">{todo.description}</td>
                     <td className="px-3 py-2 text-muted-foreground">
                       {owner?.name ?? "—"}
@@ -69,21 +84,24 @@ export default async function TodosPage() {
                     <td
                       className={cn(
                         "px-3 py-2 font-mono text-xs tabular",
-                        isOverdue
-                          ? "text-rose-300"
-                          : "text-muted-foreground",
+                        isOverdue ? "text-rose-300" : "text-muted-foreground",
                       )}
                     >
                       {todo.dueDate ?? ""}
                       {isOverdue ? " · overdue" : ""}
                     </td>
-                    <td className="px-3 py-2">
-                      <StatusChip
-                        status={todo.status as "open" | "rolled_over"}
+                    <td className="px-3 py-2 min-w-[16rem]">
+                      <TodoNotesEditor
+                        todoId={todo.id}
+                        value={todo.notes}
+                        readOnly={readOnly}
                       />
                     </td>
                     <td className="px-3 py-2 font-mono text-xs text-muted-foreground tabular">
                       {todo.rolloverCount > 0 ? `${todo.rolloverCount}×` : ""}
+                    </td>
+                    <td className="px-3 py-2">
+                      <TodoRolloverButton todoId={todo.id} readOnly={readOnly} />
                     </td>
                   </tr>
                 );
@@ -113,29 +131,6 @@ function Pill({
     <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest">
       <span className={cn("h-2 w-2 rounded-full", DOT_STYLES[color])} aria-hidden />
       {label}
-    </span>
-  );
-}
-
-const STATUS_LABEL: Record<"open" | "rolled_over", string> = {
-  open: "open",
-  rolled_over: "rolled over",
-};
-
-const STATUS_TAG_STYLES: Record<"open" | "rolled_over", string> = {
-  open: "border-border bg-muted/30 text-muted-foreground",
-  rolled_over: "border-amber-500/30 bg-amber-500/10 text-amber-100",
-};
-
-function StatusChip({ status }: { status: "open" | "rolled_over" }) {
-  return (
-    <span
-      className={cn(
-        "rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
-        STATUS_TAG_STYLES[status],
-      )}
-    >
-      {STATUS_LABEL[status]}
     </span>
   );
 }

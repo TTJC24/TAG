@@ -10,7 +10,7 @@ import { writeAuditEntry } from "@/lib/audit/log";
 import { broadcastScorecard } from "@/lib/realtime/broadcast";
 import type { ActionResult } from "@/lib/server-actions/measurables";
 
-type RockStatus = "on_track" | "off_track" | "completed";
+type RockStatus = "on_track" | "off_track" | "completed" | "still_going";
 
 export interface UpdateRockStatusInput {
   rockId: string;
@@ -86,6 +86,8 @@ export async function updateRockStatus(
 
     revalidatePath("/me");
     revalidatePath("/scorecard");
+    revalidatePath("/rocks");
+    revalidatePath("/admin/readiness");
     return { ok: true, data: { rockId: rock.id } };
   } catch (err) {
     if (err instanceof AuthorizationError) {
@@ -93,5 +95,58 @@ export async function updateRockStatus(
     }
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
+  }
+}
+
+export interface UpdateRockNotesInput {
+  rockId: string;
+  notes: string | null;
+}
+
+export async function updateRockNotes(
+  input: UpdateRockNotesInput,
+): Promise<ActionResult<{ rockId: string }>> {
+  try {
+    const ctx = await getAuthContext();
+    const [rock] = await db
+      .select()
+      .from(rocks)
+      .where(eq(rocks.id, input.rockId))
+      .limit(1);
+    if (!rock) return { ok: false, error: "rock not found" };
+    authorizeWrite(ctx, { orgId: rock.orgId, ownerId: rock.ownerId });
+
+    const before = { notes: rock.notes };
+    const trimmed = input.notes?.trim() ?? null;
+    await db
+      .update(rocks)
+      .set({ notes: trimmed && trimmed.length > 0 ? trimmed : null })
+      .where(eq(rocks.id, rock.id));
+
+    await writeAuditEntry({
+      orgId: rock.orgId,
+      personId: ctx.personId,
+      action: "update_rock_notes",
+      entityType: "rock",
+      entityId: rock.id,
+      before,
+      after: { notes: trimmed },
+      source: "manual",
+    });
+    await broadcastScorecard(ctx.clerkOrgId, {
+      kind: "rock-updated",
+      rockId: rock.id,
+    });
+
+    revalidatePath("/me");
+    revalidatePath("/scorecard");
+    revalidatePath("/rocks");
+    revalidatePath("/admin/readiness");
+    return { ok: true, data: { rockId: rock.id } };
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { ok: false, error: `forbidden: ${err.reason}` };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }

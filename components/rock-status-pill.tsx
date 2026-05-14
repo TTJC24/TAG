@@ -4,11 +4,12 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateRockStatus } from "@/lib/server-actions/rocks";
 
-type RockStatus = "on_track" | "off_track" | "completed";
+type RockStatus = "on_track" | "off_track" | "still_going" | "completed";
 
 const NEXT: Record<RockStatus, RockStatus> = {
   on_track: "off_track",
-  off_track: "completed",
+  off_track: "still_going",
+  still_going: "completed",
   completed: "on_track",
 };
 
@@ -18,6 +19,8 @@ function colorFor(status: RockStatus): string {
       return "bg-status-green/15 text-status-green";
     case "off_track":
       return "bg-status-red/15 text-status-red";
+    case "still_going":
+      return "bg-status-yellow/15 text-status-yellow";
     case "completed":
       return "bg-muted text-muted-foreground";
   }

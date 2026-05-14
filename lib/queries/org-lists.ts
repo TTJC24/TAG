@@ -42,7 +42,8 @@ export async function getOrgRocks(orgId: string): Promise<RockWithOwner[]> {
   const STATUS_ORDER: Record<Rock["status"], number> = {
     off_track: 0,
     on_track: 1,
-    completed: 2,
+    still_going: 2,
+    completed: 3,
   };
   return rows
     .map((r) => ({

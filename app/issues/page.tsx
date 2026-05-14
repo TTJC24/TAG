@@ -1,18 +1,11 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getOrgIssues } from "@/lib/queries/org-lists";
+import { IssueActionButtons } from "@/components/issue-action-buttons";
+import { IssueNotesEditor } from "@/components/issue-notes-editor";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
-
-// Maps the persisted issues.status enum to the user-facing label
-// requested in the spec ("worked" / "needs to push to next week").
-//   ids_in_progress → "worked"
-//   open            → "needs to push to next week"
-//   resolved/tabled → not surfaced (filtered out by the query)
-function statusLabel(s: "open" | "ids_in_progress"): string {
-  return s === "ids_in_progress" ? "worked" : "needs to push to next week";
-}
 
 export default async function IssuesPage() {
   let ctx;
@@ -42,16 +35,13 @@ export default async function IssuesPage() {
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">Issues list</h1>
         <p className="text-sm text-muted-foreground">
-          IDS parking lot. Critical first. Active org only.
+          Worked / push next week / resolved. Critical first.
         </p>
       </header>
 
       <div className="flex flex-wrap items-center gap-4 rounded border border-border bg-card px-4 py-3 text-sm">
         <Pill color="amber" label={`${counts.ids_in_progress} worked`} />
-        <Pill
-          color="muted"
-          label={`${counts.open} needs to push to next week`}
-        />
+        <Pill color="muted" label={`${counts.open} push next week`} />
       </div>
 
       {rows.length === 0 ? (
@@ -71,25 +61,36 @@ export default async function IssuesPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ issue, owner }) => (
-                <tr key={issue.id} className="border-t border-border align-top">
-                  <td className="px-3 py-2 font-medium">{issue.title}</td>
-                  <td className="px-3 py-2 text-muted-foreground">
-                    {owner?.name ?? "—"}
-                  </td>
-                  <td className="px-3 py-2">
-                    <PriorityChip priority={issue.priority} />
-                  </td>
-                  <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
-                    {issue.rootCause ?? ""}
-                  </td>
-                  <td className="px-3 py-2">
-                    <StatusChip
-                      status={issue.status as "open" | "ids_in_progress"}
-                    />
-                  </td>
-                </tr>
-              ))}
+              {rows.map(({ issue, owner }) => {
+                const isOwner = issue.ownerId === ctx.personId;
+                const readOnly =
+                  ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
+                return (
+                  <tr key={issue.id} className="border-t border-border align-top">
+                    <td className="px-3 py-2 font-medium">{issue.title}</td>
+                    <td className="px-3 py-2 text-muted-foreground">
+                      {owner?.name ?? "—"}
+                    </td>
+                    <td className="px-3 py-2">
+                      <PriorityChip priority={issue.priority} />
+                    </td>
+                    <td className="px-3 py-2 min-w-[18rem]">
+                      <IssueNotesEditor
+                        issueId={issue.id}
+                        value={issue.rootCause}
+                        readOnly={readOnly}
+                      />
+                    </td>
+                    <td className="px-3 py-2 min-w-[16rem]">
+                      <IssueActionButtons
+                        issueId={issue.id}
+                        status={issue.status as "open" | "ids_in_progress"}
+                        readOnly={readOnly}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -141,24 +142,6 @@ function PriorityChip({
       )}
     >
       {priority}
-    </span>
-  );
-}
-
-const STATUS_TAG_STYLES: Record<"open" | "ids_in_progress", string> = {
-  ids_in_progress: "border-amber-500/30 bg-amber-500/10 text-amber-100",
-  open: "border-border bg-muted/30 text-muted-foreground",
-};
-
-function StatusChip({ status }: { status: "open" | "ids_in_progress" }) {
-  return (
-    <span
-      className={cn(
-        "rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
-        STATUS_TAG_STYLES[status],
-      )}
-    >
-      {statusLabel(status)}
     </span>
   );
 }

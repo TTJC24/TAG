@@ -67,6 +67,7 @@ export const rockStatus = pgEnum("rock_status", [
   "on_track",
   "off_track",
   "completed",
+  "still_going",
 ]);
 
 export const todoStatus = pgEnum("todo_status", [
@@ -399,6 +400,7 @@ export const todos = pgTable(
       .notNull()
       .references(() => organizations.id),
     description: text("description").notNull(),
+    notes: text("notes"),
     ownerId: uuid("owner_id")
       .notNull()
       .references(() => people.id),

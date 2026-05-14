@@ -109,6 +109,7 @@ export async function updateActual(
 
     revalidatePath("/me");
     revalidatePath("/scorecard");
+    revalidatePath("/admin/readiness");
     return { ok: true, data: { entryId } };
   } catch (err) {
     if (err instanceof AuthorizationError) {
