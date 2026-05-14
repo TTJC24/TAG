@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
+import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgRocks } from "@/lib/queries/org-lists";
+import { AddRockButton, RockRowControls } from "@/components/rock-dialogs";
 import { RockNotesEditor } from "@/components/rock-notes-editor";
 import { RockStatusSelect } from "@/components/rock-status-select";
 import {
@@ -24,7 +26,11 @@ export default async function RocksPage() {
     throw err;
   }
 
-  const rows = await getOrgRocks(ctx.orgId);
+  const [rows, members] = await Promise.all([
+    getOrgRocks(ctx.orgId),
+    getOrgMembers(ctx.orgId),
+  ]);
+  const isAdmin = ctx.role === "admin";
 
   const counts = rows.reduce(
     (acc, r) => {
@@ -48,6 +54,7 @@ export default async function RocksPage() {
           <Pill tone="green" label={`${counts.on_track} on`} />
           <Pill tone="amber" label={`${counts.still_going} still going`} />
           <Pill tone="muted" label={`${counts.completed} done`} />
+          {isAdmin && <AddRockButton members={members} />}
         </div>
       </header>
 
@@ -68,7 +75,8 @@ export default async function RocksPage() {
                   <Th>Owner</Th>
                   <Th>Status</Th>
                   <Th>Notes</Th>
-                  <Th className="pr-4 tabular">Quarter · Due</Th>
+                  <Th className="tabular">Quarter · Due</Th>
+                  <Th className="pr-4"> </Th>
                 </tr>
               </thead>
               <tbody>
@@ -99,9 +107,24 @@ export default async function RocksPage() {
                           readOnly={readOnly}
                         />
                       </Td>
-                      <Td className="pr-4 font-mono text-xs text-muted-foreground tabular">
+                      <Td className="font-mono text-xs text-muted-foreground tabular">
                         {rock.quarter}
                         {rock.dueDate ? ` · ${rock.dueDate}` : ""}
+                      </Td>
+                      <Td className="pr-4 text-right">
+                        <RockRowControls
+                          rockId={rock.id}
+                          members={members}
+                          current={{
+                            description: rock.description,
+                            ownerId: rock.ownerId,
+                            quarter: rock.quarter,
+                            dueDate: rock.dueDate ?? "",
+                            notes: rock.notes ?? "",
+                          }}
+                          readOnly={readOnly}
+                          canDelete={isAdmin}
+                        />
                       </Td>
                     </tr>
                   );

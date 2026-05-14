@@ -1,7 +1,7 @@
 // Org-wide scorecard queries. All callers must pass orgId from a resolved
 // AuthContext — there is no path that pulls cross-org data.
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   entries,
@@ -33,7 +33,9 @@ export async function getOrgScorecard(
     })
     .from(measurables)
     .leftJoin(people, eq(measurables.ownerId, people.id))
-    .where(eq(measurables.orgId, orgId))
+    .where(
+      and(eq(measurables.orgId, orgId), isNull(measurables.archivedAt)),
+    )
     .orderBy(asc(measurables.displayOrder));
 
   if (rows.length === 0 || weekIds.length === 0) {

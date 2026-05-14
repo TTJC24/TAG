@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getRecentWeeks } from "@/lib/queries/me";
+import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgScorecard, type ScorecardRow } from "@/lib/queries/scorecard";
 import { computeStatus } from "@/lib/shading/compute-status";
 import type {
@@ -14,6 +15,7 @@ import type {
 import { formatActual, formatGoal } from "@/lib/format";
 import { EditableEntryCell } from "@/components/editable-entry-cell";
 import { LiveSync } from "@/components/live-sync";
+import { AddKPIButton, KPIRowControls } from "@/components/kpi-dialogs";
 import {
   Eyebrow,
   MissingMarker,
@@ -40,9 +42,13 @@ export default async function ScorecardPage() {
 
   const weeks = await getRecentWeeks(4);
   const weekIds = weeks.map((w) => w.id);
-  const rows = await getOrgScorecard(ctx.orgId, weekIds);
+  const [rows, members] = await Promise.all([
+    getOrgScorecard(ctx.orgId, weekIds),
+    getOrgMembers(ctx.orgId),
+  ]);
   const mostRecentWeek = weeks[weeks.length - 1] ?? null;
   const priorWeeks = weeks.slice(0, -1);
+  const isAdmin = ctx.role === "admin";
 
   // Operational summary — counts that matter at the meeting.
   const summary = rows.reduce(
@@ -82,6 +88,7 @@ export default async function ScorecardPage() {
           <Pill tone="yellow" label={`${summary.yellow} yellow`} />
           <Pill tone="green" label={`${summary.green} green`} />
           <Pill tone="missing" label={`${summary.missing} missing`} />
+          {isAdmin && <AddKPIButton members={members} />}
         </div>
       </header>
 
@@ -116,7 +123,8 @@ export default async function ScorecardPage() {
                       {weekHeader(w.weekEndingDate)}
                     </Th>
                   ))}
-                  <Th className="pr-4 text-right">Updated</Th>
+                  <Th className="text-right">Updated</Th>
+                  <Th className="pr-4 text-right"> </Th>
                 </tr>
               </thead>
               <tbody>
@@ -129,6 +137,7 @@ export default async function ScorecardPage() {
                     mostRecentWeekId={mostRecentWeek?.id ?? null}
                     actorRole={ctx.role}
                     actorPersonId={ctx.personId}
+                    members={members}
                   />
                 ))}
               </tbody>
@@ -147,6 +156,7 @@ function ScorecardRowView({
   mostRecentWeekId,
   actorRole,
   actorPersonId,
+  members,
 }: {
   row: ScorecardRow;
   weeks: { id: string; weekEndingDate: string }[];
@@ -154,6 +164,7 @@ function ScorecardRowView({
   mostRecentWeekId: string | null;
   actorRole: "admin" | "member" | "viewer";
   actorPersonId: string;
+  members: { id: string; name: string }[];
 }) {
   const m = shadingMeasurableFor(row);
   const currentWeek = mostRecentWeekId
@@ -246,8 +257,28 @@ function ScorecardRowView({
           </Td>
         );
       })}
-      <Td className="pr-4 text-right font-mono text-[10px] text-muted-foreground/70">
+      <Td className="text-right font-mono text-[10px] text-muted-foreground/70">
         {updated ?? <MissingMarker label="not entered" />}
+      </Td>
+      <Td className="pr-4 text-right">
+        <KPIRowControls
+          measurableId={row.measurable.id}
+          members={members}
+          current={{
+            measurableId: row.measurable.id,
+            name: row.measurable.name,
+            ownerId: row.measurable.ownerId,
+            unit: row.measurable.unit ?? "",
+            formatHint: row.measurable.formatHint ?? "currency_usd",
+            goalDirection: row.measurable.goalDirection,
+            goalValue: row.measurable.goalValue ?? "",
+            goalSecondary: row.measurable.goalSecondary ?? "",
+            cadence: row.measurable.cadence,
+            formula: row.measurable.formula ?? "",
+          }}
+          readOnly={readOnly}
+          canArchive={actorRole === "admin"}
+        />
       </Td>
     </tr>
   );

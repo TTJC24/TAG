@@ -185,10 +185,180 @@ export async function rolloverTodo(
       todoId: todo.id,
     });
 
-    revalidatePath("/me");
-    revalidatePath("/todos");
-    revalidatePath("/admin/readiness");
+    revalidateTodos();
     return { ok: true, data: { todoId: todo.id, rolloverCount: nextRollover } };
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { ok: false, error: `forbidden: ${err.reason}` };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CRUD on to-dos. createTodo + updateTodo + deleteTodo (soft via 'dropped').
+// Members may create / edit own / drop own. Admin may do anything in org.
+// ─────────────────────────────────────────────────────────────────────────
+
+function revalidateTodos() {
+  revalidatePath("/me");
+  revalidatePath("/scorecard");
+  revalidatePath("/todos");
+  revalidatePath("/admin/readiness");
+}
+
+export interface CreateTodoInput {
+  description: string;
+  ownerId: string;
+  dueDate?: string | null;
+  notes?: string | null;
+}
+
+export async function createTodo(
+  input: CreateTodoInput,
+): Promise<ActionResult<{ todoId: string }>> {
+  try {
+    const ctx = await getAuthContext();
+    if (ctx.role === "viewer") {
+      return { ok: false, error: "forbidden: viewer cannot write" };
+    }
+    const description = input.description.trim();
+    if (!description) return { ok: false, error: "description required" };
+
+    const [inserted] = await db
+      .insert(todos)
+      .values({
+        orgId: ctx.orgId,
+        description,
+        ownerId: input.ownerId,
+        dueDate: input.dueDate ?? null,
+        notes: input.notes?.trim() ? input.notes.trim() : null,
+        status: "open",
+      })
+      .returning({ id: todos.id });
+
+    await writeAuditEntry({
+      orgId: ctx.orgId,
+      personId: ctx.personId,
+      action: "create_todo",
+      entityType: "todo",
+      entityId: inserted!.id,
+      before: null,
+      after: { description, ownerId: input.ownerId, dueDate: input.dueDate ?? null },
+      source: "manual",
+    });
+    revalidateTodos();
+    return { ok: true, data: { todoId: inserted!.id } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export interface UpdateTodoInput {
+  todoId: string;
+  description?: string;
+  ownerId?: string;
+  dueDate?: string | null;
+  notes?: string | null;
+}
+
+export async function updateTodo(
+  input: UpdateTodoInput,
+): Promise<ActionResult<{ todoId: string }>> {
+  try {
+    const ctx = await getAuthContext();
+    const [todo] = await db
+      .select()
+      .from(todos)
+      .where(eq(todos.id, input.todoId))
+      .limit(1);
+    if (!todo) return { ok: false, error: "to-do not found" };
+    authorizeWrite(ctx, { orgId: todo.orgId, ownerId: todo.ownerId });
+
+    const next: Partial<typeof todos.$inferInsert> = {};
+    if (input.description !== undefined) {
+      const t = input.description.trim();
+      if (!t) return { ok: false, error: "description required" };
+      next.description = t;
+    }
+    if (input.ownerId !== undefined) next.ownerId = input.ownerId;
+    if (input.dueDate !== undefined) next.dueDate = input.dueDate ?? null;
+    if (input.notes !== undefined) {
+      const t = input.notes?.trim() ?? "";
+      next.notes = t.length > 0 ? t : null;
+    }
+
+    if (Object.keys(next).length === 0) {
+      return { ok: true, data: { todoId: todo.id } };
+    }
+
+    await db.update(todos).set(next).where(eq(todos.id, todo.id));
+
+    await writeAuditEntry({
+      orgId: todo.orgId,
+      personId: ctx.personId,
+      action: "update_todo",
+      entityType: "todo",
+      entityId: todo.id,
+      before: {
+        description: todo.description,
+        ownerId: todo.ownerId,
+        dueDate: todo.dueDate,
+        notes: todo.notes,
+      },
+      after: next,
+      source: "manual",
+    });
+    await broadcastScorecard(ctx.clerkOrgId, {
+      kind: "todo-updated",
+      todoId: todo.id,
+    });
+    revalidateTodos();
+    return { ok: true, data: { todoId: todo.id } };
+  } catch (err) {
+    if (err instanceof AuthorizationError) {
+      return { ok: false, error: `forbidden: ${err.reason}` };
+    }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Soft-close: status → "dropped". Disappears from open lists; preserved
+ *  in audit + the row stays in the DB for reference. */
+export async function deleteTodo(
+  todoId: string,
+): Promise<ActionResult<{ todoId: string }>> {
+  try {
+    const ctx = await getAuthContext();
+    const [todo] = await db
+      .select()
+      .from(todos)
+      .where(eq(todos.id, todoId))
+      .limit(1);
+    if (!todo) return { ok: false, error: "to-do not found" };
+    authorizeWrite(ctx, { orgId: todo.orgId, ownerId: todo.ownerId });
+
+    await db
+      .update(todos)
+      .set({ status: "dropped" })
+      .where(eq(todos.id, todoId));
+
+    await writeAuditEntry({
+      orgId: todo.orgId,
+      personId: ctx.personId,
+      action: "drop_todo",
+      entityType: "todo",
+      entityId: todoId,
+      before: { status: todo.status },
+      after: { status: "dropped" },
+      source: "manual",
+    });
+    await broadcastScorecard(ctx.clerkOrgId, {
+      kind: "todo-updated",
+      todoId,
+    });
+    revalidateTodos();
+    return { ok: true, data: { todoId } };
   } catch (err) {
     if (err instanceof AuthorizationError) {
       return { ok: false, error: `forbidden: ${err.reason}` };

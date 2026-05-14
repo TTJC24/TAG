@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
+import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgTodos } from "@/lib/queries/org-lists";
 import { TodoCheckbox } from "@/components/todo-checkbox";
+import { AddTodoButton, TodoRowControls } from "@/components/todo-dialogs";
 import { TodoNotesEditor } from "@/components/todo-notes-editor";
 import { TodoRolloverButton } from "@/components/todo-rollover-button";
 import {
@@ -25,7 +27,11 @@ export default async function TodosPage() {
     throw err;
   }
 
-  const rows = await getOrgTodos(ctx.orgId);
+  const [rows, members] = await Promise.all([
+    getOrgTodos(ctx.orgId),
+    getOrgMembers(ctx.orgId),
+  ]);
+  const canCreate = ctx.role !== "viewer";
   const today = new Date().toISOString().slice(0, 10);
   const overdue = rows.filter((r) => r.todo.dueDate && r.todo.dueDate < today).length;
   const rolled = rows.filter((r) => r.todo.rolloverCount > 0).length;
@@ -43,6 +49,9 @@ export default async function TodosPage() {
           <Pill tone="red" label={`${overdue} overdue`} />
           <Pill tone="amber" label={`${rolled} rolled`} />
           <Pill tone="muted" label={`${rows.length} open`} />
+          {canCreate && (
+            <AddTodoButton members={members} defaultOwnerId={ctx.personId} />
+          )}
         </div>
       </header>
 
@@ -65,6 +74,7 @@ export default async function TodosPage() {
                   <Th className="tabular">Due</Th>
                   <Th>Notes</Th>
                   <Th className="tabular">Rollover</Th>
+                  <Th> </Th>
                   <Th className="pr-4"> </Th>
                 </tr>
               </thead>
@@ -109,8 +119,21 @@ export default async function TodosPage() {
                       <Td className="font-mono text-xs text-muted-foreground tabular">
                         {todo.rolloverCount > 0 ? `${todo.rolloverCount}×` : ""}
                       </Td>
-                      <Td className="pr-4">
+                      <Td>
                         <TodoRolloverButton todoId={todo.id} readOnly={readOnly} />
+                      </Td>
+                      <Td className="pr-4 text-right">
+                        <TodoRowControls
+                          todoId={todo.id}
+                          members={members}
+                          current={{
+                            description: todo.description,
+                            ownerId: todo.ownerId,
+                            dueDate: todo.dueDate ?? "",
+                            notes: todo.notes ?? "",
+                          }}
+                          readOnly={readOnly}
+                        />
                       </Td>
                     </tr>
                   );

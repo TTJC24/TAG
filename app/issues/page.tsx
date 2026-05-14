@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
+import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgIssues } from "@/lib/queries/org-lists";
 import { IssueActionButtons } from "@/components/issue-action-buttons";
+import { AddIssueButton, IssueRowControls } from "@/components/issue-dialogs";
 import { IssueNotesEditor } from "@/components/issue-notes-editor";
 import {
   Eyebrow,
@@ -25,7 +27,12 @@ export default async function IssuesPage() {
     throw err;
   }
 
-  const rows = await getOrgIssues(ctx.orgId);
+  const [rows, members] = await Promise.all([
+    getOrgIssues(ctx.orgId),
+    getOrgMembers(ctx.orgId),
+  ]);
+  const canCreate = ctx.role !== "viewer";
+  const isAdmin = ctx.role === "admin";
   const counts = rows.reduce(
     (acc, r) => {
       acc[r.issue.status as "open" | "ids_in_progress"] += 1;
@@ -44,6 +51,9 @@ export default async function IssuesPage() {
         <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
           <Pill tone="amber" label={`${counts.ids_in_progress} worked`} />
           <Pill tone="muted" label={`${counts.open} push next week`} />
+          {canCreate && (
+            <AddIssueButton members={members} defaultOwnerId={ctx.personId} />
+          )}
         </div>
       </header>
 
@@ -64,7 +74,8 @@ export default async function IssuesPage() {
                   <Th>Owner</Th>
                   <Th>Priority</Th>
                   <Th>Notes</Th>
-                  <Th className="pr-4">Status</Th>
+                  <Th>Status</Th>
+                  <Th className="pr-4"> </Th>
                 </tr>
               </thead>
               <tbody>
@@ -91,11 +102,25 @@ export default async function IssuesPage() {
                           readOnly={readOnly}
                         />
                       </Td>
-                      <Td className="pr-4 min-w-[16rem]">
+                      <Td className="min-w-[16rem]">
                         <IssueActionButtons
                           issueId={issue.id}
                           status={issue.status as "open" | "ids_in_progress"}
                           readOnly={readOnly}
+                        />
+                      </Td>
+                      <Td className="pr-4 text-right">
+                        <IssueRowControls
+                          issueId={issue.id}
+                          members={members}
+                          current={{
+                            title: issue.title,
+                            ownerId: issue.ownerId,
+                            priority: issue.priority,
+                            rootCause: issue.rootCause ?? "",
+                          }}
+                          readOnly={readOnly}
+                          canDelete={isAdmin}
                         />
                       </Td>
                     </tr>

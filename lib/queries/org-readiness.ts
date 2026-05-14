@@ -11,7 +11,7 @@
 // computation is a no-op for them and yields a "Nothing assigned"
 // label.
 
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   entries,
@@ -93,7 +93,11 @@ export async function getOrgTeamView(
     })
     .from(measurables)
     .where(
-      and(eq(measurables.orgId, orgId), inArray(measurables.ownerId, memberIds)),
+      and(
+        eq(measurables.orgId, orgId),
+        inArray(measurables.ownerId, memberIds),
+        isNull(measurables.archivedAt),
+      ),
     )
     .orderBy(asc(measurables.displayOrder));
 

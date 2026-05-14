@@ -2,7 +2,7 @@
 // every query joins on org_id from the caller's AuthContext so cross-org
 // reads are impossible by construction.
 
-import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import {
   entries,
@@ -49,7 +49,13 @@ export async function getMyMeasurables(
   const myMeasurables = await db
     .select()
     .from(measurables)
-    .where(and(eq(measurables.ownerId, personId), eq(measurables.orgId, orgId)))
+    .where(
+      and(
+        eq(measurables.ownerId, personId),
+        eq(measurables.orgId, orgId),
+        isNull(measurables.archivedAt),
+      ),
+    )
     .orderBy(asc(measurables.displayOrder));
 
   if (myMeasurables.length === 0 || weekIds.length === 0) {
