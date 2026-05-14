@@ -3,8 +3,10 @@ import { OrganizationSwitcher, UserButton, SignedIn } from "@clerk/nextjs";
 import { tryGetAuthContext } from "@/lib/auth/context";
 
 const NAV: { href: string; label: string; adminOnly?: boolean }[] = [
-  { href: "/me", label: "Me" },
-  { href: "/scorecard", label: "Scorecard" },
+  { href: "/scorecard", label: "My Scorecard" },
+  { href: "/rocks", label: "Rocks" },
+  { href: "/todos", label: "To-Do's" },
+  { href: "/issues", label: "Issues" },
   { href: "/admin/readiness", label: "Readiness", adminOnly: true },
 ];
 
