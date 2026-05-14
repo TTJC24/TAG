@@ -1,14 +1,20 @@
-// Canonical seed — identity + roster.
+// Canonical seed — identity layer only.
 //
-// Writes the canonical roster from DATA_MODEL_DECISION.md. Idempotent
-// across re-runs.
+// Manages: Clerk org names + slugs, local organizations, Clerk users +
+// memberships, local people, local org_memberships. Nothing else.
+//
+// Domain data (measurables, weeks, entries, rocks, todos, issues) is
+// owned by scripts/import-workbook.ts. Running this seed alone leaves
+// those tables untouched — the workbook import is the bootstrap path.
 //
 // Run:  pnpm seed
 //
 // What this script does, in order:
 //   1. Cleans up legacy demo Clerk users (emails ending
 //      "+tractionos-seed@example.com"). Frees Clerk org seats.
-//   2. Mirrors the 3 Clerk orgs into local `organizations`.
+//   2. Mirrors the 3 Clerk orgs into local `organizations`. Drift-corrects
+//      Clerk + local org name to the canonical short label
+//      (FS / BLCS / USA) on every run.
 //   3. For each canonical person:
 //        a. Locates Tim by his existing Clerk admin membership; creates or
 //           finds everyone else by canonical email.
@@ -19,14 +25,7 @@
 //   4. Writes `org_memberships` rows in Postgres — the canonical roster
 //      is **independent of Clerk**, so this lands every membership even
 //      if Clerk rejected one. (DATA_MODEL_DECISION.md §3.)
-//   5. Upserts measurables / rocks / issues with owners taken from the
-//      canonical roster. Existing rows have their `owner_id` updated when
-//      the slug-mapped person changed (e.g. Daniel Hale → Daniel
-//      Milavickas).
-//   6. Weeks + entries: re-runnable; never overwrites real data. Synthetic
-//      seed values exist only to make /me look populated until real KPI
-//      feeds land.
-//   7. Cleanup: deletes orphan local `people` rows whose Clerk user no
+//   5. Cleanup: deletes orphan local `people` rows whose Clerk user no
 //      longer exists AND who own nothing.
 
 import { createClerkClient } from "@clerk/backend";
@@ -37,8 +36,6 @@ import {
   people,
   orgMemberships,
   measurables,
-  weeks,
-  entries,
   rocks,
   issues,
 } from "@/lib/db/schema";
@@ -52,10 +49,15 @@ const clerk = createClerkClient({ secretKey: SECRET });
 
 // ── Specifications ─────────────────────────────────────────────────────────
 
+// Short display labels per the user's "one clean short label per org"
+// rule. The Clerk org name + local organizations.name are kept aligned
+// to these. Slugs and `organizations.code` stay as the lower-case /
+// upper-case identifiers (fs / bl / usa) for stable internal lookup
+// and for the workbook importer's entity column.
 const ORG_SPECS = [
-  { slug: "fs", name: "Fastening Specialists" },
-  { slug: "bl", name: "Big League Construction Supply" },
-  { slug: "usa", name: "Utility Supply Associates" },
+  { slug: "fs", name: "FS" },
+  { slug: "bl", name: "BLCS" },
+  { slug: "usa", name: "USA" },
 ] as const;
 
 type OrgSlug = (typeof ORG_SPECS)[number]["slug"];
@@ -195,176 +197,14 @@ const PEOPLE_SPEC: PersonSpec[] = [
   },
 ];
 
-type GoalDirection = "gte" | "lte" | "eq" | "between" | "trend_down" | "trend_up";
-
-interface MeasurableSpec {
-  org: OrgSlug;
-  name: string;
-  owner: PersonSlug;
-  unit: string;
-  formatHint: string;
-  goalDirection: GoalDirection;
-  goalValue: number | null;
-  cadence: "weekly" | "monthly";
-  formula?: string;
-}
-
-// Per docs/kpi-definitions.md §"Per-entity replication". Owners use the new
-// roster slugs; on re-run the seed updates measurables.owner_id to match.
-//
-// Spreadsheet bootstrap (real KPIs, owners, targets, weekly history) lands
-// in a separate slice; this is placeholder structure to keep /me + the
-// scorecard populated.
-const MEASURABLES_SPEC: MeasurableSpec[] = [
-  // ─── FS ──────────────────────────────────────────────────────────────────
-  { org: "fs", name: "Revenue (Weekly)", owner: "daniel", unit: "USD", formatHint: "currency_usd", goalDirection: "gte", goalValue: 250_000, cadence: "weekly", formula: "Net sales per entity per week" },
-  { org: "fs", name: "Gross Profit %", owner: "daniel", unit: "%", formatHint: "percent", goalDirection: "gte", goalValue: 0.50, cadence: "weekly", formula: "(Revenue – (COGS + Freight Burden)) / Revenue" },
-  { org: "fs", name: "DSO", owner: "tim", unit: "days", formatHint: "days", goalDirection: "lte", goalValue: 45, cadence: "weekly", formula: "AR / (Revenue / 365)" },
-  { org: "fs", name: "DPO", owner: "tim", unit: "days", formatHint: "days", goalDirection: "gte", goalValue: 30, cadence: "weekly", formula: "AP / (COGS / 365)" },
-  { org: "fs", name: "DIO", owner: "craig", unit: "days", formatHint: "days", goalDirection: "lte", goalValue: 60, cadence: "weekly", formula: "Inventory / (COGS / 365)" },
-  { org: "fs", name: "Inventory Turns", owner: "craig", unit: "x", formatHint: "turns", goalDirection: "gte", goalValue: 6, cadence: "monthly", formula: "COGS / Avg Inventory" },
-  { org: "fs", name: "Fill Rate %", owner: "tom", unit: "%", formatHint: "percent", goalDirection: "gte", goalValue: 0.95, cadence: "weekly", formula: "Lines Shipped Complete / Total Lines Ordered" },
-  { org: "fs", name: "AR Collections ($)", owner: "tim", unit: "USD", formatHint: "currency_usd", goalDirection: "gte", goalValue: 250_000, cadence: "weekly", formula: "Cash collected on AR for the week" },
-  { org: "fs", name: "Open Orders (Backlog)", owner: "chip", unit: "USD", formatHint: "currency_usd_trend", goalDirection: "trend_down", goalValue: null, cadence: "weekly", formula: "Total open SO value (declining trend)" },
-  { org: "fs", name: "New Accounts Opened", owner: "daniel", unit: "count", formatHint: "count", goalDirection: "gte", goalValue: 1, cadence: "weekly", formula: "New customer accounts opened this week" },
-  { org: "fs", name: "On-Time Deliveries", owner: "chip", unit: "%", formatHint: "percent", goalDirection: "gte", goalValue: 0.85, cadence: "weekly", formula: "Deliveries on or before promise date" },
-
-  // ─── BL ──────────────────────────────────────────────────────────────────
-  { org: "bl", name: "Revenue (Weekly)", owner: "nick", unit: "USD", formatHint: "currency_usd", goalDirection: "gte", goalValue: 100_000, cadence: "weekly", formula: "Net sales per entity per week" },
-  { org: "bl", name: "Gross Profit %", owner: "nick", unit: "%", formatHint: "percent", goalDirection: "gte", goalValue: 0.30, cadence: "weekly", formula: "(Revenue – (COGS + Freight Burden)) / Revenue" },
-  { org: "bl", name: "DSO", owner: "tim", unit: "days", formatHint: "days", goalDirection: "lte", goalValue: 45, cadence: "weekly", formula: "AR / (Revenue / 365)" },
-  { org: "bl", name: "DPO", owner: "tim", unit: "days", formatHint: "days", goalDirection: "gte", goalValue: 30, cadence: "weekly", formula: "AP / (COGS / 365)" },
-  { org: "bl", name: "DIO", owner: "craig", unit: "days", formatHint: "days", goalDirection: "lte", goalValue: 60, cadence: "weekly", formula: "Inventory / (COGS / 365)" },
-  { org: "bl", name: "Inventory Turns", owner: "craig", unit: "x", formatHint: "turns", goalDirection: "gte", goalValue: 6, cadence: "monthly", formula: "COGS / Avg Inventory" },
-  { org: "bl", name: "Fill Rate %", owner: "chris_booth", unit: "%", formatHint: "percent", goalDirection: "gte", goalValue: 0.95, cadence: "weekly", formula: "Lines Shipped Complete / Total Lines Ordered" },
-  { org: "bl", name: "AR Collections ($)", owner: "tim", unit: "USD", formatHint: "currency_usd", goalDirection: "gte", goalValue: 250_000, cadence: "weekly", formula: "Cash collected on AR for the week" },
-  { org: "bl", name: "Open Orders (Backlog)", owner: "chip", unit: "USD", formatHint: "currency_usd_trend", goalDirection: "trend_down", goalValue: null, cadence: "weekly", formula: "Total open SO value (declining trend)" },
-  { org: "bl", name: "New Accounts Opened", owner: "nick", unit: "count", formatHint: "count", goalDirection: "gte", goalValue: 1, cadence: "weekly", formula: "New customer accounts opened this week" },
-  { org: "bl", name: "On-Time Deliveries", owner: "chip", unit: "%", formatHint: "percent", goalDirection: "gte", goalValue: 0.85, cadence: "weekly", formula: "Deliveries on or before promise date" },
-
-  // ─── USA ─────────────────────────────────────────────────────────────────
-  { org: "usa", name: "Revenue (Weekly)", owner: "andrew", unit: "USD", formatHint: "currency_usd", goalDirection: "gte", goalValue: 312_000, cadence: "weekly", formula: "Net sales per entity per week" },
-  { org: "usa", name: "Gross Profit %", owner: "andrew", unit: "%", formatHint: "percent", goalDirection: "gte", goalValue: 0.15, cadence: "weekly", formula: "(Revenue – (COGS + Freight Burden)) / Revenue" },
-  { org: "usa", name: "DSO", owner: "tim", unit: "days", formatHint: "days", goalDirection: "lte", goalValue: 45, cadence: "weekly", formula: "AR / (Revenue / 365)" },
-  { org: "usa", name: "DPO", owner: "tim", unit: "days", formatHint: "days", goalDirection: "gte", goalValue: 30, cadence: "weekly", formula: "AP / (COGS / 365)" },
-  { org: "usa", name: "DIO", owner: "craig", unit: "days", formatHint: "days", goalDirection: "lte", goalValue: 60, cadence: "weekly", formula: "Inventory / (COGS / 365)" },
-  { org: "usa", name: "Inventory Turns", owner: "craig", unit: "x", formatHint: "turns", goalDirection: "gte", goalValue: 6, cadence: "monthly", formula: "COGS / Avg Inventory" },
-  { org: "usa", name: "AR Collections ($)", owner: "tim", unit: "USD", formatHint: "currency_usd", goalDirection: "gte", goalValue: 250_000, cadence: "weekly", formula: "Cash collected on AR for the week" },
-  { org: "usa", name: "Open Orders (Backlog)", owner: "chip", unit: "USD", formatHint: "currency_usd_trend", goalDirection: "trend_down", goalValue: null, cadence: "weekly", formula: "Total open SO value (declining trend)" },
-];
-
-interface RockSpec {
-  org: OrgSlug;
-  description: string;
-  owner: PersonSlug;
-  status: "on_track" | "off_track" | "completed";
-  notes?: string;
-}
-
-const ROCKS_SPEC: RockSpec[] = [
-  { org: "fs", description: "Implement Acumatica inventory module", owner: "craig", status: "off_track", notes: "Vendor proposal still in flight; sandbox not stood up." },
-  { org: "fs", description: "Fix labeling process and train team", owner: "daniel", status: "on_track", notes: "Training videos in progress; scorecard pending." },
-  { org: "fs", description: "Reduce DSO to ≤35 days", owner: "tim", status: "on_track" },
-  { org: "fs", description: "CRM build-out completion for FS", owner: "daniel", status: "on_track", notes: "Completion = standards/scoreboard & KPIs dashboard visible." },
-  { org: "usa", description: "Onboard logistics partner(s)", owner: "mike", status: "on_track" },
-  { org: "bl", description: "Update company SOPs", owner: "nick", status: "on_track" },
-  { org: "usa", description: "Move USA to Acumatica", owner: "tim", status: "on_track", notes: "Performing data migration for switch to Premium." },
-  { org: "bl", description: "Complete COA migration to new structure", owner: "tim", status: "on_track" },
-  { org: "fs", description: "Company AI Module v1.0", owner: "tim", status: "on_track" },
-];
-
-interface IssueSpec {
-  org: OrgSlug;
-  title: string;
-  priority: "critical" | "high" | "medium" | "low";
-  owner: PersonSlug;
-  rootCause?: string;
-}
-
-const ISSUES_SPEC: IssueSpec[] = [
-  { org: "fs", title: "Fill rate at 95% is unachievable with current safety stock min/max", priority: "high", owner: "tom", rootCause: "Safety stock policy doesn't support 95% — fill rate is too expensive at this min/max." },
-  { org: "fs", title: "Need to know when special orders are received", priority: "high", owner: "chip", rootCause: "No flag in Acumatica when receipt hits the dock." },
-  { org: "fs", title: "Dead stock report parameters and cadence", priority: "medium", owner: "craig" },
-  { org: "bl", title: "Premature invoices", priority: "critical", owner: "tim", rootCause: "Invoices going out before delivery confirmation." },
-  { org: "bl", title: "How do we reduce cycle time on receiving?", priority: "medium", owner: "chip" },
-  { org: "usa", title: "Quote → product-on-ground (POD) scoreboard", priority: "medium", owner: "andrew", rootCause: "No visibility on the receive-to-deliver cycle for USA waterworks." },
-];
+// Domain data (measurables, weeks, entries, rocks, todos, issues) is owned
+// by scripts/import-workbook.ts. The arrays + helpers that previously lived
+// here have been removed so re-running the seed cannot regress the workbook
+// import.
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const FAKE_EMAIL_PATTERN = "+tractionos-seed@example.com";
-
-/** Last 3 Friday week-endings, in chronological order (oldest first). */
-function lastThreeFridays(today: Date): Date[] {
-  const result: Date[] = [];
-  const d = new Date(today);
-  const dow = d.getDay();
-  const offsetToLastFriday = (dow + 2) % 7; // 0 if Friday, 1 if Saturday, …
-  d.setDate(d.getDate() - offsetToLastFriday);
-  for (let i = 0; i < 3; i++) {
-    const copy = new Date(d);
-    copy.setDate(d.getDate() - i * 7);
-    result.unshift(copy);
-  }
-  return result;
-}
-
-function isoWeek(d: Date): { weekNumber: number; year: number } {
-  const target = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-  const dayNumber = (target.getUTCDay() + 6) % 7;
-  target.setUTCDate(target.getUTCDate() - dayNumber + 3);
-  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
-  const weekNumber =
-    1 +
-    Math.round(
-      ((target.getTime() - firstThursday.getTime()) / 86_400_000 -
-        3 +
-        ((firstThursday.getUTCDay() + 6) % 7)) /
-        7,
-    );
-  return { weekNumber, year: target.getUTCFullYear() };
-}
-
-function quarterLabel(d: Date): string {
-  const q = Math.floor(d.getMonth() / 3) + 1;
-  return `Q${q} ${d.getFullYear()}`;
-}
-
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function plausibleActual(
-  spec: MeasurableSpec,
-  weekIdx: number,
-  variance: number,
-): number {
-  const noise = (variance - 0.5) * 0.04;
-  if (spec.goalDirection === "gte" && spec.goalValue !== null) {
-    const offset = 0.15 - weekIdx * 0.06 + noise;
-    return round(spec.goalValue * (1 - offset), spec);
-  }
-  if (spec.goalDirection === "lte" && spec.goalValue !== null) {
-    const offset = 0.18 - weekIdx * 0.07 + noise;
-    return round(spec.goalValue * (1 + offset), spec);
-  }
-  if (spec.goalDirection === "eq" && spec.goalValue !== null) {
-    return round(spec.goalValue * (1 + (variance - 0.5) * 0.06), spec);
-  }
-  if (spec.goalDirection === "trend_down") {
-    return round(1_500_000 - weekIdx * 90_000 + variance * 50_000, spec);
-  }
-  return round(0, spec);
-}
-
-function round(n: number, spec: MeasurableSpec): number {
-  if (spec.formatHint === "percent") return Math.round(n * 10_000) / 10_000;
-  if (spec.formatHint === "currency_usd" || spec.formatHint === "currency_usd_trend")
-    return Math.round(n);
-  if (spec.formatHint === "days") return Math.round(n * 10) / 10;
-  if (spec.formatHint === "turns") return Math.round(n * 100) / 100;
-  return Math.round(n);
-}
 
 async function findOrgBySlug(slug: string) {
   const list = await clerk.organizations.getOrganizationList({ limit: 200 });
@@ -536,12 +376,32 @@ async function main() {
   const legacyDeleted = await cleanupLegacyClerkUsers();
   console.log(`[seed] legacy cleanup: ${legacyDeleted} clerk users deleted`);
 
-  // 1) Orgs
+  // 1) Orgs — converge Clerk org name + local organizations.name to the
+  //    short label spec on every run so renames propagate.
   const orgIdBySlug: Record<OrgSlug, string> = {} as Record<OrgSlug, string>;
   const orgClerkIdBySlug: Record<OrgSlug, string> = {} as Record<OrgSlug, string>;
   for (const o of ORG_SPECS) {
     const clerkOrg = await findOrgBySlug(o.slug);
     orgClerkIdBySlug[o.slug] = clerkOrg.id;
+
+    // Drift-correct the Clerk org name if needed.
+    if (clerkOrg.name !== o.name) {
+      try {
+        await clerk.organizations.updateOrganization(clerkOrg.id, {
+          name: o.name,
+        });
+        console.log(
+          `[seed] renamed clerk org "${clerkOrg.name}" → "${o.name}"`,
+        );
+      } catch (err) {
+        console.warn(
+          `[seed] failed to rename clerk org ${clerkOrg.id}: ${
+            err instanceof Error ? err.message : err
+          }`,
+        );
+      }
+    }
+
     const existing = await db
       .select()
       .from(organizations)
@@ -549,6 +409,16 @@ async function main() {
       .limit(1);
     if (existing[0]) {
       orgIdBySlug[o.slug] = existing[0].id;
+      // Drift-correct the local organizations.name if needed.
+      if (existing[0].name !== o.name) {
+        await db
+          .update(organizations)
+          .set({ name: o.name })
+          .where(eq(organizations.id, existing[0].id));
+        console.log(
+          `[seed] renamed local org "${existing[0].name}" → "${o.name}"`,
+        );
+      }
     } else {
       const inserted = await db
         .insert(organizations)
@@ -673,194 +543,18 @@ async function main() {
     `[seed] org_memberships: ${omInserts} inserted, ${omUpdates} updated`,
   );
 
-  // 4) Measurables — upsert by (orgId, name); update owner_id when changed.
-  const measurableIdByKey: Record<string, string> = {};
-  let mInserts = 0;
-  let mOwnerUpdates = 0;
-  let mIdx = 0;
-  for (const m of MEASURABLES_SPEC) {
-    const orgId = orgIdBySlug[m.org];
-    const targetOwnerId = personIdBySlug[m.owner];
-    const existing = await db
-      .select()
-      .from(measurables)
-      .where(and(eq(measurables.orgId, orgId), eq(measurables.name, m.name)))
-      .limit(1);
-    let id: string;
-    if (existing[0]) {
-      id = existing[0].id;
-      if (existing[0].ownerId !== targetOwnerId) {
-        await db
-          .update(measurables)
-          .set({ ownerId: targetOwnerId })
-          .where(eq(measurables.id, existing[0].id));
-        mOwnerUpdates++;
-      }
-    } else {
-      const inserted = await db
-        .insert(measurables)
-        .values({
-          orgId,
-          name: m.name,
-          ownerId: targetOwnerId,
-          unit: m.unit,
-          formatHint: m.formatHint,
-          goalDirection: m.goalDirection,
-          goalValue: m.goalValue !== null ? String(m.goalValue) : null,
-          cadence: m.cadence,
-          formula: m.formula,
-          displayOrder: mIdx * 10,
-        })
-        .returning({ id: measurables.id });
-      id = inserted[0]!.id;
-      mInserts++;
-    }
-    measurableIdByKey[`${m.org}:${m.name}`] = id;
-    mIdx++;
-  }
+  // Domain data (measurables, weeks, entries, rocks, todos, issues) is
+  // owned by scripts/import-workbook.ts. Run that after the seed to
+  // populate domain rows from reference/TRACTION_MEETING_TEMPLATE.xlsx.
   console.log(
-    `[seed] measurables: ${mInserts} inserted, ${mOwnerUpdates} owner-reassigned`,
+    "[seed] domain data (measurables/rocks/todos/issues/entries/weeks) is owned by",
+  );
+  console.log(
+    "       scripts/import-workbook.ts — run that next to populate from the workbook.",
   );
 
-  // 5) Weeks — last 3 Fridays (placeholder until real meeting cadence lands).
-  const weekDates = lastThreeFridays(new Date());
-  const weekIdByDate: Record<string, string> = {};
-  for (const d of weekDates) {
-    const dateStr = ymd(d);
-    const existing = await db
-      .select()
-      .from(weeks)
-      .where(eq(weeks.weekEndingDate, dateStr))
-      .limit(1);
-    if (existing[0]) {
-      weekIdByDate[dateStr] = existing[0].id;
-    } else {
-      const iw = isoWeek(d);
-      const inserted = await db
-        .insert(weeks)
-        .values({
-          weekEndingDate: dateStr,
-          weekNumber: iw.weekNumber,
-          quarter: quarterLabel(d),
-          fiscalYear: iw.year,
-        })
-        .returning({ id: weeks.id });
-      weekIdByDate[dateStr] = inserted[0]!.id;
-    }
-  }
-  console.log(`[seed] weeks: ${Object.keys(weekIdByDate).length}`);
-
-  // 6) Entries — synthetic seed values; never overwrites.
-  let eCount = 0;
-  for (const m of MEASURABLES_SPEC) {
-    const variance = ((m.org.charCodeAt(0) + m.name.length) % 100) / 100;
-    const measurableId = measurableIdByKey[`${m.org}:${m.name}`];
-    if (!measurableId) continue;
-    for (let i = 0; i < weekDates.length; i++) {
-      const d = weekDates[i]!;
-      const weekId = weekIdByDate[ymd(d)];
-      if (!weekId) continue;
-      const existing = await db
-        .select({ id: entries.id })
-        .from(entries)
-        .where(
-          and(eq(entries.measurableId, measurableId), eq(entries.weekId, weekId)),
-        )
-        .limit(1);
-      if (existing[0]) continue;
-      const actual = plausibleActual(m, i, variance);
-      await db.insert(entries).values({
-        measurableId,
-        weekId,
-        actual: String(actual),
-        source: "system",
-      });
-      eCount++;
-    }
-  }
-  console.log(`[seed] entries inserted: ${eCount} (skipped existing)`);
-
-  // 7) Rocks — upsert by (orgId, description, quarter); update owner.
-  const q2_2026 = "Q2 2026";
-  const q2End = "2026-06-30";
-  let rInserts = 0;
-  let rOwnerUpdates = 0;
-  for (const r of ROCKS_SPEC) {
-    const targetOwnerId = personIdBySlug[r.owner];
-    const existing = await db
-      .select()
-      .from(rocks)
-      .where(
-        and(
-          eq(rocks.orgId, orgIdBySlug[r.org]),
-          eq(rocks.description, r.description),
-          eq(rocks.quarter, q2_2026),
-        ),
-      )
-      .limit(1);
-    if (existing[0]) {
-      if (existing[0].ownerId !== targetOwnerId) {
-        await db
-          .update(rocks)
-          .set({ ownerId: targetOwnerId })
-          .where(eq(rocks.id, existing[0].id));
-        rOwnerUpdates++;
-      }
-    } else {
-      await db.insert(rocks).values({
-        orgId: orgIdBySlug[r.org],
-        description: r.description,
-        ownerId: targetOwnerId,
-        quarter: q2_2026,
-        dueDate: q2End,
-        status: r.status,
-        notes: r.notes,
-      });
-      rInserts++;
-    }
-  }
-  console.log(
-    `[seed] rocks: ${rInserts} inserted, ${rOwnerUpdates} owner-reassigned`,
-  );
-
-  // 8) Issues — upsert by (orgId, title); update owner.
-  let iInserts = 0;
-  let iOwnerUpdates = 0;
-  for (const i of ISSUES_SPEC) {
-    const targetOwnerId = personIdBySlug[i.owner];
-    const existing = await db
-      .select()
-      .from(issues)
-      .where(
-        and(eq(issues.orgId, orgIdBySlug[i.org]), eq(issues.title, i.title)),
-      )
-      .limit(1);
-    if (existing[0]) {
-      if (existing[0].ownerId !== targetOwnerId) {
-        await db
-          .update(issues)
-          .set({ ownerId: targetOwnerId })
-          .where(eq(issues.id, existing[0].id));
-        iOwnerUpdates++;
-      }
-    } else {
-      await db.insert(issues).values({
-        orgId: orgIdBySlug[i.org],
-        title: i.title,
-        priority: i.priority,
-        ownerId: targetOwnerId,
-        rootCause: i.rootCause,
-        status: "open",
-      });
-      iInserts++;
-    }
-  }
-  console.log(
-    `[seed] issues: ${iInserts} inserted, ${iOwnerUpdates} owner-reassigned`,
-  );
-
-  // 9) Cleanup orphan local people rows whose Clerk user is gone AND who
-  //    own nothing. Preserves any row with FK references intact.
+  // Cleanup orphan local people rows whose Clerk user is gone AND who own
+  // nothing. Preserves any row with FK references intact.
   const orphansDeleted = await cleanupOrphanPeople(validClerkUserIds);
   console.log(`[seed] orphan cleanup: ${orphansDeleted} local people row(s) deleted`);
 

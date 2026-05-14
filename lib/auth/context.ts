@@ -24,6 +24,10 @@ export interface AuthContext {
   orgId: string;
   /** Org slug from Clerk (fs | bl | usa). */
   orgSlug: string;
+  /** Short display label sourced from `organizations.name` — FS / BLCS / USA.
+   *  Use this for any user-visible org label so the switcher and page
+   *  headers stay aligned. */
+  orgName: string;
   /** Display name for the actor. */
   personName: string;
 }
@@ -96,6 +100,7 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
     clerkOrgId: orgId,
     orgId: org.id,
     orgSlug: orgSlug ?? org.code.toLowerCase(),
+    orgName: org.name,
     personName: person.name,
   };
 });

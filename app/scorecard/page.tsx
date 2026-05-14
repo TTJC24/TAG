@@ -38,7 +38,7 @@ export default async function ScorecardPage() {
       <LiveSync clerkOrgId={ctx.clerkOrgId} />
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgSlug.toUpperCase()} · Scorecard
+          {ctx.orgName} · Scorecard
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">
           Weekly measurables

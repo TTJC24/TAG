@@ -38,7 +38,7 @@ export default async function IssuesPage() {
     <main className="container space-y-6 py-8">
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgSlug.toUpperCase()} · Issues
+          {ctx.orgName} · Issues
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">Issues list</h1>
         <p className="text-sm text-muted-foreground">

@@ -46,7 +46,7 @@ export default async function AdminReadinessPage() {
     <main className="container space-y-6 py-8">
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgSlug.toUpperCase()} · Readiness
+          {ctx.orgName} · Readiness
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">L10 readiness</h1>
         <p className="text-sm text-muted-foreground">

@@ -98,7 +98,7 @@ export default async function MePage() {
       <LiveSync clerkOrgId={ctx.clerkOrgId} />
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgSlug.toUpperCase()} · L10 prep
+          {ctx.orgName} · L10 prep
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">
           {ctx.personName.split(" ")[0]}&apos;s view

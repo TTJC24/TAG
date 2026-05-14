@@ -30,7 +30,7 @@ export default async function RocksPage() {
     <main className="container space-y-6 py-8">
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgSlug.toUpperCase()} · Rocks
+          {ctx.orgName} · Rocks
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">
           Quarterly rocks

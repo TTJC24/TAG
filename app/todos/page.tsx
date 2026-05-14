@@ -25,7 +25,7 @@ export default async function TodosPage() {
     <main className="container space-y-6 py-8">
       <header className="space-y-1">
         <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgSlug.toUpperCase()} · To-Do&apos;s
+          {ctx.orgName} · To-Do&apos;s
         </p>
         <h1 className="text-2xl font-semibold tracking-tight">
           Open to-do&apos;s
