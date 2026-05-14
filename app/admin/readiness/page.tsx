@@ -2,6 +2,12 @@ import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getNextMeeting, getRecentWeeks } from "@/lib/queries/me";
 import { getOrgTeamView } from "@/lib/queries/org-readiness";
+import {
+  Eyebrow,
+  OwnerChip,
+  Panel,
+  PanelHeader,
+} from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -43,96 +49,137 @@ export default async function AdminReadinessPage() {
   );
 
   return (
-    <main className="container space-y-6 py-8">
-      <header className="space-y-1">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgName} · Readiness
-        </p>
-        <h1 className="text-2xl font-semibold tracking-tight">L10 readiness</h1>
-        <p className="text-sm text-muted-foreground">
-          Whether each person filled out what they own for the current week.
-          Red first.
-        </p>
+    <main className="container space-y-5 py-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-1">
+          <Eyebrow>{ctx.orgName} · Readiness</Eyebrow>
+          <h1 className="text-xl font-semibold tracking-tight">
+            Pre-meeting accountability
+          </h1>
+        </div>
+        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <Pill tone="red" label={`${counts.red} not ready`} />
+          <Pill tone="yellow" label={`${counts.yellow} almost`} />
+          <Pill tone="green" label={`${counts.green} ready`} />
+          <Pill tone="muted" label={`${counts.none} no obligations`} />
+        </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-4 rounded border border-border bg-card px-4 py-3 text-sm">
-        <Pill color="red" label={`${counts.red} not ready`} />
-        <Pill color="yellow" label={`${counts.yellow} almost`} />
-        <Pill color="green" label={`${counts.green} ready`} />
-        <Pill color="none" label={`${counts.none} no obligations`} />
-        <span className="ml-auto font-mono text-[11px] uppercase tracking-widest text-muted-foreground">
-          Next L10:{" "}
-          {nextMeeting
-            ? formatMeetingDate(nextMeeting.scheduledFor.toISOString())
-            : "not scheduled"}
-          {currentWeek ? ` · week ending ${currentWeek.weekEndingDate}` : ""}
-        </span>
-      </div>
-
       {members.length === 0 ? (
-        <p className="rounded border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-          No members in this org yet.
-        </p>
+        <Panel>
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No members in this org yet.
+          </p>
+        </Panel>
       ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-left text-xs uppercase tracking-widest text-muted-foreground">
-                <th className="px-3 py-2 font-medium">Person</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium tabular">
-                  Filled this week
-                </th>
-                <th className="px-3 py-2 font-medium tabular">Overdue to-dos</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m) => {
-                const filled =
-                  m.readiness.totalMeasurables - m.readiness.missingMeasurables;
-                const color = m.obligated ? m.readiness.status : "none";
-                const label = m.obligated ? m.readiness.label : "No obligations";
-                return (
-                  <tr key={m.person.id} className="border-t border-border">
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{m.person.name}</span>
-                        {m.person.role === "admin" && (
-                          <span className="font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
-                            admin
-                          </span>
-                        )}
-                      </div>
-                      <div className="font-mono text-[11px] text-muted-foreground">
-                        {m.person.email}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn("h-2.5 w-2.5 rounded-full", DOT_STYLES[color])}
-                          aria-hidden
-                        />
-                        <span>{label}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 font-mono tabular">
-                      {m.obligated && m.readiness.totalMeasurables > 0
-                        ? `${filled}/${m.readiness.totalMeasurables}`
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-2 font-mono tabular">
-                      {m.obligated ? m.readiness.overdueTodos : "—"}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Panel>
+          <PanelHeader
+            title="Person"
+            count={members.length}
+            hint={
+              currentWeek
+                ? `current: week ending ${currentWeek.weekEndingDate}`
+                : "no week"
+            }
+            right={
+              nextMeeting ? (
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  next L10:{" "}
+                  <span className="text-foreground/90">
+                    {formatMeetingDate(nextMeeting.scheduledFor.toISOString())}
+                  </span>
+                </span>
+              ) : (
+                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                  next L10: not scheduled
+                </span>
+              )
+            }
+          />
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left">
+                  <Th className="pl-4">Person</Th>
+                  <Th>Status</Th>
+                  <Th className="tabular">Filled this week</Th>
+                  <Th className="tabular">Overdue to-dos</Th>
+                  <Th className="pr-4">Owes</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map((m) => {
+                  const filled =
+                    m.readiness.totalMeasurables - m.readiness.missingMeasurables;
+                  const color = m.obligated ? m.readiness.status : "none";
+                  const label = m.obligated ? m.readiness.label : "No obligations";
+                  const owes = describeOwes(m);
+                  return (
+                    <tr
+                      key={m.person.id}
+                      className="border-t border-border/70 align-middle"
+                    >
+                      <Td className="pl-4">
+                        <div className="flex items-center gap-2">
+                          <OwnerChip name={m.person.name} />
+                          {m.person.role === "admin" && (
+                            <span className="font-mono text-[9px] uppercase tracking-[0.18em] text-muted-foreground">
+                              admin
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-0.5 font-mono text-[10px] text-muted-foreground/70">
+                          {m.person.email}
+                        </div>
+                      </Td>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <span
+                            aria-hidden
+                            className={cn("h-2 w-2 rounded-full", DOT_STYLES[color])}
+                          />
+                          <span className="text-sm">{label}</span>
+                        </div>
+                      </Td>
+                      <Td className="font-mono text-xs tabular">
+                        {m.obligated && m.readiness.totalMeasurables > 0
+                          ? `${filled}/${m.readiness.totalMeasurables}`
+                          : "—"}
+                      </Td>
+                      <Td className="font-mono text-xs tabular">
+                        {m.obligated ? m.readiness.overdueTodos : "—"}
+                      </Td>
+                      <Td className="pr-4 text-xs text-muted-foreground">
+                        {owes}
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       )}
     </main>
   );
+}
+
+function describeOwes(m: {
+  obligated: boolean;
+  readiness: { missingMeasurables: number; overdueTodos: number };
+  measurables: unknown[];
+  rocks: unknown[];
+  todos: unknown[];
+  issues: unknown[];
+}): string {
+  if (!m.obligated) return "—";
+  const parts: string[] = [];
+  if (m.readiness.missingMeasurables > 0)
+    parts.push(`${m.readiness.missingMeasurables} KPI${m.readiness.missingMeasurables === 1 ? "" : "s"}`);
+  if (m.readiness.overdueTodos > 0)
+    parts.push(`${m.readiness.overdueTodos} overdue todo${m.readiness.overdueTodos === 1 ? "" : "s"}`);
+  if (parts.length === 0) return "ready";
+  return parts.join(" · ");
 }
 
 const DOT_STYLES: Record<"green" | "yellow" | "red" | "none", string> = {
@@ -142,16 +189,41 @@ const DOT_STYLES: Record<"green" | "yellow" | "red" | "none", string> = {
   none: "bg-muted-foreground/40",
 };
 
+function Th({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <th
+      className={cn(
+        "border-b border-border/70 bg-card/40 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <td className={cn("px-3 py-2 text-sm", className)}>{children}</td>;
+}
+
 function Pill({
-  color,
+  tone,
   label,
 }: {
-  color: "green" | "yellow" | "red" | "none";
+  tone: "red" | "yellow" | "green" | "muted";
   label: string;
 }) {
+  const dot =
+    tone === "red"
+      ? "bg-rose-400"
+      : tone === "yellow"
+        ? "bg-amber-400"
+        : tone === "green"
+          ? "bg-emerald-400"
+          : "bg-muted-foreground/40";
   return (
-    <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest">
-      <span className={cn("h-2 w-2 rounded-full", DOT_STYLES[color])} aria-hidden />
+    <span className="flex items-center gap-2">
+      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
       {label}
     </span>
   );

@@ -3,6 +3,12 @@ import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getOrgRocks } from "@/lib/queries/org-lists";
 import { RockNotesEditor } from "@/components/rock-notes-editor";
 import { RockStatusSelect } from "@/components/rock-status-select";
+import {
+  Eyebrow,
+  OwnerChip,
+  Panel,
+  PanelHeader,
+} from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -29,99 +35,121 @@ export default async function RocksPage() {
   );
 
   return (
-    <main className="container space-y-6 py-8">
-      <header className="space-y-1">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgName} · Rocks
-        </p>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Quarterly rocks
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Owners click a status to update. Off-track first.
-        </p>
+    <main className="container space-y-5 py-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-1">
+          <Eyebrow>{ctx.orgName} · Rocks</Eyebrow>
+          <h1 className="text-xl font-semibold tracking-tight">
+            Quarterly priorities
+          </h1>
+        </div>
+        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <Pill tone="red" label={`${counts.off_track} off`} />
+          <Pill tone="green" label={`${counts.on_track} on`} />
+          <Pill tone="amber" label={`${counts.still_going} still going`} />
+          <Pill tone="muted" label={`${counts.completed} done`} />
+        </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-4 rounded border border-border bg-card px-4 py-3 text-sm">
-        <Pill color="red" label={`${counts.off_track} off track`} />
-        <Pill color="green" label={`${counts.on_track} on track`} />
-        <Pill color="amber" label={`${counts.still_going} still going`} />
-        <Pill color="muted" label={`${counts.completed} done`} />
-      </div>
-
       {rows.length === 0 ? (
-        <p className="rounded border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-          No rocks for this org.
-        </p>
+        <Panel>
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No rocks for this org.
+          </p>
+        </Panel>
       ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-left text-xs uppercase tracking-widest text-muted-foreground">
-                <th className="px-3 py-2 font-medium">Rock</th>
-                <th className="px-3 py-2 font-medium">Owner</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2 font-medium">Notes</th>
-                <th className="px-3 py-2 font-medium tabular">Quarter · Due</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ rock, owner }) => {
-                const isOwner = rock.ownerId === ctx.personId;
-                const readOnly =
-                  ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
-                return (
-                  <tr key={rock.id} className="border-t border-border align-top">
-                    <td className="px-3 py-2 font-medium">{rock.description}</td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {owner?.name ?? "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <RockStatusSelect
-                        rockId={rock.id}
-                        status={rock.status}
-                        readOnly={readOnly}
-                      />
-                    </td>
-                    <td className="px-3 py-2 min-w-[18rem]">
-                      <RockNotesEditor
-                        rockId={rock.id}
-                        value={rock.notes}
-                        readOnly={readOnly}
-                      />
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground tabular">
-                      {rock.quarter}
-                      {rock.dueDate ? ` · ${rock.dueDate}` : ""}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Panel>
+          <PanelHeader title="Rock" count={rows.length} hint="off-track first" />
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left">
+                  <Th className="pl-4">Rock</Th>
+                  <Th>Owner</Th>
+                  <Th>Status</Th>
+                  <Th>Notes</Th>
+                  <Th className="pr-4 tabular">Quarter · Due</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ rock, owner }) => {
+                  const isOwner = rock.ownerId === ctx.personId;
+                  const readOnly =
+                    ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
+                  return (
+                    <tr
+                      key={rock.id}
+                      className="border-t border-border/70 align-top"
+                    >
+                      <Td className="pl-4 font-medium">{rock.description}</Td>
+                      <Td>
+                        <OwnerChip name={owner?.name ?? null} />
+                      </Td>
+                      <Td>
+                        <RockStatusSelect
+                          rockId={rock.id}
+                          status={rock.status}
+                          readOnly={readOnly}
+                        />
+                      </Td>
+                      <Td className="min-w-[18rem]">
+                        <RockNotesEditor
+                          rockId={rock.id}
+                          value={rock.notes}
+                          readOnly={readOnly}
+                        />
+                      </Td>
+                      <Td className="pr-4 font-mono text-xs text-muted-foreground tabular">
+                        {rock.quarter}
+                        {rock.dueDate ? ` · ${rock.dueDate}` : ""}
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       )}
     </main>
   );
 }
 
-const DOT_STYLES: Record<"red" | "green" | "amber" | "muted", string> = {
-  red: "bg-rose-400",
-  green: "bg-emerald-400",
-  amber: "bg-amber-400",
-  muted: "bg-muted-foreground/40",
-};
+function Th({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <th
+      className={cn(
+        "border-b border-border/70 bg-card/40 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <td className={cn("px-3 py-2 text-sm", className)}>{children}</td>;
+}
 
 function Pill({
-  color,
+  tone,
   label,
 }: {
-  color: "red" | "green" | "amber" | "muted";
+  tone: "red" | "green" | "amber" | "muted";
   label: string;
 }) {
+  const dot =
+    tone === "red"
+      ? "bg-rose-400"
+      : tone === "green"
+        ? "bg-emerald-400"
+        : tone === "amber"
+          ? "bg-amber-400"
+          : "bg-muted-foreground/40";
   return (
-    <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest">
-      <span className={cn("h-2 w-2 rounded-full", DOT_STYLES[color])} aria-hidden />
+    <span className="flex items-center gap-2">
+      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
       {label}
     </span>
   );

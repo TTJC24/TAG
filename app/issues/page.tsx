@@ -3,6 +3,13 @@ import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getOrgIssues } from "@/lib/queries/org-lists";
 import { IssueActionButtons } from "@/components/issue-action-buttons";
 import { IssueNotesEditor } from "@/components/issue-notes-editor";
+import {
+  Eyebrow,
+  OwnerChip,
+  Panel,
+  PanelHeader,
+  StatusChip,
+} from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -28,120 +35,120 @@ export default async function IssuesPage() {
   );
 
   return (
-    <main className="container space-y-6 py-8">
-      <header className="space-y-1">
-        <p className="text-xs uppercase tracking-widest text-muted-foreground">
-          {ctx.orgName} · Issues
-        </p>
-        <h1 className="text-2xl font-semibold tracking-tight">Issues list</h1>
-        <p className="text-sm text-muted-foreground">
-          Worked / push next week / resolved. Critical first.
-        </p>
+    <main className="container space-y-5 py-6">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div className="space-y-1">
+          <Eyebrow>{ctx.orgName} · Issues</Eyebrow>
+          <h1 className="text-xl font-semibold tracking-tight">IDS queue</h1>
+        </div>
+        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+          <Pill tone="amber" label={`${counts.ids_in_progress} worked`} />
+          <Pill tone="muted" label={`${counts.open} push next week`} />
+        </div>
       </header>
 
-      <div className="flex flex-wrap items-center gap-4 rounded border border-border bg-card px-4 py-3 text-sm">
-        <Pill color="amber" label={`${counts.ids_in_progress} worked`} />
-        <Pill color="muted" label={`${counts.open} push next week`} />
-      </div>
-
       {rows.length === 0 ? (
-        <p className="rounded border border-dashed border-border px-3 py-8 text-center text-sm text-muted-foreground">
-          No open issues for this org.
-        </p>
+        <Panel>
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            No open issues for this org.
+          </p>
+        </Panel>
       ) : (
-        <div className="overflow-x-auto rounded border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr className="text-left text-xs uppercase tracking-widest text-muted-foreground">
-                <th className="px-3 py-2 font-medium">Issue</th>
-                <th className="px-3 py-2 font-medium">Owner</th>
-                <th className="px-3 py-2 font-medium">Priority</th>
-                <th className="px-3 py-2 font-medium">Notes</th>
-                <th className="px-3 py-2 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ issue, owner }) => {
-                const isOwner = issue.ownerId === ctx.personId;
-                const readOnly =
-                  ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
-                return (
-                  <tr key={issue.id} className="border-t border-border align-top">
-                    <td className="px-3 py-2 font-medium">{issue.title}</td>
-                    <td className="px-3 py-2 text-muted-foreground">
-                      {owner?.name ?? "—"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <PriorityChip priority={issue.priority} />
-                    </td>
-                    <td className="px-3 py-2 min-w-[18rem]">
-                      <IssueNotesEditor
-                        issueId={issue.id}
-                        value={issue.rootCause}
-                        readOnly={readOnly}
-                      />
-                    </td>
-                    <td className="px-3 py-2 min-w-[16rem]">
-                      <IssueActionButtons
-                        issueId={issue.id}
-                        status={issue.status as "open" | "ids_in_progress"}
-                        readOnly={readOnly}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Panel>
+          <PanelHeader title="Issue" count={rows.length} hint="critical first" />
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="text-left">
+                  <Th className="pl-4">Issue</Th>
+                  <Th>Owner</Th>
+                  <Th>Priority</Th>
+                  <Th>Notes</Th>
+                  <Th className="pr-4">Status</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map(({ issue, owner }) => {
+                  const isOwner = issue.ownerId === ctx.personId;
+                  const readOnly =
+                    ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
+                  return (
+                    <tr
+                      key={issue.id}
+                      className="border-t border-border/70 align-top"
+                    >
+                      <Td className="pl-4 font-medium">{issue.title}</Td>
+                      <Td>
+                        <OwnerChip name={owner?.name ?? null} />
+                      </Td>
+                      <Td>
+                        <PriorityChip priority={issue.priority} />
+                      </Td>
+                      <Td className="min-w-[18rem]">
+                        <IssueNotesEditor
+                          issueId={issue.id}
+                          value={issue.rootCause}
+                          readOnly={readOnly}
+                        />
+                      </Td>
+                      <Td className="pr-4 min-w-[16rem]">
+                        <IssueActionButtons
+                          issueId={issue.id}
+                          status={issue.status as "open" | "ids_in_progress"}
+                          readOnly={readOnly}
+                        />
+                      </Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
       )}
     </main>
   );
 }
 
-const DOT_STYLES: Record<"amber" | "muted", string> = {
-  amber: "bg-amber-400",
-  muted: "bg-muted-foreground/40",
-};
+function Th({ children, className }: { children: React.ReactNode; className?: string }) {
+  return (
+    <th
+      className={cn(
+        "border-b border-border/70 bg-card/40 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </th>
+  );
+}
+
+function Td({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <td className={cn("px-3 py-2 text-sm", className)}>{children}</td>;
+}
 
 function Pill({
-  color,
+  tone,
   label,
 }: {
-  color: "amber" | "muted";
+  tone: "amber" | "muted";
   label: string;
 }) {
+  const dot = tone === "amber" ? "bg-amber-400" : "bg-muted-foreground/40";
   return (
-    <span className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest">
-      <span className={cn("h-2 w-2 rounded-full", DOT_STYLES[color])} aria-hidden />
+    <span className="flex items-center gap-2">
+      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
       {label}
     </span>
   );
 }
-
-const PRIORITY_TAG_STYLES: Record<
-  "critical" | "high" | "medium" | "low",
-  string
-> = {
-  critical: "border-rose-500/40 bg-rose-500/10 text-rose-100",
-  high: "border-amber-500/40 bg-amber-500/10 text-amber-100",
-  medium: "border-border bg-muted/30 text-muted-foreground",
-  low: "border-border bg-muted/20 text-muted-foreground",
-};
 
 function PriorityChip({
   priority,
 }: {
   priority: "critical" | "high" | "medium" | "low";
 }) {
-  return (
-    <span
-      className={cn(
-        "rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
-        PRIORITY_TAG_STYLES[priority],
-      )}
-    >
-      {priority}
-    </span>
-  );
+  const tone =
+    priority === "critical" ? "red" : priority === "high" ? "yellow" : "muted";
+  return <StatusChip tone={tone}>{priority}</StatusChip>;
 }

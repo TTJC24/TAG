@@ -2,78 +2,70 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─────────────────────────────────────────────────────────────────────────
+   TractionOS — operational palette.
+   Dark-mode is the only mode. Color is reserved for risk / blocked /
+   trend / completion / urgency. No decorative color anywhere.
+   ─────────────────────────────────────────────────────────────────────── */
+
 @layer base {
   :root {
+    /* The light palette is left intact for the Clerk sign-in surface
+       where a short flash of light is acceptable. The app is dark by
+       default (forced via app/layout.tsx <ThemeProvider defaultTheme>). */
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
-
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
-
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-
     --primary: 222.2 47.4% 11.2%;
     --primary-foreground: 210 40% 98%;
-
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-
     --muted: 210 40% 96.1%;
     --muted-foreground: 215.4 16.3% 46.9%;
-
     --accent: 210 40% 96.1%;
     --accent-foreground: 222.2 47.4% 11.2%;
-
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
     --ring: 222.2 84% 4.9%;
+    --radius: 0.25rem;
 
-    --radius: 0.5rem;
-
-    /* Shading engine channels — earned shades, not kindergarten reds/greens.
-       Intensity is applied as alpha at the call site:
-       hsl(var(--status-red) / <intensity-as-decimal>) */
     --status-green: 142 50% 42%;
     --status-yellow: 38 85% 50%;
     --status-red: 0 65% 48%;
   }
 
+  /* Dark = the operational mode. Matte graphite. Sharp separators. */
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-
-    --destructive: 0 62.8% 30.6%;
+    --background: 220 15% 7%;            /* deep charcoal */
+    --foreground: 210 15% 92%;           /* paper */
+    --card: 220 14% 9%;                  /* one tier above bg */
+    --card-foreground: 210 15% 92%;
+    --popover: 220 16% 6%;
+    --popover-foreground: 210 15% 92%;
+    --primary: 210 15% 92%;
+    --primary-foreground: 220 15% 7%;
+    --secondary: 220 12% 14%;
+    --secondary-foreground: 210 15% 92%;
+    --muted: 220 12% 14%;
+    --muted-foreground: 215 10% 58%;     /* dim caption */
+    --accent: 220 12% 14%;
+    --accent-foreground: 210 15% 92%;
+    --destructive: 0 70% 55%;
     --destructive-foreground: 210 40% 98%;
+    --border: 220 10% 18%;               /* crisp separator */
+    --input: 220 10% 18%;
+    --ring: 210 15% 78%;                 /* focus is paper-bright */
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
-
-    --status-green: 142 55% 48%;
-    --status-yellow: 38 90% 55%;
-    --status-red: 0 70% 55%;
+    /* Status — high-saturation but never decorative. Used only for
+       risk / blocked / trend / completion / urgency. */
+    --status-green: 145 55% 50%;
+    --status-yellow: 40 92% 58%;
+    --status-red: 0 75% 60%;
   }
 }
 
@@ -81,13 +73,113 @@
   * {
     @apply border-border;
   }
+  html {
+    color-scheme: dark;
+  }
   body {
     @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
+    font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  /* Tabular figures for numerics — Geist Mono carries them; this also
-     ensures non-mono tabular contexts get aligned columns. */
+  /* Tabular figures for any numeric run. Geist Mono carries them; this
+     forces the same alignment in non-mono contexts. */
   .tabular {
     font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+  /* Hairline rule used between dense rows; thinner than border-border. */
+  .rule {
+    box-shadow: inset 0 -1px 0 0 hsl(var(--border) / 0.7);
+  }
+  /* Subtle grain on the background — adds the "matte" feel without noise. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(hsl(var(--foreground) / 0.018) 1px, transparent 1px);
+    background-size: 3px 3px;
+    z-index: 0;
+  }
+}
+
+/* ─── Operational utility primitives ───────────────────────────────────── */
+
+@layer components {
+  /* Block of operational data — replaces card padding sprawl. */
+  .panel {
+    @apply rounded border border-border bg-card;
+  }
+  .panel-tight {
+    @apply rounded border border-border bg-card/60;
+  }
+
+  /* Section header rule above a dense table or list. */
+  .panel-header {
+    @apply flex flex-wrap items-baseline justify-between gap-3 border-b border-border px-4 py-2.5;
+  }
+
+  /* Eyebrow caption — uppercase, dim, monospaced. Used for org/section labels. */
+  .eyebrow {
+    @apply font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground;
+  }
+
+  /* Numeric block — oversized current-week reading. */
+  .numeric-xl {
+    @apply font-mono tabular text-2xl font-semibold leading-none tracking-tight;
+  }
+  .numeric-md {
+    @apply font-mono tabular text-base font-medium leading-none;
+  }
+  .numeric-sm {
+    @apply font-mono tabular text-xs leading-none text-muted-foreground;
+  }
+
+  /* Owner chip — flat slug. Color reserved for status. */
+  .owner-chip {
+    @apply inline-flex items-center gap-1.5 rounded border border-border bg-muted/30 px-2 py-0.5 text-[11px] font-medium text-foreground/90;
+  }
+
+  /* Status chip variants — semantic only. */
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em];
+  }
+  .chip-green {
+    @apply border-emerald-500/35 bg-emerald-500/10 text-emerald-100;
+  }
+  .chip-yellow {
+    @apply border-amber-500/35 bg-amber-500/10 text-amber-100;
+  }
+  .chip-red {
+    @apply border-rose-500/35 bg-rose-500/10 text-rose-100;
+  }
+  .chip-muted {
+    @apply border-border bg-muted/30 text-muted-foreground;
+  }
+
+  /* Missing marker — unmistakable empty state on a dense row. */
+  .missing {
+    @apply font-mono text-[11px] uppercase tracking-[0.16em] text-rose-300/90;
+  }
+}
+
+/* ─── Meeting Mode — applied to <body> when ?meeting=1 ─────────────────── */
+
+@layer base {
+  body[data-meeting="1"] {
+    /* Higher contrast, less chrome. Conference-room legible. */
+    background: hsl(220 18% 4%);
+  }
+  body[data-meeting="1"] .meeting-hide {
+    display: none !important;
+  }
+  body[data-meeting="1"] .meeting-numeric {
+    font-size: 1.3em;
+    letter-spacing: -0.01em;
+  }
+  body[data-meeting="1"] .panel {
+    border-color: hsl(var(--border) / 0.8);
   }
 }
