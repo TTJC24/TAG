@@ -1,0 +1,32 @@
+[Unit]
+Description=Jerry adapter (Traction → /opt/jerry on loopback)
+After=network-online.target jerry.service
+Wants=network-online.target jerry.service
+
+[Service]
+Type=simple
+User=jerry
+Group=jerry
+WorkingDirectory=/opt/jerry-adapter
+ExecStart=/usr/bin/node /opt/jerry-adapter/server.js
+Restart=on-failure
+RestartSec=2
+# Environment file lives separately so the bearer token never sits in
+# the unit file. Create /etc/jerry-adapter.env with:
+#   ADAPTER_PORT=8910
+#   ADAPTER_KEY=<long random shared secret>
+#   JERRY_URL=http://127.0.0.1:8900
+#   JERRY_TIMEOUT_MS=30000
+EnvironmentFile=/etc/jerry-adapter.env
+
+# Hardening — adapter is small and local; lock it down.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/jerry-adapter
+RestrictAddressFamilies=AF_INET AF_INET6
+PrivateDevices=true
+
+[Install]
+WantedBy=multi-user.target

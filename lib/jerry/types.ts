@@ -154,11 +154,25 @@ export type JerryActionIntent =
       rootCause?: string | null;
     };
 
+export interface JerryCitation {
+  /** Stable identifier from Jerry's vault (file path, doc id, etc.). */
+  source: string;
+  /** Optional snippet preview the dock can render. */
+  snippet?: string;
+  /** Optional URL or vault path the user can open. */
+  href?: string;
+}
+
 export interface JerryResponse {
-  /** Prose answer rendered in the dock. */
+  /** Prose answer rendered in the dock. Adapter maps real Jerry's `answer`. */
   reply: string;
-  /** Optional structured action proposals. UI shows each with Approve/Skip. */
+  /** Vault citations Jerry returned. Adapter passes through real Jerry's
+   *  `citations` field unchanged in shape. */
+  citations?: JerryCitation[];
+  /** Optional structured action proposals. UI shows each with Approve/Skip.
+   *  Adapter maps a subset of real Jerry's `tool_calls` into this shape;
+   *  unmapped tool_calls are surfaced as citations or omitted. */
   actionIntents?: JerryActionIntent[];
-  /** Optional model/version stamp Jerry can return for traceability. */
+  /** Optional model/version stamp Jerry returns for traceability. */
   jerryVersion?: string;
 }

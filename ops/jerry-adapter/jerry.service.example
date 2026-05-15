@@ -1,0 +1,26 @@
+[Unit]
+Description=Jerry — company brain (binds to 127.0.0.1:8900 only)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jerry
+Group=jerry
+WorkingDirectory=/opt/jerry
+# Replace ExecStart with however /opt/jerry actually starts (python -m,
+# uvicorn, gunicorn, node, etc). Examples:
+#   ExecStart=/usr/bin/python3 -m jerry.serve --host 127.0.0.1 --port 8900
+#   ExecStart=/opt/jerry/.venv/bin/uvicorn jerry.app:app --host 127.0.0.1 --port 8900
+ExecStart=/opt/jerry/.venv/bin/python -m jerry.serve --host 127.0.0.1 --port 8900
+Restart=on-failure
+RestartSec=2
+EnvironmentFile=/etc/jerry.env
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

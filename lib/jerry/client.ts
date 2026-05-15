@@ -1,14 +1,25 @@
-// Thin HTTP adapter to the existing Jerry service running on the
-// shared droplet. Treat Jerry as opaque — this file is the only place
-// the app knows the wire protocol. If Jerry's actual API differs from
-// the assumption below (POST {JERRY_BASE_URL}{JERRY_PATH} with bearer
-// auth + JSON body), update *only* this file.
+// Thin HTTP adapter to the **Jerry adapter** running on jerry-app.
 //
-// Env:
-//   JERRY_BASE_URL — required; e.g. https://jerry.example.com
-//   JERRY_API_KEY  — required; sent as Authorization: Bearer <key>
-//   JERRY_PATH     — optional; defaults to "/chat"
-//   JERRY_TIMEOUT_MS — optional; defaults to 30000
+// Architecture (per the canonical design):
+//   Traction (Vercel)
+//     → HTTPS to Jerry adapter on jerry-app  (this client)
+//        → http://127.0.0.1:8900/v1/jerry/query  (real /opt/jerry, loopback)
+//
+// Raw Jerry is never exposed publicly. The adapter is the ONLY thing
+// the app talks to; if Jerry's wire shape changes, only the adapter
+// changes. This client knows nothing about real Jerry's internals.
+//
+// Wire contract this client expects from the adapter:
+//   POST {JERRY_ADAPTER_URL}/jerry/query
+//   Authorization: Bearer {JERRY_ADAPTER_KEY}
+//   body:    JerryRequest                       (lib/jerry/types.ts)
+//   200 OK:  JerryResponse                      (lib/jerry/types.ts)
+//
+// Env (with backwards-compatible aliases for the previous slice):
+//   JERRY_ADAPTER_URL   (preferred) or JERRY_BASE_URL
+//   JERRY_ADAPTER_KEY   (preferred) or JERRY_API_KEY
+//   JERRY_PATH          optional; defaults to "/jerry/query"
+//   JERRY_TIMEOUT_MS    optional; defaults to 30000
 
 import { optionalEnv } from "@/lib/env";
 import type { JerryRequest, JerryResponse } from "./types";
@@ -16,7 +27,7 @@ import type { JerryRequest, JerryResponse } from "./types";
 export class JerryNotConfiguredError extends Error {
   constructor() {
     super(
-      "Jerry is not configured. Set JERRY_BASE_URL and JERRY_API_KEY to point at the existing Jerry service.",
+      "Jerry adapter not configured. Set JERRY_ADAPTER_URL and JERRY_ADAPTER_KEY (or the legacy JERRY_BASE_URL / JERRY_API_KEY).",
     );
     this.name = "JerryNotConfiguredError";
   }
@@ -33,16 +44,24 @@ export class JerryRequestError extends Error {
   }
 }
 
+function adapterUrl(): string | undefined {
+  return optionalEnv("JERRY_ADAPTER_URL") ?? optionalEnv("JERRY_BASE_URL");
+}
+
+function adapterKey(): string | undefined {
+  return optionalEnv("JERRY_ADAPTER_KEY") ?? optionalEnv("JERRY_API_KEY");
+}
+
 export function isJerryConfigured(): boolean {
-  return !!(optionalEnv("JERRY_BASE_URL") && optionalEnv("JERRY_API_KEY"));
+  return !!(adapterUrl() && adapterKey());
 }
 
 export async function askJerry(req: JerryRequest): Promise<JerryResponse> {
-  const baseUrl = optionalEnv("JERRY_BASE_URL");
-  const apiKey = optionalEnv("JERRY_API_KEY");
+  const baseUrl = adapterUrl();
+  const apiKey = adapterKey();
   if (!baseUrl || !apiKey) throw new JerryNotConfiguredError();
 
-  const path = optionalEnv("JERRY_PATH") ?? "/chat";
+  const path = optionalEnv("JERRY_PATH") ?? "/jerry/query";
   const timeoutMs = Number(optionalEnv("JERRY_TIMEOUT_MS") ?? "30000");
   const url = baseUrl.replace(/\/+$/, "") + path;
 
@@ -62,57 +81,63 @@ export async function askJerry(req: JerryRequest): Promise<JerryResponse> {
   } catch (err) {
     clearTimeout(t);
     const msg = err instanceof Error ? err.message : String(err);
-    throw new JerryRequestError(`Jerry request failed: ${msg}`);
+    throw new JerryRequestError(`Jerry adapter request failed: ${msg}`);
   }
   clearTimeout(t);
 
   const text = await res.text();
   if (!res.ok) {
     throw new JerryRequestError(
-      `Jerry responded ${res.status}`,
+      `Jerry adapter responded ${res.status}`,
       res.status,
       text.slice(0, 500),
     );
   }
-  // Jerry is expected to return application/json with the JerryResponse
-  // shape. If your existing Jerry returns a different shape (e.g.
-  // { message, suggestions } instead of { reply, actionIntents }), map
-  // it here.
+
+  // The adapter is responsible for normalizing real Jerry's
+  // {answer, citations, tool_calls, hops} into the JerryResponse
+  // shape. We're tolerant of minor field-name drift here only as a
+  // safety net.
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    // Fall back: if Jerry returns plain text, treat the whole body as
-    // `reply` with no intents. Keeps the dock usable while the API
-    // surface gets formalized.
     return { reply: text };
   }
   return normalize(parsed);
 }
 
 function normalize(raw: unknown): JerryResponse {
-  if (raw && typeof raw === "object") {
-    const obj = raw as Record<string, unknown>;
-    const reply =
-      typeof obj.reply === "string"
-        ? obj.reply
+  if (!raw || typeof raw !== "object") return { reply: String(raw ?? "") };
+  const obj = raw as Record<string, unknown>;
+
+  const reply =
+    typeof obj.reply === "string"
+      ? obj.reply
+      : typeof obj.answer === "string"
+        ? (obj.answer as string)
         : typeof obj.message === "string"
           ? (obj.message as string)
           : typeof obj.text === "string"
             ? (obj.text as string)
             : "";
-    const actionIntents = Array.isArray(obj.actionIntents)
-      ? (obj.actionIntents as JerryResponse["actionIntents"])
-      : Array.isArray(obj.intents)
-        ? (obj.intents as JerryResponse["actionIntents"])
+
+  const citations = Array.isArray(obj.citations)
+    ? (obj.citations as JerryResponse["citations"])
+    : undefined;
+
+  const actionIntents = Array.isArray(obj.actionIntents)
+    ? (obj.actionIntents as JerryResponse["actionIntents"])
+    : Array.isArray(obj.intents)
+      ? (obj.intents as JerryResponse["actionIntents"])
+      : undefined;
+
+  const jerryVersion =
+    typeof obj.jerryVersion === "string"
+      ? (obj.jerryVersion as string)
+      : typeof obj.version === "string"
+        ? (obj.version as string)
         : undefined;
-    const jerryVersion =
-      typeof obj.jerryVersion === "string"
-        ? (obj.jerryVersion as string)
-        : typeof obj.version === "string"
-          ? (obj.version as string)
-          : undefined;
-    return { reply, actionIntents, jerryVersion };
-  }
-  return { reply: String(raw ?? "") };
+
+  return { reply, citations, actionIntents, jerryVersion };
 }

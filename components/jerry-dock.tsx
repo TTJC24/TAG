@@ -3,12 +3,17 @@
 import { useEffect, useRef, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
-import type { JerryActionIntent, JerryResponse } from "@/lib/jerry/types";
+import type {
+  JerryActionIntent,
+  JerryCitation,
+  JerryResponse,
+} from "@/lib/jerry/types";
 
 interface ChatTurn {
   who: "you" | "jerry";
   text: string;
   intents?: JerryActionIntent[];
+  citations?: JerryCitation[];
   /** error string if the turn failed */
   error?: string;
 }
@@ -68,6 +73,7 @@ export function JerryDock() {
             who: "jerry",
             text: (json as JerryResponse).reply,
             intents: (json as JerryResponse).actionIntents,
+            citations: (json as JerryResponse).citations,
           },
         ]);
       } catch (err) {
@@ -188,6 +194,36 @@ export function JerryDock() {
                   <p className="font-mono text-xs text-rose-300">{turn.error}</p>
                 ) : (
                   <p className="whitespace-pre-wrap text-sm">{turn.text}</p>
+                )}
+                {turn.citations && turn.citations.length > 0 && (
+                  <ul className="mt-2 space-y-0.5 border-t border-border/60 pt-1.5">
+                    {turn.citations.map((c, j) => (
+                      <li
+                        key={j}
+                        className="font-mono text-[10px] text-muted-foreground"
+                      >
+                        <span className="text-emerald-300/80">↳</span>{" "}
+                        {c.href ? (
+                          <a
+                            href={c.href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="hover:text-foreground hover:underline"
+                          >
+                            {c.source}
+                          </a>
+                        ) : (
+                          <span>{c.source}</span>
+                        )}
+                        {c.snippet && (
+                          <span className="ml-2 italic text-muted-foreground/70">
+                            {c.snippet.slice(0, 80)}
+                            {c.snippet.length > 80 ? "…" : ""}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
                 {turn.intents && turn.intents.length > 0 && (
                   <ul className="mt-2 space-y-1.5">
