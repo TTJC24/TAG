@@ -10,7 +10,8 @@ export type AuditSource =
   | "fireflies"
   | "teams_native"
   | "transcript_manual"
-  | "system";
+  | "system"
+  | "jerry";
 
 export interface AuditEntry {
   orgId: string;

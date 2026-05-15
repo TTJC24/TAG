@@ -54,6 +54,7 @@ export const entrySource = pgEnum("entry_source", [
   "teams_native",
   "transcript_manual",
   "system",
+  "jerry",
 ]);
 
 export const noteClassification = pgEnum("note_classification", [

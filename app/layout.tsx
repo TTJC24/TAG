@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
-import { ClerkProvider } from "@clerk/nextjs";
+import { ClerkProvider, SignedIn } from "@clerk/nextjs";
 import { ThemeProvider } from "@/components/theme-provider";
 import { TopBar } from "@/components/top-bar";
+import { JerryDock } from "@/components/jerry-dock";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -32,6 +33,9 @@ export default function RootLayout({
           >
             <TopBar />
             {children}
+            <SignedIn>
+              <JerryDock />
+            </SignedIn>
           </ThemeProvider>
         </body>
       </html>
