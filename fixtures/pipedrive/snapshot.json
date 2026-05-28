@@ -1,0 +1,93 @@
+{
+  "deals": [
+    {
+      "kind": "deal",
+      "id": "12001",
+      "name": "Acme - Pump upgrade FY26",
+      "updated_at": "2026-05-22T14:30:00Z",
+      "body": {
+        "id": 12001,
+        "title": "Acme - Pump upgrade FY26",
+        "value": 48000,
+        "currency": "USD",
+        "status": "open",
+        "stage_id": 3,
+        "stage_name": "Negotiation",
+        "person_id": 2031,
+        "org_id": 3011,
+        "expected_close_date": "2026-06-30"
+      },
+      "related": {
+        "notes": [
+          { "id": "n-9001", "content": "<p>Procurement wants 30-day net terms. Awaiting credit review.</p>" }
+        ],
+        "activities": [
+          { "id": "a-7001", "subject": "Follow-up call", "type": "call", "done": false }
+        ]
+      }
+    }
+  ],
+  "persons": [
+    {
+      "kind": "person",
+      "id": "2031",
+      "name": "Dana Park",
+      "updated_at": "2026-05-19T12:00:00Z",
+      "body": {
+        "id": 2031,
+        "name": "Dana Park",
+        "email": "dana.park@acme.example.com",
+        "phone": "+1-555-0142",
+        "org_id": 3011,
+        "title": "VP Engineering"
+      }
+    }
+  ],
+  "organizations": [
+    {
+      "kind": "organization",
+      "id": "3011",
+      "name": "Acme Industries",
+      "updated_at": "2026-05-15T09:30:00Z",
+      "body": {
+        "id": 3011,
+        "name": "Acme Industries",
+        "owner_id": 9,
+        "industry": "Manufacturing",
+        "people_count": 7,
+        "deals_count": 2
+      }
+    }
+  ],
+  "activities": [
+    {
+      "kind": "activity",
+      "id": "7001",
+      "name": "Follow-up call - Acme",
+      "updated_at": "2026-05-22T14:35:00Z",
+      "body": {
+        "id": 7001,
+        "subject": "Follow-up call - Acme",
+        "type": "call",
+        "due_date": "2026-05-29",
+        "due_time": "15:00",
+        "deal_id": 12001,
+        "done": false
+      }
+    }
+  ],
+  "notes": [
+    {
+      "kind": "note",
+      "id": "9001",
+      "name": "Procurement terms note - Acme deal",
+      "updated_at": "2026-05-22T14:30:00Z",
+      "body": {
+        "id": 9001,
+        "content": "<p>Procurement wants 30-day net terms. Awaiting credit review.</p>",
+        "deal_id": 12001,
+        "person_id": 2031
+      }
+    }
+  ]
+}

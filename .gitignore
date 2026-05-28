@@ -1,0 +1,15 @@
+node_modules/
+.env
+.env.local
+*.log
+dist/
+build/
+.bun/
+bun.lockb
+brain.pglite
+*.pglite
+.DS_Store
+fixtures/**/snapshots/
+fixtures/**/real-*
+web/dist/
+.cache/

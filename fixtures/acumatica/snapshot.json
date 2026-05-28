@@ -1,0 +1,79 @@
+{
+  "customers": [
+    {
+      "kind": "customer",
+      "id": "ACME001",
+      "name": "Acme Industries",
+      "updated_at": "2026-05-20T10:00:00Z",
+      "body": {
+        "CustomerID": "ACME001",
+        "CustomerName": "Acme Industries",
+        "Status": "Active",
+        "CreditLimit": 250000,
+        "Terms": "NET30",
+        "ContactEmail": "ap@acme.example.com"
+      }
+    },
+    {
+      "kind": "customer",
+      "id": "GLOBO002",
+      "name": "Globotech LLC",
+      "updated_at": "2026-05-18T11:25:00Z",
+      "body": {
+        "CustomerID": "GLOBO002",
+        "CustomerName": "Globotech LLC",
+        "Status": "Active",
+        "CreditLimit": 75000,
+        "Terms": "NET45",
+        "ContactEmail": "billing@globotech.example.com"
+      }
+    }
+  ],
+  "orders": [
+    {
+      "kind": "order",
+      "id": "SO-100231",
+      "name": "SO-100231 - Acme Industries",
+      "updated_at": "2026-05-21T15:40:00Z",
+      "body": {
+        "OrderNbr": "SO-100231",
+        "CustomerID": "ACME001",
+        "Status": "Open",
+        "OrderTotal": 18420.50,
+        "RequestedOn": "2026-05-30",
+        "LineCount": 4
+      }
+    }
+  ],
+  "invoices": [
+    {
+      "kind": "invoice",
+      "id": "INV-205117",
+      "name": "INV-205117 - Globotech LLC",
+      "updated_at": "2026-05-22T09:10:00Z",
+      "body": {
+        "ReferenceNbr": "INV-205117",
+        "CustomerID": "GLOBO002",
+        "Status": "Open",
+        "Amount": 9842.00,
+        "DueDate": "2026-07-06"
+      }
+    }
+  ],
+  "items": [
+    {
+      "kind": "item",
+      "id": "PMP-A14",
+      "name": "Centrifugal Pump A14",
+      "updated_at": "2026-05-15T18:00:00Z",
+      "body": {
+        "InventoryID": "PMP-A14",
+        "Description": "Centrifugal Pump A14, 3HP, stainless",
+        "ItemClass": "MFG",
+        "BaseUOM": "EA",
+        "DefaultPrice": 1820.00,
+        "ListPrice": 1995.00
+      }
+    }
+  ]
+}

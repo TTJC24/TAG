@@ -1,0 +1,56 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  color-scheme: light dark;
+  --fg: #111;
+  --bg: #fafafa;
+  --muted: #666;
+  --accent: #2563eb;
+  --border: #e5e7eb;
+  --card: #fff;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fg: #eee;
+    --bg: #0f1115;
+    --muted: #9ca3af;
+    --border: #1f2937;
+    --card: #161a22;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
+.container { max-width: 880px; margin: 2rem auto; padding: 0 1rem; }
+h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+.tabs { display: flex; gap: .25rem; margin-bottom: 1rem; }
+.tab {
+  background: transparent; border: 1px solid var(--border); color: var(--fg);
+  padding: .4rem .75rem; cursor: pointer; border-radius: 6px;
+}
+.tab.active { background: var(--accent); color: white; border-color: var(--accent); }
+.row { display: flex; gap: .5rem; }
+.input {
+  flex: 1; padding: .55rem .75rem; border: 1px solid var(--border);
+  border-radius: 6px; background: var(--card); color: var(--fg); font: inherit;
+}
+.button {
+  padding: .55rem 1rem; border: 1px solid var(--accent); background: var(--accent);
+  color: white; border-radius: 6px; cursor: pointer; font: inherit;
+}
+.button[disabled] { opacity: .5; cursor: progress; }
+.sources { margin: .75rem 0; display: flex; gap: .5rem; flex-wrap: wrap; }
+.chip {
+  font-size: .8rem; padding: .2rem .55rem; border: 1px solid var(--border);
+  border-radius: 999px; cursor: pointer; user-select: none; background: var(--card);
+}
+.chip.on { background: var(--accent); color: white; border-color: var(--accent); }
+.result {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: .75rem 1rem; margin: .5rem 0;
+}
+.result h3 { margin: 0 0 .25rem; font-size: 1rem; }
+.result .meta { color: var(--muted); font-size: .8rem; margin-bottom: .35rem; }
+.result .snippet { font-size: .9rem; line-height: 1.4; }
+.answer { white-space: pre-wrap; background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 1rem; margin: 1rem 0; }
+.citation { font-size: .85rem; color: var(--muted); }
+.error { color: #dc2626; }

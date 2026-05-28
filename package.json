@@ -1,0 +1,29 @@
+{
+  "name": "company-brain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ingest": "bun run src/cli/ingest.ts",
+    "ask": "bun run src/cli/ask.ts",
+    "search": "bun run src/cli/search.ts",
+    "api": "bun run src/api/server.ts",
+    "scheduler": "bun run src/scheduler/index.ts",
+    "web:dev": "cd web && bun run dev",
+    "web:build": "cd web && bun run build",
+    "typecheck": "bun --bun tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "gbrain": "file:/home/tim/.bun/install/global/node_modules/gbrain",
+    "hono": "^4.6.10",
+    "@hono/node-server": "^1.13.7",
+    "node-cron": "^3.0.3",
+    "@azure/msal-node": "^2.16.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/node-cron": "^3.0.11",
+    "typescript": "^5.6.3"
+  }
+}

@@ -1,0 +1,41 @@
+[
+  {
+    "id": "01STUBITEMID0001",
+    "site_id": "contoso.sharepoint.com,site-stub-0001",
+    "site_name": "Finance",
+    "drive_id": "b!drive-stub-finance",
+    "drive_name": "Documents",
+    "name": "FY26-Budget-Draft.xlsx",
+    "web_url": "https://contoso.sharepoint.com/sites/Finance/Shared%20Documents/FY26-Budget-Draft.xlsx",
+    "size": 184213,
+    "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "last_modified": "2026-05-21T19:02:00Z",
+    "modified_by": "Alice Liu"
+  },
+  {
+    "id": "01STUBITEMID0002",
+    "site_id": "contoso.sharepoint.com,site-stub-0002",
+    "site_name": "Operations",
+    "drive_id": "b!drive-stub-ops",
+    "drive_name": "Documents",
+    "name": "Customer-Onboarding-Runbook.docx",
+    "web_url": "https://contoso.sharepoint.com/sites/Operations/Shared%20Documents/Customer-Onboarding-Runbook.docx",
+    "size": 42119,
+    "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "last_modified": "2026-05-18T11:45:00Z",
+    "modified_by": "Bob Chen"
+  },
+  {
+    "id": "01STUBITEMID0003",
+    "site_id": "contoso.sharepoint.com,site-stub-0001",
+    "site_name": "Finance",
+    "drive_id": "b!drive-stub-finance",
+    "drive_name": "Documents",
+    "name": "Vendor-Master-Reconciliation.pdf",
+    "web_url": "https://contoso.sharepoint.com/sites/Finance/Shared%20Documents/Vendor-Master-Reconciliation.pdf",
+    "size": 612884,
+    "mime_type": "application/pdf",
+    "last_modified": "2026-05-24T08:20:00Z",
+    "modified_by": "Carol Smith"
+  }
+]

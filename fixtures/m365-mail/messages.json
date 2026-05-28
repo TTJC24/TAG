@@ -1,0 +1,35 @@
+[
+  {
+    "id": "AAMkADAwATM0FA-stub-0001",
+    "subject": "Quarterly forecast review",
+    "from": "alice@example.com",
+    "to": ["bob@example.com", "carol@example.com"],
+    "cc": [],
+    "received_at": "2026-05-20T14:12:00Z",
+    "body_preview": "Sending the consolidated Q2 forecast for review. Please flag any line items that need correction before Friday's exec readout.",
+    "conversation_id": "conv-stub-q2-forecast",
+    "web_link": "https://outlook.office.com/mail/inbox/id/AAMkADAwATM0FA-stub-0001"
+  },
+  {
+    "id": "AAMkADAwATM0FA-stub-0002",
+    "subject": "Re: Quarterly forecast review",
+    "from": "bob@example.com",
+    "to": ["alice@example.com"],
+    "cc": ["carol@example.com"],
+    "received_at": "2026-05-20T17:43:00Z",
+    "body_preview": "Looks good on Marketing. One ask: can you pull out the renewal pipeline into its own row? Easier to defend in the readout.",
+    "conversation_id": "conv-stub-q2-forecast",
+    "web_link": "https://outlook.office.com/mail/inbox/id/AAMkADAwATM0FA-stub-0002"
+  },
+  {
+    "id": "AAMkADAwATM0FA-stub-0003",
+    "subject": "Acumatica upgrade window",
+    "from": "ops@example.com",
+    "to": ["everyone@example.com"],
+    "cc": [],
+    "received_at": "2026-05-22T09:01:00Z",
+    "body_preview": "Heads up: we're moving to 24.200.001 on Saturday 06:00 UTC. Expect ~30 min downtime on the customer and orders endpoints.",
+    "conversation_id": "conv-stub-acumatica-upgrade",
+    "web_link": "https://outlook.office.com/mail/inbox/id/AAMkADAwATM0FA-stub-0003"
+  }
+]
