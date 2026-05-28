@@ -13,6 +13,6 @@
     "verbatimModuleSyntax": false,
     "types": ["bun-types", "node"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
   "exclude": ["node_modules", "web", "fixtures"]
 }
