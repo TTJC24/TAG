@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition, type KeyboardEvent } from "react";
+import { useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { updateActual } from "@/lib/server-actions/measurables";
 import { StatusCell } from "@/components/status-cell";
 import { KeyHint } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 import type { ShadingResult } from "@/lib/shading/types";
 
 export interface EditableEntryCellProps {
@@ -23,6 +24,10 @@ export interface EditableEntryCellProps {
   /** Optional override for the "raw value" shown in the edit input.
    *  Defaults to the numeric value as a string. */
   rawValueForEdit?: string;
+  /** Optional custom render for the resting (non-editing) display. When set,
+   *  it replaces the default <StatusCell> trigger — e.g. the metric block's
+   *  hero number. The edit/commit logic and server action are unchanged. */
+  displayNode?: ReactNode;
 }
 
 export function EditableEntryCell({
@@ -34,6 +39,7 @@ export function EditableEntryCell({
   result,
   readOnly,
   rawValueForEdit,
+  displayNode,
 }: EditableEntryCellProps) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(
@@ -45,6 +51,7 @@ export function EditableEntryCell({
   const router = useRouter();
 
   if (readOnly) {
+    if (displayNode) return <>{displayNode}</>;
     return (
       <StatusCell
         display={display}
@@ -94,10 +101,15 @@ export function EditableEntryCell({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="focus-ring group relative inline-flex items-center rounded transition"
+        className={cn(
+          "focus-ring group relative rounded transition",
+          displayNode
+            ? "block w-full text-left"
+            : "inline-flex items-center",
+        )}
         title={currentNote ?? result?.reason}
       >
-        <StatusCell display={display} result={result} />
+        {displayNode ?? <StatusCell display={display} result={result} />}
         {currentNote && (
           <span
             aria-hidden
