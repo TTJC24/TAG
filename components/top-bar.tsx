@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { OrganizationSwitcher, UserButton, SignedIn } from "@clerk/nextjs";
 import { tryGetAuthContext } from "@/lib/auth/context";
-import { getRecentWeeks, getNextMeeting, getLiveMeeting } from "@/lib/queries/me";
+import {
+  getNextMeeting,
+  getLiveMeeting,
+  currentWeekEndingDate,
+  currentQuarter,
+} from "@/lib/queries/me";
 import { MeetingModeToggle } from "@/components/meeting-mode-toggle";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { TopBarNav } from "@/components/top-bar-nav";
@@ -44,14 +49,13 @@ export async function TopBar() {
   const role = (ctx?.role ?? "viewer") as Role;
   const items = ctx ? NAV.filter((n) => n.tiers.includes(role)) : [];
 
-  const [weeks, nextMeeting, liveMeeting] = ctx
-    ? await Promise.all([
-        getRecentWeeks(1),
-        getNextMeeting(ctx.orgId),
-        getLiveMeeting(ctx.orgId),
-      ])
-    : [[], null, null];
-  const currentWeek = weeks[0] ?? null;
+  const [nextMeeting, liveMeeting] = ctx
+    ? await Promise.all([getNextMeeting(ctx.orgId), getLiveMeeting(ctx.orgId)])
+    : [null, null];
+  // Dateline reflects the true current week (computed, Monday-anchored) so it
+  // always matches the scorecard's "entering for" week. See ADR-0012.
+  const weekEnding = ctx ? currentWeekEndingDate() : null;
+  const quarter = ctx ? currentQuarter() : null;
 
   return (
     <SignedIn>
@@ -113,12 +117,12 @@ export async function TopBar() {
         {ctx && (
           <div className="meeting-hide container flex h-7 items-center gap-3 border-t border-border/70 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             <span className="text-foreground/90">
-              Week ending {currentWeek ? currentWeek.weekEndingDate : "—"}
+              Week ending {weekEnding ?? "—"}
             </span>
             <span aria-hidden className="text-border">
               ·
             </span>
-            <span>Q{currentWeek?.quarter ?? "—"}</span>
+            <span>{quarter ?? "—"}</span>
             {nextMeeting && (
               <>
                 <span aria-hidden className="text-border">

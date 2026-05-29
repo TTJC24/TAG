@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
-import { getRecentWeeks } from "@/lib/queries/me";
+import { ensureCurrentWeek, getRecentWeeks } from "@/lib/queries/me";
 import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgScorecard, type ScorecardRow } from "@/lib/queries/scorecard";
 import { computeStatus } from "@/lib/shading/compute-status";
@@ -16,7 +16,7 @@ import { formatActual } from "@/lib/format";
 import { LiveSync } from "@/components/live-sync";
 import { AddKPIButton, KPIRowControls } from "@/components/kpi-dialogs";
 import { MetricBlock } from "@/components/metric-block";
-import { cn } from "@/lib/utils";
+import { SurfaceHeader, StatNumber } from "@/components/ui/surface-header";
 
 export const dynamic = "force-dynamic";
 
@@ -39,25 +39,38 @@ export default async function ScorecardPage() {
     throw err;
   }
 
-  // ~12 weeks of history so each block's wave has shape to fill (sparse data
-  // simply renders a shorter wave until more weeks accrue).
-  const weeks = await getRecentWeeks(12);
-  const weekIds = weeks.map((w) => w.id);
+  // Lazy generation: loading the scorecard guarantees the current week exists.
+  const currentWeek = await ensureCurrentWeek();
+
+  // History window = the weeks up to and including the current week. Anchoring
+  // on the current week (not merely the latest row) keeps the editable hero on
+  // "this week" even if future-dated weeks exist in the data.
+  const recent = await getRecentWeeks(16);
+  const upTo = recent.filter(
+    (w) => w.weekEndingDate <= currentWeek.weekEndingDate,
+  );
+  const weeks = (
+    upTo.some((w) => w.id === currentWeek.id) ? upTo : [...upTo, currentWeek]
+  )
+    .slice()
+    .sort((a, b) => a.weekEndingDate.localeCompare(b.weekEndingDate))
+    .slice(-12);
+  const lastIndex = weeks.length - 1; // currentWeek sits last
+
   const [rows, members] = await Promise.all([
-    getOrgScorecard(ctx.orgId, weekIds),
+    getOrgScorecard(
+      ctx.orgId,
+      weeks.map((w) => w.id),
+    ),
     getOrgMembers(ctx.orgId),
   ]);
-  const mostRecentWeek = weeks[weeks.length - 1] ?? null;
-  const lastIndex = weeks.length - 1;
   const isAdmin = ctx.role === "admin";
 
   const blocks = rows.map((row) => {
     const series = weeks.map((w) => parseNumeric(row.entriesByWeek[w.id]?.actual));
-    const currentEntry = mostRecentWeek
-      ? row.entriesByWeek[mostRecentWeek.id]
-      : undefined;
+    const currentEntry = row.entriesByWeek[currentWeek.id];
     const currentActual = parseNumeric(currentEntry?.actual);
-    const result = mostRecentWeek ? cellResult(weeks, lastIndex, row) : null;
+    const result = cellResult(weeks, lastIndex, row);
     const status: StatusColor | null =
       currentActual === null ? null : (result?.status ?? null);
     return { row, series, currentEntry, currentActual, result, status };
@@ -81,33 +94,32 @@ export default async function ScorecardPage() {
     );
 
   return (
-    <main className="container space-y-7 py-7">
+    <main className="container space-y-6 py-7">
       <LiveSync clerkOrgId={ctx.clerkOrgId} />
 
-      <header className="space-y-3">
-        <p className="eyebrow">{ctx.orgName} · weekly scorecard</p>
-        <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4">
-          <h1 className="font-display text-[clamp(2.25rem,5.5vw,3.75rem)] uppercase leading-[0.9] tracking-[0.01em] text-foreground">
-            {ctx.orgName}
-          </h1>
-          <div className="flex items-end gap-6">
-            <Headline value={`${summary.green}/${total}`} label="on track" />
-            <Count n={summary.red} label="critical" tone="red" />
-            <Count n={summary.yellow} label="watch" tone="yellow" />
-            <Count n={summary.missing} label="missing" tone="muted" />
-            {isAdmin && (
-              <div className="self-center pl-1">
-                <AddKPIButton members={members} />
-              </div>
-            )}
+      <SurfaceHeader
+        eyebrow={`${ctx.orgName} · weekly scorecard`}
+        title={ctx.orgName}
+      >
+        <StatNumber value={`${summary.green}/${total}`} label="on track" tone="green" hero />
+        <StatNumber value={summary.red} label="critical" tone="red" />
+        <StatNumber value={summary.yellow} label="watch" tone="yellow" />
+        <StatNumber value={summary.missing} label="missing" tone="muted" />
+        {isAdmin && (
+          <div className="self-center pl-1">
+            <AddKPIButton members={members} />
           </div>
-        </div>
-        {mostRecentWeek && (
-          <p className="eyebrow text-muted-foreground/70">
-            current · week ending {mostRecentWeek.weekEndingDate}
-          </p>
         )}
-      </header>
+      </SurfaceHeader>
+
+      {/* Unmistakable: which week these numbers go into, and that the rest is locked. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-[2px] border border-border bg-surface-1 px-4 py-2.5 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-foreground/60" />
+        Entering for week ending
+        <span className="text-foreground">{currentWeek.weekEndingDate}</span>
+        <span aria-hidden className="text-border">·</span>
+        prior weeks are locked
+      </div>
 
       {total === 0 ? (
         <p className="rounded-[2px] border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
@@ -123,7 +135,7 @@ export default async function ScorecardPage() {
               <MetricBlock
                 key={row.measurable.id}
                 measurableId={row.measurable.id}
-                weekId={mostRecentWeek?.id ?? null}
+                weekId={currentWeek.id}
                 name={row.measurable.name}
                 ownerName={row.owner?.name ?? null}
                 currentActual={currentActual}
@@ -169,48 +181,7 @@ export default async function ScorecardPage() {
   );
 }
 
-// ── Header stat helpers ─────────────────────────────────────────────────────
-
-function Headline({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="flex flex-col items-start">
-      <span className="font-mono tabular text-[clamp(1.75rem,4vw,2.5rem)] font-semibold leading-none text-foreground">
-        {value}
-      </span>
-      <span className="eyebrow mt-1.5">{label}</span>
-    </div>
-  );
-}
-
-function Count({
-  n,
-  label,
-  tone,
-}: {
-  n: number;
-  label: string;
-  tone: "red" | "yellow" | "muted";
-}) {
-  return (
-    <div className="flex flex-col items-start">
-      <span
-        className={cn(
-          "font-mono tabular text-[clamp(1.25rem,3vw,1.75rem)] font-semibold leading-none",
-          tone === "red"
-            ? "text-status-red"
-            : tone === "yellow"
-              ? "text-status-yellow"
-              : "text-muted-foreground",
-        )}
-      >
-        {n}
-      </span>
-      <span className="eyebrow mt-1.5 text-muted-foreground">{label}</span>
-    </div>
-  );
-}
-
-// ── Helpers (carried over from the previous table implementation) ───────────
+// ── Helpers ─────────────────────────────────────────────────────────────────
 
 function parseNumeric(v: string | number | null | undefined): number | null {
   if (v === null || v === undefined) return null;

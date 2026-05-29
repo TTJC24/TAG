@@ -102,9 +102,9 @@ export function EditableEntryCell({
         type="button"
         onClick={() => setEditing(true)}
         className={cn(
-          "focus-ring group relative rounded transition",
+          "focus-ring group relative rounded transition-colors",
           displayNode
-            ? "block w-full text-left"
+            ? "-mx-1 block w-full cursor-pointer px-1 text-left hover:bg-surface-3/50"
             : "inline-flex items-center",
         )}
         title={currentNote ?? result?.reason}

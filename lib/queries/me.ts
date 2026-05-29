@@ -22,7 +22,7 @@ import {
 } from "@/lib/db/schema";
 
 /** Most recent N weeks across the platform, oldest-first.
- *  Phase 1 seeded three; later phases will manage week creation via cron. */
+ *  Weeks are auto-generated lazily on scorecard load — see ensureCurrentWeek. */
 export async function getRecentWeeks(limit = 3): Promise<Week[]> {
   const rows = await db
     .select()
@@ -30,6 +30,69 @@ export async function getRecentWeeks(limit = 3): Promise<Week[]> {
     .orderBy(desc(weeks.weekEndingDate))
     .limit(limit);
   return rows.slice().reverse();
+}
+
+// ── Week generation (lazy, idempotent) ──────────────────────────────────────
+// Weeks are anchored to Mondays (matching the imported workbook: 2026-04-27,
+// 05-04, 05-11 are all Mondays on a 7-day cadence). The week's slot key is the
+// Monday of the current week. See ADR-0012.
+
+function isoWeek(d: Date): number {
+  const target = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+  );
+  const dayNumber = (target.getUTCDay() + 6) % 7;
+  target.setUTCDate(target.getUTCDate() - dayNumber + 3);
+  const firstThursday = new Date(Date.UTC(target.getUTCFullYear(), 0, 4));
+  return (
+    1 +
+    Math.round(
+      ((target.getTime() - firstThursday.getTime()) / 86_400_000 -
+        3 +
+        ((firstThursday.getUTCDay() + 6) % 7)) /
+        7,
+    )
+  );
+}
+
+/** The Monday on or before `now` (UTC), as YYYY-MM-DD. The current week's slot. */
+export function currentWeekEndingDate(now: Date = new Date()): string {
+  const d = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+  );
+  const sinceMonday = (d.getUTCDay() + 6) % 7; // 0 when Monday
+  d.setUTCDate(d.getUTCDate() - sinceMonday);
+  return d.toISOString().slice(0, 10);
+}
+
+/** "Q{n} {year}" for the current week — matches the workbook quarter format. */
+export function currentQuarter(now: Date = new Date()): string {
+  const d = new Date(currentWeekEndingDate(now) + "T00:00:00Z");
+  return `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${d.getUTCFullYear()}`;
+}
+
+/** Ensures a `weeks` row exists for the current week and returns it. Idempotent
+ *  and concurrency-safe: the insert no-ops on the weekEndingDate unique index,
+ *  so two simultaneous loads can't create duplicate weeks. No cron — the act of
+ *  loading the scorecard is the trigger. See ADR-0012. */
+export async function ensureCurrentWeek(now: Date = new Date()): Promise<Week> {
+  const weekEndingDate = currentWeekEndingDate(now);
+  const anchor = new Date(weekEndingDate + "T00:00:00Z");
+  await db
+    .insert(weeks)
+    .values({
+      weekEndingDate,
+      weekNumber: isoWeek(anchor),
+      quarter: `Q${Math.floor(anchor.getUTCMonth() / 3) + 1} ${anchor.getUTCFullYear()}`,
+      fiscalYear: anchor.getUTCFullYear(),
+    })
+    .onConflictDoNothing({ target: weeks.weekEndingDate });
+  const [row] = await db
+    .select()
+    .from(weeks)
+    .where(eq(weeks.weekEndingDate, weekEndingDate))
+    .limit(1);
+  return row!;
 }
 
 export interface MyMeasurable {

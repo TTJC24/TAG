@@ -181,3 +181,26 @@ Each ADR is dated and numbered. Format: context → decision → consequences. D
 - Owners are responsible for entering their own numbers; the platform will not chase them. Social accountability — the readiness view plus the meeting itself — replaces automated nudging.
 - The original `DATABASE_URL` error disappears because the endpoint that threw is deleted, not because the env var was provisioned.
 - Reversible by intent: re-introducing reminders later would be a new ADR. Nothing in the data model blocks it; the wrappers and audit-log `source` taxonomy still exist.
+
+---
+
+## ADR-0012 — Weeks are lazily generated; only the current week is editable
+
+**Date:** 2026-05-29
+**Status:** Accepted (extends ADR-0011 — manual entry — with *when* and *which week*. Builds on ADR-0005: Postgres stays the source of truth.)
+
+**Context.** Manual entry (ADR-0011) needs two guarantees to feel intentional rather than chaotic: (1) a slot for "this week" must always be ready — nobody should hit a "create week" button or find a missing week; and (2) entry must target an unambiguous *this week*, not an open-ended historical editor where someone can quietly rewrite a number from three weeks ago. Intentional human accountability requires a clear, single "this week."
+
+**Decision.**
+
+- **Lazy week generation.** Loading the scorecard calls `ensureCurrentWeek()`, which inserts the current week's row if it doesn't exist and returns it. The *act of loading the page* is the trigger — no cron, no external scheduler, no manual "create week" button.
+- **Idempotent + concurrency-safe.** The insert is `onConflictDoNothing` against the `weeks.week_ending_date` unique index, so two simultaneous loads can't create duplicate weeks.
+- **Monday-anchored slot.** A week's key is the Monday of the current week (`currentWeekEndingDate()`), matching the imported workbook convention (its `weekEndingDate`s — 2026-04-27 / 05-04 / 05-11 — are all Mondays on a 7-day cadence). Quarter/fiscal year/ISO week are derived to match. *(The original ask floated "Sunday"; the existing data is Monday, and "match it exactly" wins.)*
+- **Current week only is editable.** The scorecard anchors its editable hero on the current week; prior weeks appear only inside the display-only wave/sparkline. The editable hero shows a subtle affordance (cursor + faint hover); locked values are plain ink — no cursor, no hover, no click target.
+- **Unambiguous "this week."** The scorecard shows an explicit "Entering for week ending {date}" banner, and the masthead dateline is computed from the same `currentWeekEndingDate()` so the two never disagree.
+
+**Consequences.**
+
+- The scorecard intentionally anchors on the *calendar* current week, not merely the most-recent row — so future-dated rows (e.g. seed data ahead of the server clock) don't capture the editable hero. History shown is the weeks ≤ the current week.
+- The lock is enforced in the UI (the only editable target is the current-week hero). The `updateActual` server action is unchanged; if a hard server-side guard becomes warranted (e.g. once transcript ingestion can target arbitrary weeks), that's a follow-up.
+- Backfilling skipped weeks is out of scope: lazy generation creates only the *current* week, so a gap can appear in the wave if the app wasn't loaded during an intervening week. Acceptable — the snapshot/import paths own historical rows.
