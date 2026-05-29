@@ -84,7 +84,14 @@ engineering standard or specific to that product?
 ## 6. Where deeper context lives
 
 - **This platform (once ingested):** the company-brain DB *is* the long-term memory across
-  mail, calendar, SharePoint, Teams, ERP, and CRM. Query via the CLI/API/Web UI.
+  mail, calendar, SharePoint, Teams, ERP, and CRM. Query it directly:
+  ```bash
+  bun run ask "<question>" [--source <id>...] [--json]   # answer + citations
+  bun run search "<query>" [--source <id>...] [--limit N] # ranked hits
+  ```
+  `--source` ids are the connectors: `m365-mail`, `m365-calendar`, `m365-sharepoint`,
+  `m365-teams`, `acumatica`, `pipedrive`. Or run `bun run api` / `bun run web:dev` for the
+  HTTP/Web surfaces.
 - **Systems of record:** Acumatica (financial/operational truth), Pipedrive (sales truth),
   M365/SharePoint + Teams (documents & discussion).
 - **Code:** `README.md` (architecture), `src/sources/` (per-connector behavior), `.env.example`

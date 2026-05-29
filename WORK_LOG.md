@@ -6,7 +6,34 @@
 
 ## Final summary
 
-_(Filled in during finalize — see bottom-of-file pass log for the detail.)_
+**What changed.** Created two files in the `company-brain` repo: `COMPANY_BRAIN.md` (a new
+business-context "brain" doc for Claude) and this `WORK_LOG.md`. No existing files were
+modified or deleted; no code, config, or other repos were touched. Two local commits, **no push**.
+
+**What's usable now.** The brain is rubric-complete in structure and **fully grounded** on
+the things the repo actually proves: the company's tooling/systems (M365, Acumatica ERP,
+Pipedrive CRM, Postgres, ZeroEntropy, Anthropic, gbrain), the platform's surfaces, the exact
+commands to query the brain, and observed engineering conventions.
+
+**What's left.** The *business identity* sections can't be completed from the repo without
+inventing facts (forbidden). They're left as a precise scaffold. Answering the 11 `[NEEDS TIM]`
+questions below turns this from a strong skeleton into a finished brain — that's the only
+remaining work, and it needs Tim.
+
+**Every `[NEEDS TIM]` flag (consolidated):**
+- Company legal/trade name + one-line description of what it does + industry.
+- Who it serves (customer type / market) and rough size (people, branches).
+- Team & roles, and who administers M365 / Acumatica / Pipedrive.
+- Is **LeadSprint AI** (`contractor-lead-response`) a product of this company, a separate venture, or unrelated?
+- Does company-brain serve Tim's own company, an employer, or a client?
+- Business terminology, acronyms, product names, branch codes.
+- Brand voice / tone.
+- Customer-facing or compliance/legal non-negotiables.
+- Is **react-doctor 100/100** a company-wide engineering standard or specific to LeadSprint?
+- Any other knowledge stores (wiki / Notion / Drive / runbooks) Claude should know about.
+
+**Repo state:** left on a clean local commit on the current branch. Run `git log --oneline`
+to see the two added commits; nothing is staged or dirty.
 
 ---
 
@@ -81,3 +108,41 @@ specific, answerable `[NEEDS TIM]` question (not a vague placeholder).
 ## Pass log
 
 _(Each pass: score, identify weakest, improve, re-score, commit.)_
+
+### Pass 0 — baseline scaffold (commit 8894f51)
+
+| Item | Score | Justification |
+|---|---|---|
+| (a) Entity & purpose | 2 | Name/what-it-does are `[NEEDS TIM]`; only the B2B *shape* is inferable from ERP+CRM evidence. |
+| (b) Terminology | 3 | Platform terms (gbrain, Play B, provenance, dry-run) are real & useful; business jargon is `[NEEDS TIM]`. |
+| (c) People, tools, systems | 4 | Tools/systems table is complete and grounded; only "people" is missing (and honestly unknowable). |
+| (d) Conventions, voice | 3 | Engineering conventions captured from repo; brand voice / non-negotiables are `[NEEDS TIM]`. |
+| (e) Pointers | 4 | Strong list of where context lives; lacked the concrete *commands* to query the brain. |
+| (f) Skimmable | 4 | ~900 words, tables + headers; under 3 min to skim. |
+
+**Weakest repo-improvable item:** (e) — it named the platform as a context store but didn't
+say *how* to query it.
+
+### Pass 1 — make pointers actionable (this commit)
+
+- Added concrete `bun run ask` / `bun run search` usage (verified against `src/cli/ask.ts`
+  and `src/cli/search.ts`) plus the valid `--source` connector ids, to §6.
+- Re-score: **(e) 4 → 5.** All other items unchanged.
+
+| Item | Score |
+|---|---|
+| (a) Entity & purpose | 2 *(capped — Tim-only)* |
+| (b) Terminology | 3 *(capped — Tim-only)* |
+| (c) People, tools, systems | 4 |
+| (d) Conventions, voice | 3 *(capped — Tim-only)* |
+| (e) Pointers | **5** |
+| (f) Skimmable | 4 |
+
+### Convergence (stopped before 8 passes — by design)
+
+Every item that **can** be raised by repo evidence — (c), (e), (f) — is at 4+. Items (a),
+(b), (d) are gated entirely on facts only Tim has; raising them further would require
+**inventing** company identity, jargon, people, or voice, which is explicitly forbidden.
+Their "done" bar (excellent scaffold + specific, answerable questions) is met. Continuing to
+8 mechanical passes would be busywork or fabrication, so the loop stops here. The 11
+`[NEEDS TIM]` items in `COMPANY_BRAIN.md` §7 are the exact unlock.
