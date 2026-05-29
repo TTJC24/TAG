@@ -3,7 +3,7 @@ import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgIssues } from "@/lib/queries/org-lists";
 import { AddIssueButton } from "@/components/issue-dialogs";
-import { CommandStrip } from "@/components/ui/primitives";
+import { SurfaceHeader, StatNumber } from "@/components/ui/surface-header";
 import { IssueQueue } from "./issue-queue";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +37,7 @@ export default async function IssuesPage() {
   );
 
   // Per-row access flags are resolved here so the client list stays presentational.
+  const now = Date.now();
   const items = rows.map(({ issue, owner }) => {
     const isOwner = issue.ownerId === ctx.personId;
     const readOnly =
@@ -49,21 +50,26 @@ export default async function IssuesPage() {
       rootCause: issue.rootCause,
       ownerId: issue.ownerId,
       ownerName: owner?.name ?? null,
+      ageDays: Math.max(
+        0,
+        Math.floor((now - issue.createdAt.getTime()) / 86_400_000),
+      ),
       readOnly,
     };
   });
 
   return (
-    <main className="container space-y-5 py-6">
-      <CommandStrip
-        eyebrow={`${ctx.orgName} · Issues`}
-        title="IDS queue"
-        right={
-          canCreate ? (
+    <main className="container space-y-7 py-7">
+      <SurfaceHeader eyebrow={`${ctx.orgName} · identify · discuss · solve`} title="IDS Queue">
+        <StatNumber value={counts.critical} label="critical" tone="red" hero />
+        <StatNumber value={counts.high} label="high" tone="yellow" />
+        <StatNumber value={counts.open} label="open" tone="muted" />
+        {canCreate && (
+          <div className="self-center pl-1">
             <AddIssueButton members={members} defaultOwnerId={ctx.personId} />
-          ) : undefined
-        }
-      />
+          </div>
+        )}
+      </SurfaceHeader>
 
       <IssueQueue
         items={items}

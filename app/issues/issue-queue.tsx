@@ -5,19 +5,12 @@ import { IssueActionButtons } from "@/components/issue-action-buttons";
 import { IssueRowControls } from "@/components/issue-dialogs";
 import { IssueNotesEditor } from "@/components/issue-notes-editor";
 import {
-  DataTable,
-  EmptyBlock,
-  MetricStat,
   OwnerChip,
-  Panel,
-  PanelHeader,
   SegmentedControl,
   StatusChip,
-  SummaryBar,
-  Td,
-  Th,
   type StatusTone,
 } from "@/components/ui/primitives";
+import { SurfaceBlock, type BlockStatus } from "@/components/ui/surface-block";
 import type { OrgMemberOption } from "@/lib/queries/org-members";
 import { cn } from "@/lib/utils";
 
@@ -31,6 +24,7 @@ interface IssueItem {
   rootCause: string | null;
   ownerId: string;
   ownerName: string | null;
+  ageDays: number;
   readOnly: boolean;
 }
 
@@ -44,10 +38,7 @@ interface Counts {
 
 type Filter = "all" | Priority;
 
-// Priority → status semantics for the row spine + priority chip.
-//   critical / high → red (must be solved now)
-//   medium          → yellow
-//   low             → muted (neutral spine omitted)
+// Signal Red is reserved for critical. Other priorities step down the triad.
 const PRIORITY_TONE: Record<Priority, StatusTone> = {
   critical: "red",
   high: "yellow",
@@ -55,12 +46,18 @@ const PRIORITY_TONE: Record<Priority, StatusTone> = {
   low: "muted",
 };
 
-const SPINE: Record<Priority, string> = {
-  critical: "spine-red",
-  high: "spine-red",
-  medium: "spine-yellow",
-  low: "",
+const PRIORITY_BLOCK: Record<Priority, BlockStatus> = {
+  critical: "red",
+  high: "yellow",
+  medium: "neutral",
+  low: "muted",
 };
+
+function ageTone(days: number): string {
+  if (days > 30) return "text-status-red";
+  if (days > 14) return "text-status-yellow";
+  return "text-foreground";
+}
 
 export function IssueQueue({
   items,
@@ -91,32 +88,15 @@ export function IssueQueue({
 
   if (items.length === 0) {
     return (
-      <Panel>
-        <EmptyBlock className="py-8 text-sm">
-          No open issues for this org.
-        </EmptyBlock>
-      </Panel>
+      <p className="rounded-[2px] border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
+        No open issues for this org.
+      </p>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Summary + priority-filter toolbar (presentation only). The page title
-          header lives in app/issues/page.tsx via the shared CommandStrip. */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <SummaryBar>
-          <MetricStat
-            label="critical"
-            value={counts.critical}
-            tone={counts.critical > 0 ? "red" : "muted"}
-          />
-          <MetricStat
-            label="high"
-            value={counts.high}
-            tone={counts.high > 0 ? "yellow" : "muted"}
-          />
-          <MetricStat label="open total" value={counts.open} tone="neutral" />
-        </SummaryBar>
+      <div className="flex items-center justify-end">
         <SegmentedControl<Filter>
           options={filterOptions}
           value={filter}
@@ -124,86 +104,81 @@ export function IssueQueue({
         />
       </div>
 
-      <Panel>
-        <PanelHeader
-          title="Issue"
-          count={visible.length}
-          hint="critical first"
-        />
-        <div className="overflow-x-auto">
-          <DataTable>
-            <thead>
-              <tr>
-                <Th className="w-[7.5rem] pl-4">Priority</Th>
-                <Th>Issue</Th>
-                <Th className="w-[12rem]">Owner</Th>
-                <Th className="min-w-[18rem]">Notes</Th>
-                <Th className="min-w-[16rem]">Status</Th>
-                <Th align="right" className="pr-4">
-                  {" "}
-                </Th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.length === 0 ? (
-                <tr className="border-t border-border/70">
-                  <td colSpan={6}>
-                    <EmptyBlock>No {filter} issues.</EmptyBlock>
-                  </td>
-                </tr>
-              ) : (
-                visible.map((issue) => (
-                  <tr
-                    key={issue.id}
-                    className={cn(
-                      "group h-9 border-t border-border/70 align-middle transition-colors hover:bg-surface-2/60",
-                      SPINE[issue.priority],
-                    )}
-                  >
-                    <Td className="pl-4">
-                      <StatusChip tone={PRIORITY_TONE[issue.priority]}>
-                        {issue.priority}
-                      </StatusChip>
-                    </Td>
-                    <Td className="font-medium">{issue.title}</Td>
-                    <Td>
-                      <OwnerChip name={issue.ownerName} />
-                    </Td>
-                    <Td className="min-w-[18rem] py-1.5 align-top">
-                      <IssueNotesEditor
-                        issueId={issue.id}
-                        value={issue.rootCause}
-                        readOnly={issue.readOnly}
-                      />
-                    </Td>
-                    <Td className="min-w-[16rem] py-1.5 align-top">
-                      <IssueActionButtons
-                        issueId={issue.id}
-                        status={issue.status}
-                        readOnly={issue.readOnly}
-                      />
-                    </Td>
-                    <Td align="right" className="pr-4">
-                      <IssueRowControls
-                        issueId={issue.id}
-                        members={members}
-                        current={{
-                          title: issue.title,
-                          ownerId: issue.ownerId,
-                          priority: issue.priority,
-                          rootCause: issue.rootCause ?? "",
-                        }}
-                        readOnly={issue.readOnly}
-                        canDelete={canDelete}
-                      />
-                    </Td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </DataTable>
+      {visible.length === 0 ? (
+        <p className="rounded-[2px] border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
+          No {filter} issues.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {visible.map((issue) => (
+            <SurfaceBlock
+              key={issue.id}
+              status={PRIORITY_BLOCK[issue.priority]}
+              className="min-h-[12rem]"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <StatusChip tone={PRIORITY_TONE[issue.priority]}>
+                    {issue.priority}
+                  </StatusChip>
+                  {issue.status === "ids_in_progress" && (
+                    <span className="eyebrow text-status-yellow">in IDS</span>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <OwnerChip name={issue.ownerName} />
+                  <IssueRowControls
+                    issueId={issue.id}
+                    members={members}
+                    current={{
+                      title: issue.title,
+                      ownerId: issue.ownerId,
+                      priority: issue.priority,
+                      rootCause: issue.rootCause ?? "",
+                    }}
+                    readOnly={issue.readOnly}
+                    canDelete={canDelete}
+                  />
+                </div>
+              </div>
+
+              <p className="mt-3 text-lg font-medium leading-snug tracking-tight text-foreground">
+                {issue.title}
+              </p>
+
+              <div className="mt-2 flex items-baseline gap-1.5">
+                <span
+                  className={cn(
+                    "font-mono tabular text-base font-semibold leading-none",
+                    ageTone(issue.ageDays),
+                  )}
+                >
+                  {issue.ageDays}d
+                </span>
+                <span className="eyebrow">open</span>
+              </div>
+
+              <div className="flex-1" />
+
+              <div className="mt-3">
+                <IssueActionButtons
+                  issueId={issue.id}
+                  status={issue.status}
+                  readOnly={issue.readOnly}
+                />
+              </div>
+
+              <div className="mt-3 border-t border-border/50 pt-3">
+                <IssueNotesEditor
+                  issueId={issue.id}
+                  value={issue.rootCause}
+                  readOnly={issue.readOnly}
+                />
+              </div>
+            </SurfaceBlock>
+          ))}
         </div>
-      </Panel>
+      )}
     </div>
   );
 }

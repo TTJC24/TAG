@@ -25,6 +25,7 @@ export function TopBarNav({ items }: { items: NavItem[] }) {
     const JUMP: Record<string, string> = {
       d: "/",
       s: "/scorecard",
+      m: "/meeting",
       r: "/rocks",
       t: "/todos",
       i: "/issues",

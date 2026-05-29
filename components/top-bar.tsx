@@ -14,6 +14,7 @@ type Role = "admin" | "member" | "viewer";
 const NAV: { href: string; label: string; tiers: Role[] }[] = [
   { href: "/", label: "Dashboard", tiers: ["admin", "member"] },
   { href: "/scorecard", label: "Scorecard", tiers: ["admin", "member", "viewer"] },
+  { href: "/meeting", label: "Meeting", tiers: ["admin", "member", "viewer"] },
   { href: "/rocks", label: "Rocks", tiers: ["admin", "member"] },
   { href: "/todos", label: "To-Do's", tiers: ["admin", "member", "viewer"] },
   { href: "/issues", label: "Issues", tiers: ["admin", "member", "viewer"] },
@@ -85,7 +86,7 @@ export async function TopBar() {
           <div className="ml-auto flex shrink-0 items-center gap-3">
             {liveMeeting && (
               <Link
-                href="/scorecard"
+                href="/meeting"
                 title="A meeting is live"
                 className="focus-ring flex items-center gap-1.5 rounded-[2px] border border-signal/40 bg-signal/10 px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-signal"
               >

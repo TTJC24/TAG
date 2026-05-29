@@ -58,24 +58,29 @@ export async function getOrgRocks(orgId: string): Promise<RockWithOwner[]> {
     });
 }
 
-/** Open + rolled-over to-dos for the org. Done/dropped are excluded.
+/** Open + rolled-over to-dos for the org. With `includeDone`, completed
+ *  to-dos are also returned (sunk to the bottom) so the UI can show them
+ *  struck-through rather than hidden. Dropped to-dos stay excluded.
  *  Sorted by due date (nulls last), then rollover count desc. */
-export async function getOrgTodos(orgId: string): Promise<TodoWithOwner[]> {
+export async function getOrgTodos(
+  orgId: string,
+  opts?: { includeDone?: boolean },
+): Promise<TodoWithOwner[]> {
+  const statuses: ("open" | "rolled_over" | "done")[] = opts?.includeDone
+    ? ["open", "rolled_over", "done"]
+    : ["open", "rolled_over"];
   const rows = await db
     .select({ todo: todos, owner: { id: people.id, name: people.name } })
     .from(todos)
     .leftJoin(people, eq(todos.ownerId, people.id))
-    .where(
-      and(
-        eq(todos.orgId, orgId),
-        inArray(todos.status, ["open", "rolled_over"]),
-      ),
-    )
+    .where(and(eq(todos.orgId, orgId), inArray(todos.status, statuses)))
     .orderBy(asc(todos.dueDate), desc(todos.rolloverCount));
-  return rows.map((r) => ({
-    todo: r.todo,
-    owner: r.owner?.id ? r.owner : null,
-  }));
+  return rows
+    .map((r) => ({ todo: r.todo, owner: r.owner?.id ? r.owner : null }))
+    .sort(
+      (a, b) =>
+        Number(a.todo.status === "done") - Number(b.todo.status === "done"),
+    );
 }
 
 /** Open + IDS-in-progress issues for the org. Sorted by priority then age. */
