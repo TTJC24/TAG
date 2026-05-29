@@ -24,16 +24,19 @@ export function StatusCell({ display, result, className, title }: StatusCellProp
     <div
       className={cn(
         "relative inline-flex min-h-[2.25rem] min-w-[5rem] items-center justify-center rounded px-2 py-1 font-mono text-sm tabular",
+        // Crisp edge on every cell: hairline inset so shaded blocks read as
+        // discrete operational reads, not a wash. Neutral — not a status color.
+        "ring-1 ring-inset ring-border/50",
         className,
       )}
       style={bg ? { backgroundColor: bg } : undefined}
       title={title ?? result?.reason}
     >
-      <span className="z-10">{display}</span>
+      <span className="relative z-10 tracking-tight">{display}</span>
       {result?.forecast === "warning" && (
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 rounded ring-1 ring-amber-500/60"
+          className="pointer-events-none absolute inset-0 rounded ring-1 ring-inset ring-status-yellow/70"
         />
       )}
     </div>

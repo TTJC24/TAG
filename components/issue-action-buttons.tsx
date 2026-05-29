@@ -14,6 +14,7 @@ const ACTIVE_STATUS_FOR_ACTION: Record<IssueAction, IssueStatus> = {
   resolved: "resolved",
 };
 
+// IDS workflow verbs — these are load-bearing and must not be renamed.
 const LABELS: Record<IssueAction, string> = {
   worked: "worked",
   push: "push next week",
@@ -21,13 +22,16 @@ const LABELS: Record<IssueAction, string> = {
 };
 
 const ACTIVE_STYLES: Record<IssueAction, string> = {
-  worked: "border-amber-500/50 bg-amber-500/20 text-amber-100",
-  push: "border-border bg-muted/40 text-muted-foreground",
-  resolved: "border-emerald-500/40 bg-emerald-500/15 text-emerald-100",
+  worked: "border-amber-500/50 bg-amber-500/15 text-amber-200",
+  push: "border-border bg-surface-3 text-foreground",
+  resolved: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
 };
 
 const INACTIVE_STYLES =
-  "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground";
+  "border-border bg-surface-2 text-muted-foreground hover:border-foreground/30 hover:bg-surface-3 hover:text-foreground";
+
+const BTN_BASE =
+  "focus-ring rounded border px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-[0.16em] transition disabled:opacity-50";
 
 export function IssueActionButtons({
   issueId,
@@ -49,7 +53,7 @@ export function IssueActionButtons({
     return (
       <span
         className={cn(
-          "inline-block rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest",
+          "inline-flex items-center rounded border px-2 py-1 font-mono text-[10px] uppercase leading-none tracking-[0.16em]",
           action ? ACTIVE_STYLES[action] : INACTIVE_STYLES,
         )}
       >
@@ -67,6 +71,7 @@ export function IssueActionButtons({
             key={a}
             type="button"
             disabled={pending}
+            aria-pressed={isActive}
             onClick={() => {
               setError(null);
               startTransition(async () => {
@@ -78,17 +83,22 @@ export function IssueActionButtons({
                 router.refresh();
               });
             }}
-            className={cn(
-              "rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest transition disabled:opacity-50",
-              isActive ? ACTIVE_STYLES[a] : INACTIVE_STYLES,
-            )}
+            className={cn(BTN_BASE, isActive ? ACTIVE_STYLES[a] : INACTIVE_STYLES)}
           >
             {LABELS[a]}
           </button>
         );
       })}
-      {pending && <span className="font-mono text-[10px] text-muted-foreground">…</span>}
-      {error && <span className="font-mono text-[10px] text-rose-300">{error}</span>}
+      {pending && (
+        <span className="font-mono text-[10px] leading-none text-muted-foreground">
+          …
+        </span>
+      )}
+      {error && (
+        <span className="font-mono text-[10px] leading-none text-rose-300">
+          {error}
+        </span>
+      )}
     </div>
   );
 }

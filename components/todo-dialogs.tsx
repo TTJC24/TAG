@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition, type FormEvent } from "react";
+import { useMemo, useState, useTransition, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import {
   Dialog,
@@ -15,6 +15,22 @@ import {
 } from "@/components/ui/dialog";
 import { createTodo, deleteTodo, updateTodo } from "@/lib/server-actions/todos";
 import type { OrgMemberOption } from "@/lib/queries/org-members";
+import { TodoCheckbox } from "@/components/todo-checkbox";
+import { TodoNotesEditor } from "@/components/todo-notes-editor";
+import { TodoRolloverButton } from "@/components/todo-rollover-button";
+import {
+  DataTable,
+  EmptyBlock,
+  KeyHint,
+  OwnerChip,
+  Panel,
+  PanelHeader,
+  SegmentedControl,
+  StatusDot,
+  Td,
+  Th,
+} from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 
 interface TodoInitial {
   description: string;
@@ -142,9 +158,12 @@ export function AddTodoButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded border border-border bg-card px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:bg-muted"
+        className="focus-ring inline-flex items-center gap-1.5 rounded border border-border bg-surface-2 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/40 hover:bg-surface-3"
       >
-        + add to-do
+        <span aria-hidden className="text-sm leading-none">
+          +
+        </span>
+        add to-do
       </button>
       <Dialog open={open} onClose={() => setOpen(false)} title="New to-do">
         <TodoForm
@@ -203,7 +222,7 @@ export function TodoRowControls({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="rounded border border-border bg-card px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/40 hover:bg-muted"
+        className="focus-ring rounded border border-border bg-surface-2 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/40 hover:bg-surface-3"
         title="edit to-do"
       >
         edit
@@ -211,7 +230,7 @@ export function TodoRowControls({
       <button
         type="button"
         onClick={() => setRemoving(true)}
-        className="rounded border border-border bg-card px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-100"
+        className="focus-ring rounded border border-border bg-surface-2 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:border-status-red/50 hover:bg-status-red/10 hover:text-status-red"
         title="drop (soft close)"
       >
         drop
@@ -250,12 +269,204 @@ export function TodoRowControls({
             type="button"
             onClick={remove}
             disabled={pending}
-            className="rounded bg-rose-500/80 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white transition disabled:opacity-50"
+            className="focus-ring rounded bg-status-red/80 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white transition disabled:opacity-50"
           >
             {pending ? "…" : "drop"}
           </button>
         </FormActions>
       </Dialog>
     </span>
+  );
+}
+
+// ── Client table — spine-led DataTable with SegmentedControl filter ─────────
+// Pure presentation/UI state. Data arrives pre-sorted (dueDate asc, rollover
+// desc) from getOrgTodos and is NEVER reordered here — only filtered.
+
+export interface TodoTableRow {
+  id: string;
+  description: string;
+  ownerId: string;
+  ownerName: string | null;
+  dueDate: string | null;
+  notes: string | null;
+  rolloverCount: number;
+  done: boolean;
+  /** Precomputed on the server against the org "today". */
+  isOverdue: boolean;
+  readOnly: boolean;
+}
+
+type TodoFilter = "all" | "overdue" | "rolled";
+
+export function TodosTable({
+  rows,
+  members,
+}: {
+  rows: TodoTableRow[];
+  members: OrgMemberOption[];
+}) {
+  const [filter, setFilter] = useState<TodoFilter>("all");
+
+  const counts = useMemo(
+    () => ({
+      all: rows.length,
+      overdue: rows.filter((r) => r.isOverdue).length,
+      rolled: rows.filter((r) => r.rolloverCount > 0).length,
+    }),
+    [rows],
+  );
+
+  const visible = useMemo(() => {
+    if (filter === "overdue") return rows.filter((r) => r.isOverdue);
+    if (filter === "rolled") return rows.filter((r) => r.rolloverCount > 0);
+    return rows;
+  }, [rows, filter]);
+
+  return (
+    <Panel>
+      <PanelHeader
+        title="To-Do"
+        count={visible.length}
+        hint="overdue first"
+        right={
+          <SegmentedControl<TodoFilter>
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "all", label: "all", count: counts.all },
+              { value: "overdue", label: "overdue", count: counts.overdue },
+              { value: "rolled", label: "rolled", count: counts.rolled },
+            ]}
+          />
+        }
+      />
+      {visible.length === 0 ? (
+        <EmptyBlock>
+          {filter === "overdue"
+            ? "No overdue to-do's. Clear runway."
+            : filter === "rolled"
+              ? "Nothing rolled over. Commitments are landing on time."
+              : "No open to-do's for this org."}
+        </EmptyBlock>
+      ) : (
+        <div className="overflow-x-auto">
+          <DataTable sticky>
+            <thead>
+              <tr>
+                <Th className="w-10 pl-4" align="center">
+                  <span className="sr-only">Done</span>
+                </Th>
+                <Th>To-Do</Th>
+                <Th>Owner</Th>
+                <Th align="right">Due</Th>
+                <Th align="center">Carry</Th>
+                <Th>Notes</Th>
+                <Th align="right" className="pr-4">
+                  <span className="sr-only">Actions</span>
+                </Th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((r) => {
+                const spine = r.isOverdue
+                  ? "spine-red"
+                  : r.rolloverCount > 0
+                    ? "spine-yellow"
+                    : "";
+                return (
+                  <tr
+                    key={r.id}
+                    className={cn(
+                      "data-row group h-9 border-t border-border/60 align-middle transition-colors hover:bg-surface-2/60",
+                      spine,
+                    )}
+                  >
+                    <Td align="center" className="pl-4">
+                      <TodoCheckbox
+                        todoId={r.id}
+                        done={r.done}
+                        readOnly={r.readOnly}
+                      />
+                    </Td>
+                    <Td className="max-w-[28rem] py-2">
+                      <span
+                        className={cn(
+                          "text-sm leading-snug",
+                          r.done && "text-muted-foreground line-through",
+                        )}
+                      >
+                        {r.description}
+                      </span>
+                    </Td>
+                    <Td className="py-2">
+                      <OwnerChip name={r.ownerName} />
+                    </Td>
+                    <Td numeric className="py-2">
+                      {r.dueDate ? (
+                        <span
+                          className={cn(
+                            "inline-flex items-center justify-end gap-1.5",
+                            r.isOverdue
+                              ? "text-status-red"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {r.isOverdue && (
+                            <StatusDot status="red" className="h-1 w-1" />
+                          )}
+                          {r.dueDate}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40">—</span>
+                      )}
+                    </Td>
+                    <Td align="center" className="py-2">
+                      {r.rolloverCount > 0 ? (
+                        <span title={`carried forward ${r.rolloverCount}×`}>
+                          <KeyHint className="border-status-yellow/40 bg-status-yellow/10 text-status-yellow">
+                            {r.rolloverCount}×
+                          </KeyHint>
+                        </span>
+                      ) : (
+                        <span className="font-mono text-[10px] text-muted-foreground/30">
+                          —
+                        </span>
+                      )}
+                    </Td>
+                    <Td className="min-w-[16rem] py-2">
+                      <TodoNotesEditor
+                        todoId={r.id}
+                        value={r.notes}
+                        readOnly={r.readOnly}
+                      />
+                    </Td>
+                    <Td align="right" className="py-2 pr-4">
+                      <div className="flex items-center justify-end gap-1.5 opacity-70 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                        <TodoRolloverButton
+                          todoId={r.id}
+                          readOnly={r.readOnly}
+                        />
+                        <TodoRowControls
+                          todoId={r.id}
+                          members={members}
+                          current={{
+                            description: r.description,
+                            ownerId: r.ownerId,
+                            dueDate: r.dueDate ?? "",
+                            notes: r.notes ?? "",
+                          }}
+                          readOnly={r.readOnly}
+                        />
+                      </div>
+                    </Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </DataTable>
+        </div>
+      )}
+    </Panel>
   );
 }

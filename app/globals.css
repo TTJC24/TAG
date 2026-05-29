@@ -39,30 +39,44 @@
     --status-red: 0 65% 48%;
   }
 
-  /* Dark = the operational mode. Matte graphite. Sharp separators. */
+  /* Dark = the operational mode. Matte graphite. Sharp separators.
+     A denser, sharper command-center base: deeper ground, brighter paper,
+     a four-tier surface ramp for raised structure without decorative color. */
   .dark {
-    --background: 220 15% 7%;            /* deep charcoal */
-    --foreground: 210 15% 92%;           /* paper */
+    --background: 220 16% 6%;            /* deep charcoal ground */
+    --foreground: 210 16% 93%;           /* bright paper */
     --card: 220 14% 9%;                  /* one tier above bg */
-    --card-foreground: 210 15% 92%;
-    --popover: 220 16% 6%;
-    --popover-foreground: 210 15% 92%;
-    --primary: 210 15% 92%;
-    --primary-foreground: 220 15% 7%;
+    --card-foreground: 210 16% 93%;
+    --popover: 220 15% 11%;              /* floating surface */
+    --popover-foreground: 210 16% 93%;
+    --primary: 210 16% 93%;
+    --primary-foreground: 220 16% 6%;
     --secondary: 220 12% 14%;
-    --secondary-foreground: 210 15% 92%;
+    --secondary-foreground: 210 16% 93%;
     --muted: 220 12% 14%;
-    --muted-foreground: 215 10% 58%;     /* dim caption */
-    --accent: 220 12% 14%;
-    --accent-foreground: 210 15% 92%;
+    --muted-foreground: 215 11% 60%;     /* dim caption */
+    --accent: 220 12% 16%;               /* hover/active wash */
+    --accent-foreground: 210 16% 93%;
     --destructive: 0 70% 55%;
     --destructive-foreground: 210 40% 98%;
     --border: 220 10% 18%;               /* crisp separator */
     --input: 220 10% 18%;
-    --ring: 210 15% 78%;                 /* focus is paper-bright */
+    --ring: 210 18% 80%;                 /* focus is paper-bright */
+
+    /* Surface ramp — four tiers of elevation for the command-center.
+       0 = ground, 3 = highest raised control well. */
+    --surface-0: 220 16% 6%;
+    --surface-1: 220 14% 9%;
+    --surface-2: 220 14% 12%;
+    --surface-3: 220 13% 16%;
+    /* Stronger outline for raised/interactive structure. */
+    --border-strong: 220 12% 26%;
+    /* Brain provenance accent — reserved exclusively for KB citations. */
+    --brain: 199 80% 62%;
 
     /* Status — high-saturation but never decorative. Used only for
-       risk / blocked / trend / completion / urgency. */
+       risk / blocked / trend / completion / urgency. DO NOT CHANGE:
+       the shading engine + StatusCell depend on these exact values. */
     --status-green: 145 55% 50%;
     --status-yellow: 40 92% 58%;
     --status-red: 0 75% 60%;
@@ -92,6 +106,31 @@
   .rule {
     box-shadow: inset 0 -1px 0 0 hsl(var(--border) / 0.7);
   }
+  /* Shared focus treatment — paper-bright ring, no layout shift. */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0;
+  }
+  /* Row status spine — inset shadow only, never a layout border (no shift).
+     Applied to dense <tr>/<li> rows in rocks/todos/issues/me/readiness. */
+  .spine-green {
+    box-shadow: inset 2px 0 0 0 hsl(var(--status-green) / 0.4);
+  }
+  .spine-yellow {
+    box-shadow: inset 2px 0 0 0 hsl(var(--status-yellow) / 0.4);
+  }
+  .spine-red {
+    box-shadow: inset 2px 0 0 0 hsl(var(--status-red) / 0.4);
+  }
+  /* Status pulse — for live/urgent dots. */
+  @keyframes pulse-status {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
+  }
   /* Subtle grain on the background — adds the "matte" feel without noise. */
   body::before {
     content: "";
@@ -110,10 +149,13 @@
 @layer components {
   /* Block of operational data — replaces card padding sprawl. */
   .panel {
-    @apply rounded border border-border bg-card;
+    @apply rounded border border-border bg-surface-1;
+    box-shadow:
+      0 1px 0 0 hsl(var(--surface-0) / 0.6),
+      0 0 0 1px hsl(var(--border) / 0.4);
   }
   .panel-tight {
-    @apply rounded border border-border bg-card/60;
+    @apply rounded border border-border bg-surface-1/60;
   }
 
   /* Section header rule above a dense table or list. */
@@ -180,6 +222,10 @@
     letter-spacing: -0.01em;
   }
   body[data-meeting="1"] .panel {
-    border-color: hsl(var(--border) / 0.8);
+    border-color: hsl(var(--border-strong) / 0.7);
+  }
+  /* Meeting mode raises dense table rows for conference-room legibility. */
+  body[data-meeting="1"] .data-row {
+    height: 2.75rem;
   }
 }

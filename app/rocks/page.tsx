@@ -2,16 +2,13 @@ import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgRocks } from "@/lib/queries/org-lists";
-import { AddRockButton, RockRowControls } from "@/components/rock-dialogs";
-import { RockNotesEditor } from "@/components/rock-notes-editor";
-import { RockStatusSelect } from "@/components/rock-status-select";
 import {
-  Eyebrow,
-  OwnerChip,
-  Panel,
-  PanelHeader,
-} from "@/components/ui/primitives";
-import { cn } from "@/lib/utils";
+  AddRockButton,
+  RocksTable,
+  RockStatusSummary,
+  type RockRow,
+} from "@/components/rock-dialogs";
+import { Eyebrow, Panel } from "@/components/ui/primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -32,148 +29,56 @@ export default async function RocksPage() {
   ]);
   const isAdmin = ctx.role === "admin";
 
-  const counts = rows.reduce(
-    (acc, r) => {
-      acc[r.rock.status] += 1;
-      return acc;
-    },
-    { on_track: 0, off_track: 0, still_going: 0, completed: 0 },
-  );
+  // Map server-fetched rows to a serializable, presentation-ready shape.
+  // Sort + ordering are preserved exactly from getOrgRocks (off_track first).
+  const tableRows: RockRow[] = rows.map(({ rock, owner }) => {
+    const isOwner = rock.ownerId === ctx.personId;
+    const readOnly =
+      ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
+    return {
+      id: rock.id,
+      description: rock.description,
+      status: rock.status,
+      ownerName: owner?.name ?? null,
+      quarter: rock.quarter,
+      dueDate: rock.dueDate ?? null,
+      notes: rock.notes ?? null,
+      readOnly,
+      current: {
+        description: rock.description,
+        ownerId: rock.ownerId,
+        quarter: rock.quarter,
+        dueDate: rock.dueDate ?? "",
+        notes: rock.notes ?? "",
+      },
+    };
+  });
 
   return (
     <main className="container space-y-5 py-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+      {/* Command strip — title + status summary + primary action. */}
+      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-b border-border/60 pb-4">
         <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · Rocks</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Quarterly priorities
-          </h1>
+          <Eyebrow>{ctx.orgName} · EOS</Eyebrow>
+          <h1 className="text-xl font-semibold tracking-tight">Rocks</h1>
         </div>
-        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          <Pill tone="red" label={`${counts.off_track} off`} />
-          <Pill tone="green" label={`${counts.on_track} on`} />
-          <Pill tone="amber" label={`${counts.still_going} still going`} />
-          <Pill tone="muted" label={`${counts.completed} done`} />
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-x-6 gap-y-3">
+          <RockStatusSummary rows={tableRows} />
           {isAdmin && <AddRockButton members={members} />}
         </div>
       </header>
 
-      {rows.length === 0 ? (
+      {tableRows.length === 0 ? (
         <Panel>
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No rocks for this org.
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">
+            No rocks for this org yet.
           </p>
         </Panel>
       ) : (
         <Panel>
-          <PanelHeader title="Rock" count={rows.length} hint="off-track first" />
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left">
-                  <Th className="pl-4">Rock</Th>
-                  <Th>Owner</Th>
-                  <Th>Status</Th>
-                  <Th>Notes</Th>
-                  <Th className="tabular">Quarter · Due</Th>
-                  <Th className="pr-4"> </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ rock, owner }) => {
-                  const isOwner = rock.ownerId === ctx.personId;
-                  const readOnly =
-                    ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
-                  return (
-                    <tr
-                      key={rock.id}
-                      className="border-t border-border/70 align-top"
-                    >
-                      <Td className="pl-4 font-medium">{rock.description}</Td>
-                      <Td>
-                        <OwnerChip name={owner?.name ?? null} />
-                      </Td>
-                      <Td>
-                        <RockStatusSelect
-                          rockId={rock.id}
-                          status={rock.status}
-                          readOnly={readOnly}
-                        />
-                      </Td>
-                      <Td className="min-w-[18rem]">
-                        <RockNotesEditor
-                          rockId={rock.id}
-                          value={rock.notes}
-                          readOnly={readOnly}
-                        />
-                      </Td>
-                      <Td className="font-mono text-xs text-muted-foreground tabular">
-                        {rock.quarter}
-                        {rock.dueDate ? ` · ${rock.dueDate}` : ""}
-                      </Td>
-                      <Td className="pr-4 text-right">
-                        <RockRowControls
-                          rockId={rock.id}
-                          members={members}
-                          current={{
-                            description: rock.description,
-                            ownerId: rock.ownerId,
-                            quarter: rock.quarter,
-                            dueDate: rock.dueDate ?? "",
-                            notes: rock.notes ?? "",
-                          }}
-                          readOnly={readOnly}
-                          canDelete={isAdmin}
-                        />
-                      </Td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <RocksTable rows={tableRows} members={members} canDelete={isAdmin} />
         </Panel>
       )}
     </main>
-  );
-}
-
-function Th({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <th
-      className={cn(
-        "border-b border-border/70 bg-card/40 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground",
-        className,
-      )}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <td className={cn("px-3 py-2 text-sm", className)}>{children}</td>;
-}
-
-function Pill({
-  tone,
-  label,
-}: {
-  tone: "red" | "green" | "amber" | "muted";
-  label: string;
-}) {
-  const dot =
-    tone === "red"
-      ? "bg-rose-400"
-      : tone === "green"
-        ? "bg-emerald-400"
-        : tone === "amber"
-          ? "bg-amber-400"
-          : "bg-muted-foreground/40";
-  return (
-    <span className="flex items-center gap-2">
-      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
-      {label}
-    </span>
   );
 }

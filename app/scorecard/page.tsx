@@ -19,10 +19,13 @@ import { LiveSync } from "@/components/live-sync";
 import { AddKPIButton, KPIRowControls } from "@/components/kpi-dialogs";
 import {
   Eyebrow,
+  MetricStat,
   MissingMarker,
   OwnerChip,
   Panel,
   PanelHeader,
+  StatusDot,
+  SummaryBar,
   TrendStrip,
   type TrendPoint,
 } from "@/components/ui/primitives";
@@ -48,7 +51,9 @@ export default async function ScorecardPage() {
     getOrgMembers(ctx.orgId),
   ]);
   const mostRecentWeek = weeks[weeks.length - 1] ?? null;
-  const priorWeeks = weeks.slice(0, -1);
+  // Most-recent-first ordering for the prior-week columns: latest read sits
+  // adjacent to "This week" so the eye scans newest → oldest left to right.
+  const priorWeeksDesc = weeks.slice(0, -1).slice().reverse();
   const isAdmin = ctx.role === "admin";
 
   // Operational summary — counts that matter at the meeting.
@@ -60,7 +65,11 @@ export default async function ScorecardPage() {
       else {
         const m = shadingMeasurableFor(r);
         const result = computeStatus(
-          { actual, noteClassification: e?.noteClassification as NoteClassification | null, statusOverride: e?.statusOverride as StatusColor | null },
+          {
+            actual,
+            noteClassification: e?.noteClassification as NoteClassification | null,
+            statusOverride: e?.statusOverride as StatusColor | null,
+          },
           m,
           [],
         );
@@ -77,20 +86,23 @@ export default async function ScorecardPage() {
     <main className="container space-y-5 py-6">
       <LiveSync clerkOrgId={ctx.clerkOrgId} />
 
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · Scorecard</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Weekly measurables
-          </h1>
+      {/* Command strip: title + operational summary + admin add control. */}
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4">
+        <div className="flex flex-col gap-2">
+          <Eyebrow>{ctx.orgName} · weekly measurables</Eyebrow>
+          <h1 className="text-xl font-semibold tracking-tight">Scorecard</h1>
         </div>
-        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          <Pill tone="red" label={`${summary.red} red`} />
-          <Pill tone="yellow" label={`${summary.yellow} yellow`} />
-          <Pill tone="green" label={`${summary.green} green`} />
-          <Pill tone="missing" label={`${summary.missing} missing`} />
-          {isAdmin && <AddKPIButton members={members} />}
-        </div>
+        <SummaryBar className="items-end">
+          <MetricStat label="red" value={summary.red} tone="red" />
+          <MetricStat label="yellow" value={summary.yellow} tone="yellow" />
+          <MetricStat label="green" value={summary.green} tone="green" />
+          <MetricStat label="missing" value={summary.missing} tone="muted" />
+          {isAdmin && (
+            <div className="ml-1 self-center">
+              <AddKPIButton members={members} />
+            </div>
+          )}
+        </SummaryBar>
       </header>
 
       {rows.length === 0 ? (
@@ -102,30 +114,32 @@ export default async function ScorecardPage() {
       ) : (
         <Panel>
           <PanelHeader
-            title="KPI"
+            title="Measurables"
             count={rows.length}
             hint={
               mostRecentWeek
-                ? `current: week ending ${mostRecentWeek.weekEndingDate}`
+                ? `current · week ending ${mostRecentWeek.weekEndingDate}`
                 : "no week"
             }
           />
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full border-collapse text-sm">
               <thead>
-                <tr className="text-left">
-                  <Th className="pl-4">KPI</Th>
-                  <Th>Owner</Th>
-                  <Th>Goal</Th>
-                  <Th className="text-right">This week</Th>
-                  <Th>Trend (3w)</Th>
-                  {priorWeeks.map((w) => (
-                    <Th key={w.id} className="text-right tabular">
+                <tr>
+                  <ColHead className="pl-4">Measurable</ColHead>
+                  <ColHead>Owner</ColHead>
+                  <ColHead>Goal</ColHead>
+                  <ColHead align="right">This week</ColHead>
+                  {priorWeeksDesc.map((w) => (
+                    <ColHead key={w.id} align="right">
                       {weekHeader(w.weekEndingDate)}
-                    </Th>
+                    </ColHead>
                   ))}
-                  <Th className="text-right">Updated</Th>
-                  <Th className="pr-4 text-right"> </Th>
+                  <ColHead align="right">Trend</ColHead>
+                  <ColHead align="right">Updated</ColHead>
+                  <ColHead className="pr-4" align="right">
+                    {" "}
+                  </ColHead>
                 </tr>
               </thead>
               <tbody>
@@ -134,7 +148,7 @@ export default async function ScorecardPage() {
                     key={row.measurable.id}
                     row={row}
                     weeks={weeks}
-                    priorWeeks={priorWeeks}
+                    priorWeeksDesc={priorWeeksDesc}
                     mostRecentWeekId={mostRecentWeek?.id ?? null}
                     actorRole={ctx.role}
                     actorPersonId={ctx.personId}
@@ -153,7 +167,7 @@ export default async function ScorecardPage() {
 function ScorecardRowView({
   row,
   weeks,
-  priorWeeks,
+  priorWeeksDesc,
   mostRecentWeekId,
   actorRole,
   actorPersonId,
@@ -161,13 +175,12 @@ function ScorecardRowView({
 }: {
   row: ScorecardRow;
   weeks: { id: string; weekEndingDate: string }[];
-  priorWeeks: { id: string; weekEndingDate: string }[];
+  priorWeeksDesc: { id: string; weekEndingDate: string }[];
   mostRecentWeekId: string | null;
   actorRole: "admin" | "member" | "viewer";
   actorPersonId: string;
   members: { id: string; name: string }[];
 }) {
-  const m = shadingMeasurableFor(row);
   const currentWeek = mostRecentWeekId
     ? weeks.find((w) => w.id === mostRecentWeekId)
     : null;
@@ -181,12 +194,23 @@ function ScorecardRowView({
     ? cellResult(weeks, weeks.length - 1, row)
     : null;
 
+  // Row status spine + leading dot reflect the current-week shading status.
+  // Missing current reads stay neutral — no false signal.
+  const spine =
+    currentActual === null || !currentResult ? null : currentResult.status;
+
   const trendPoints: TrendPoint[] = weeks.map((w) => {
     const e = row.entriesByWeek[w.id];
     const actual = parseNumeric(e?.actual);
     const r = cellResult(weeks, weeks.indexOf(w), row);
     const sign: -1 | 0 | 1 | null =
-      actual === null ? null : r?.status === "red" ? -1 : r?.status === "yellow" ? 0 : 1;
+      actual === null
+        ? null
+        : r?.status === "red"
+          ? -1
+          : r?.status === "yellow"
+            ? 0
+            : 1;
     return { weekEndingDate: w.weekEndingDate, actual, toneSign: sign };
   });
 
@@ -195,23 +219,48 @@ function ScorecardRowView({
     : null;
 
   return (
-    <tr className="border-t border-border/70 align-middle">
-      <Td className="pl-4 font-medium">{row.measurable.name}</Td>
-      <Td>
+    <tr
+      className={cn(
+        "data-row group/row border-t border-border/60 align-middle transition-colors hover:bg-surface-2/60",
+        spine === "red"
+          ? "spine-red"
+          : spine === "yellow"
+            ? "spine-yellow"
+            : spine === "green"
+              ? "spine-green"
+              : undefined,
+      )}
+    >
+      <Cell className="py-2 pl-4">
+        <div className="flex items-center gap-2">
+          <StatusDot status={spine ?? "muted"} />
+          <span className="font-medium tracking-tight text-foreground">
+            {row.measurable.name}
+          </span>
+        </div>
+      </Cell>
+      <Cell className="py-2">
         <OwnerChip name={row.owner?.name ?? null} />
-      </Td>
-      <Td>
+      </Cell>
+      <Cell className="py-2">
         <EditableGoalCell
           measurableId={row.measurable.id}
-          goalDirection={row.measurable.goalDirection as
-            | "gte" | "lte" | "eq" | "between" | "trend_down" | "trend_up"}
+          goalDirection={
+            row.measurable.goalDirection as
+              | "gte"
+              | "lte"
+              | "eq"
+              | "between"
+              | "trend_down"
+              | "trend_up"
+          }
           goalValue={parseNumeric(row.measurable.goalValue)}
           goalSecondary={parseNumeric(row.measurable.goalSecondary)}
           formatHint={row.measurable.formatHint}
           readOnly={readOnly}
         />
-      </Td>
-      <Td className="text-right">
+      </Cell>
+      <Cell align="right" className="py-2">
         {currentWeek ? (
           <div className="flex items-center justify-end">
             <EditableEntryCell
@@ -231,71 +280,99 @@ function ScorecardRowView({
         ) : (
           <MissingMarker label="no week" />
         )}
-      </Td>
-      <Td>
-        <TrendStrip points={trendPoints} />
-      </Td>
-      {priorWeeks.map((w, i) => {
+      </Cell>
+      {priorWeeksDesc.map((w) => {
         const e = row.entriesByWeek[w.id];
         const actual = parseNumeric(e?.actual);
-        const r = cellResult(weeks, i, row);
+        const r = cellResult(weeks, weeks.indexOf(w), row);
         return (
-          <Td key={w.id} className="text-right tabular">
+          <Cell key={w.id} align="right" numeric className="py-2">
             {actual === null ? (
-              <MissingMarker label="—" className="text-muted-foreground/50" />
+              <MissingMarker label="—" className="text-muted-foreground/40" />
             ) : (
               <span
                 className={cn(
-                  "font-mono text-xs",
+                  "text-xs",
                   r?.status === "red"
-                    ? "text-rose-300"
+                    ? "text-status-red"
                     : r?.status === "yellow"
-                      ? "text-amber-200"
-                      : "text-foreground/80",
+                      ? "text-status-yellow"
+                      : "text-foreground/70",
                 )}
                 title={e?.note ?? r?.reason}
               >
                 {formatActual(actual, row.measurable.formatHint)}
               </span>
             )}
-          </Td>
+          </Cell>
         );
       })}
-      <Td className="text-right font-mono text-[10px] text-muted-foreground/70">
-        {updated ?? <MissingMarker label="not entered" />}
-      </Td>
-      <Td className="pr-4 text-right">
-        <KPIRowControls
-          measurableId={row.measurable.id}
-          members={members}
-          current={{
-            measurableId: row.measurable.id,
-            name: row.measurable.name,
-            ownerId: row.measurable.ownerId,
-            unit: row.measurable.unit ?? "",
-            formatHint: row.measurable.formatHint ?? "currency_usd",
-            goalDirection: row.measurable.goalDirection,
-            goalValue: row.measurable.goalValue ?? "",
-            goalSecondary: row.measurable.goalSecondary ?? "",
-            cadence: row.measurable.cadence,
-            formula: row.measurable.formula ?? "",
-          }}
-          readOnly={readOnly}
-          canArchive={actorRole === "admin"}
-        />
-      </Td>
+      <Cell align="right" className="py-2">
+        <div className="flex justify-end">
+          <TrendStrip points={trendPoints} />
+        </div>
+      </Cell>
+      <Cell
+        align="right"
+        className="py-2 font-mono text-[10px] tabular text-muted-foreground/70"
+      >
+        {updated ?? (
+          <MissingMarker label="—" className="text-muted-foreground/40" />
+        )}
+      </Cell>
+      <Cell align="right" className="py-2 pr-4">
+        <div className="flex justify-end opacity-60 transition-opacity group-hover/row:opacity-100">
+          <KPIRowControls
+            measurableId={row.measurable.id}
+            members={members}
+            current={{
+              measurableId: row.measurable.id,
+              name: row.measurable.name,
+              ownerId: row.measurable.ownerId,
+              unit: row.measurable.unit ?? "",
+              formatHint: row.measurable.formatHint ?? "currency_usd",
+              goalDirection: row.measurable.goalDirection,
+              goalValue: row.measurable.goalValue ?? "",
+              goalSecondary: row.measurable.goalSecondary ?? "",
+              cadence: row.measurable.cadence,
+              formula: row.measurable.formula ?? "",
+            }}
+            readOnly={readOnly}
+            canArchive={actorRole === "admin"}
+          />
+        </div>
+      </Cell>
     </tr>
   );
-  void m; // shading is computed inside cellResult; m kept for parity
 }
 
-// ── Subcomponents ────────────────────────────────────────────────────────────
+// ── Server-rendered table head/cell helpers ─────────────────────────────────
+// Thin local wrappers mirroring the Td/Th primitive API so the matrix stays a
+// fully server-rendered table (streams + preserves all shading server output).
+// We do not use the client SegmentedControl density toggle here because this
+// surface owns no client wrapper file; the layout is dense by default.
 
-function Th({ children, className }: { children: React.ReactNode; className?: string }) {
+function ColHead({
+  children,
+  align = "left",
+  className,
+}: {
+  children: React.ReactNode;
+  align?: "left" | "right" | "center";
+  className?: string;
+}) {
+  const alignCls =
+    align === "right"
+      ? "text-right"
+      : align === "center"
+        ? "text-center"
+        : "text-left";
   return (
     <th
+      scope="col"
       className={cn(
-        "border-b border-border/70 bg-card/40 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground",
+        "sticky top-[var(--topbar-h,3rem)] z-10 h-8 border-b border-border bg-surface-1 px-3 align-middle font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground",
+        alignCls,
         className,
       )}
     >
@@ -304,30 +381,35 @@ function Th({ children, className }: { children: React.ReactNode; className?: st
   );
 }
 
-function Td({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <td className={cn("px-3 py-2 text-sm", className)}>{children}</td>;
-}
-
-function Pill({
-  tone,
-  label,
+function Cell({
+  children,
+  align = "left",
+  numeric,
+  className,
 }: {
-  tone: "red" | "yellow" | "green" | "missing";
-  label: string;
+  children: React.ReactNode;
+  align?: "left" | "right" | "center";
+  numeric?: boolean;
+  className?: string;
 }) {
-  const dot =
-    tone === "red"
-      ? "bg-rose-400"
-      : tone === "yellow"
-        ? "bg-amber-400"
-        : tone === "green"
-          ? "bg-emerald-400"
-          : "bg-muted-foreground/40";
+  const alignCls = numeric
+    ? "text-right"
+    : align === "right"
+      ? "text-right"
+      : align === "center"
+        ? "text-center"
+        : "text-left";
   return (
-    <span className="flex items-center gap-2">
-      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
-      {label}
-    </span>
+    <td
+      className={cn(
+        "px-3 align-middle text-sm",
+        numeric && "font-mono tabular",
+        alignCls,
+        className,
+      )}
+    >
+      {children}
+    </td>
   );
 }
 
@@ -363,7 +445,8 @@ function cellResult(
   const priors: ShadingEntry[] = weeks.slice(0, weekIndex).map((w) => ({
     actual: parseNumeric(row.entriesByWeek[w.id]?.actual),
     noteClassification:
-      (row.entriesByWeek[w.id]?.noteClassification as NoteClassification | null) ?? null,
+      (row.entriesByWeek[w.id]?.noteClassification as NoteClassification | null) ??
+      null,
     statusOverride:
       (row.entriesByWeek[w.id]?.statusOverride as StatusColor | null) ?? null,
   }));

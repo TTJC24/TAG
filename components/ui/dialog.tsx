@@ -37,7 +37,7 @@ export function Dialog({ open, onClose, title, children, size = "md" }: DialogPr
     >
       <div
         className={cn(
-          "mt-12 w-full rounded border border-border bg-card shadow-2xl",
+          "mt-12 w-full rounded border border-border-strong bg-surface-2 shadow-2xl ring-1 ring-black/40",
           widthCls,
         )}
         onClick={(e) => e.stopPropagation()}
@@ -82,7 +82,7 @@ export function FormField({
 }
 
 export const inputCls =
-  "w-full rounded border border-border bg-background px-2 py-1.5 text-sm focus:border-ring focus:outline-none";
+  "w-full rounded border border-border bg-surface-3 px-2 py-1.5 text-sm focus:border-ring focus:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 export const textareaCls = `${inputCls} resize-y min-h-[3rem]`;
 export const selectCls = inputCls;
 

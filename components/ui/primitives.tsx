@@ -2,6 +2,7 @@
 // Single coherent system — owner chip, status chip, missing marker,
 // trend strip, panel header. No card-grid sprawl.
 
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 // ── Owner chip ───────────────────────────────────────────────────────────────
@@ -171,4 +172,306 @@ export function Eyebrow({
   className?: string;
 }) {
   return <p className={cn("eyebrow", className)}>{children}</p>;
+}
+
+// ── Status dot — 1.5×1.5 round semaphore for dense headers/rows ─────────────
+
+export function StatusDot({
+  status,
+  className,
+  pulse,
+}: {
+  status: "green" | "yellow" | "red" | "muted";
+  className?: string;
+  pulse?: boolean;
+}) {
+  const bg =
+    status === "muted" ? "bg-muted-foreground/50" : `bg-status-${status}`;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block h-1.5 w-1.5 shrink-0 rounded-full",
+        bg,
+        pulse && "animate-[pulse-status_2s_ease-in-out_infinite]",
+        className,
+      )}
+    />
+  );
+}
+
+// ── Metric stat — eyebrow label over an oversized numeric reading ───────────
+
+const METRIC_TONE: Record<
+  "green" | "yellow" | "red" | "muted" | "neutral",
+  string
+> = {
+  green: "text-status-green",
+  yellow: "text-status-yellow",
+  red: "text-status-red",
+  muted: "text-muted-foreground",
+  neutral: "text-foreground",
+};
+
+export function MetricStat({
+  label,
+  value,
+  tone = "neutral",
+  delta,
+  className,
+}: {
+  label: string;
+  value: ReactNode;
+  tone?: "green" | "yellow" | "red" | "muted" | "neutral";
+  delta?: { sign: -1 | 0 | 1; text: string };
+  className?: string;
+}) {
+  const deltaCls =
+    delta == null
+      ? ""
+      : delta.sign > 0
+        ? "text-emerald-400"
+        : delta.sign < 0
+          ? "text-rose-400"
+          : "text-muted-foreground";
+  return (
+    <div className={cn("flex flex-col gap-1", className)}>
+      <span className="eyebrow">{label}</span>
+      <div className="flex items-baseline gap-2">
+        <span className={cn("numeric-xl meeting-numeric", METRIC_TONE[tone])}>
+          {value}
+        </span>
+        {delta && (
+          <span className={cn("numeric-sm", deltaCls)}>{delta.text}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Summary bar — horizontal row of metric stats / status chips ─────────────
+
+export function SummaryBar({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex flex-wrap items-end gap-4", className)}>
+      {children}
+    </div>
+  );
+}
+
+// ── Data table — dense h-9 operational table (h-11 in meeting mode) ─────────
+
+export function DataTable({
+  children,
+  className,
+  sticky,
+}: {
+  children: ReactNode;
+  className?: string;
+  sticky?: boolean;
+}) {
+  return (
+    <table
+      className={cn(
+        "w-full border-collapse text-sm",
+        sticky && "[&_thead]:sticky [&_thead]:top-[var(--topbar-h,3rem)] [&_thead]:z-10",
+        className,
+      )}
+    >
+      {children}
+    </table>
+  );
+}
+
+export function Th({
+  children,
+  align = "left",
+  sortable,
+  sortDir,
+  onSort,
+  className,
+}: {
+  children?: ReactNode;
+  align?: "left" | "right" | "center";
+  sortable?: boolean;
+  sortDir?: "asc" | "desc" | null;
+  onSort?: () => void;
+  className?: string;
+}) {
+  const alignCls =
+    align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  const inner = (
+    <span className={cn("inline-flex items-center gap-1", align === "right" && "flex-row-reverse")}>
+      {children}
+      {sortable && (
+        <span aria-hidden className="font-mono text-[9px] text-muted-foreground/70">
+          {sortDir === "asc" ? "▲" : sortDir === "desc" ? "▼" : "↕"}
+        </span>
+      )}
+    </span>
+  );
+  return (
+    <th
+      scope="col"
+      aria-sort={
+        sortable
+          ? sortDir === "asc"
+            ? "ascending"
+            : sortDir === "desc"
+              ? "descending"
+              : "none"
+          : undefined
+      }
+      className={cn(
+        "h-8 border-b border-border bg-surface-1 px-3 align-middle font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground",
+        alignCls,
+        className,
+      )}
+    >
+      {sortable ? (
+        <button
+          type="button"
+          onClick={onSort}
+          className="focus-ring inline-flex items-center gap-1 rounded uppercase tracking-[0.16em] transition hover:text-foreground"
+        >
+          {inner}
+        </button>
+      ) : (
+        inner
+      )}
+    </th>
+  );
+}
+
+export function Td({
+  children,
+  align = "left",
+  numeric,
+  className,
+  title,
+}: {
+  children?: ReactNode;
+  align?: "left" | "right" | "center";
+  numeric?: boolean;
+  className?: string;
+  title?: string;
+}) {
+  const alignCls = numeric
+    ? "text-right"
+    : align === "right"
+      ? "text-right"
+      : align === "center"
+        ? "text-center"
+        : "text-left";
+  return (
+    <td
+      title={title}
+      className={cn(
+        "px-3 align-middle",
+        numeric && "font-mono tabular",
+        alignCls,
+        className,
+      )}
+    >
+      {children}
+    </td>
+  );
+}
+
+// ── Key hint — mono kbd badge for keyboard affordances ──────────────────────
+
+export function KeyHint({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <kbd
+      className={cn(
+        "inline-flex h-4 min-w-4 items-center justify-center rounded border border-border bg-surface-3 px-1 font-mono text-[10px] leading-none text-muted-foreground",
+        className,
+      )}
+    >
+      {children}
+    </kbd>
+  );
+}
+
+// ── Segmented control — pure-client pill toggle group ───────────────────────
+
+export function SegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+  className,
+}: {
+  options: { value: T; label: string; count?: number }[];
+  value: T;
+  onChange: (v: T) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      role="tablist"
+      className={cn(
+        "inline-flex items-center gap-0.5 rounded border border-border bg-surface-1 p-0.5",
+        className,
+      )}
+    >
+      {options.map((opt) => {
+        const active = opt.value === value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(opt.value)}
+            className={cn(
+              "focus-ring inline-flex items-center gap-1.5 rounded px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.16em] transition",
+              active
+                ? "bg-surface-3 text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {opt.label}
+            {typeof opt.count === "number" && (
+              <span className="tabular text-[10px] text-muted-foreground/80">
+                {opt.count}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Brain badge — --brain-tinted chip for KB provenance only ────────────────
+
+export function BrainBadge({
+  children = "brain",
+  className,
+}: {
+  children?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded border border-[hsl(var(--brain)/0.4)] bg-[hsl(var(--brain)/0.12)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-[hsl(var(--brain))]",
+        className,
+      )}
+    >
+      {children}
+    </span>
+  );
 }

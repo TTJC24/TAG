@@ -33,11 +33,12 @@ export function TodoRolloverButton({
             router.refresh();
           });
         }}
-        className="rounded border border-border bg-muted/30 px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground transition hover:bg-muted hover:text-foreground disabled:opacity-50"
+        title="carry this to-do forward to the next L10"
+        className="focus-ring rounded border border-border bg-surface-2 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:border-foreground/40 hover:bg-surface-3 hover:text-foreground disabled:opacity-50"
       >
-        {pending ? "…" : "carry forward"}
+        {pending ? "…" : "carry fwd"}
       </button>
-      {error && <span className="font-mono text-[10px] text-rose-300">{error}</span>}
+      {error && <span className="font-mono text-[10px] text-status-red">{error}</span>}
     </span>
   );
 }

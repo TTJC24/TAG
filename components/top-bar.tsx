@@ -3,7 +3,7 @@ import { OrganizationSwitcher, UserButton, SignedIn } from "@clerk/nextjs";
 import { tryGetAuthContext } from "@/lib/auth/context";
 import { getRecentWeeks } from "@/lib/queries/me";
 import { MeetingModeToggle } from "@/components/meeting-mode-toggle";
-import { cn } from "@/lib/utils";
+import { TopBarNav } from "@/components/top-bar-nav";
 
 const NAV: { href: string; label: string; adminOnly?: boolean }[] = [
   { href: "/scorecard", label: "Scorecard" },
@@ -25,28 +25,25 @@ export async function TopBar() {
 
   return (
     <SignedIn>
-      <header className="sticky top-0 z-40 border-b border-border bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+      <header className="sticky top-0 z-40 border-b border-border bg-surface-0/85 backdrop-blur supports-[backdrop-filter]:bg-surface-0/70">
+        {/* hairline accent under the bar — denser command-center edge */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-border-strong/60 to-transparent"
+        />
         {/* Row 1 — brand + nav + identity controls */}
         <div className="container flex h-11 items-center gap-6">
           <Link
             href="/scorecard"
-            className="font-mono text-[11px] uppercase tracking-[0.22em] text-foreground"
+            className="group flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.22em] text-foreground"
           >
+            <span
+              aria-hidden
+              className="h-1.5 w-1.5 rounded-full bg-foreground/70 transition group-hover:bg-foreground"
+            />
             tractionos
           </Link>
-          <nav className="flex items-center gap-1 text-[13px]">
-            {items.map((n) => (
-              <Link
-                key={n.href}
-                href={n.href}
-                className={cn(
-                  "rounded px-2.5 py-1 text-muted-foreground transition hover:bg-muted/40 hover:text-foreground",
-                )}
-              >
-                {n.label}
-              </Link>
-            ))}
-          </nav>
+          <TopBarNav items={items} />
           <div className="ml-auto flex items-center gap-3">
             <MeetingModeToggle />
             <OrganizationSwitcher
@@ -55,7 +52,7 @@ export async function TopBar() {
                 elements: {
                   rootBox: "shrink-0",
                   organizationSwitcherTrigger:
-                    "rounded border border-border bg-card px-2 py-1 text-[11px] uppercase tracking-[0.18em]",
+                    "rounded border border-border bg-surface-2 px-2 py-1 text-[11px] uppercase tracking-[0.18em]",
                 },
               }}
             />

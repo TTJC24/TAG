@@ -1,12 +1,20 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getNextMeeting, getRecentWeeks } from "@/lib/queries/me";
-import { getOrgTeamView } from "@/lib/queries/org-readiness";
+import { getOrgTeamView, type OrgTeamMember } from "@/lib/queries/org-readiness";
 import {
+  DataTable,
   Eyebrow,
+  EmptyBlock,
+  MetricStat,
   OwnerChip,
   Panel,
   PanelHeader,
+  StatusChip,
+  StatusDot,
+  SummaryBar,
+  Td,
+  Th,
 } from "@/components/ui/primitives";
 import { cn } from "@/lib/utils";
 
@@ -48,33 +56,55 @@ export default async function AdminReadinessPage() {
     >,
   );
 
+  const nextL10 = nextMeeting
+    ? formatMeetingDate(nextMeeting.scheduledFor.toISOString())
+    : "not scheduled";
+
   return (
     <main className="container space-y-5 py-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
+      {/* CommandStrip-equivalent header: title + obligated-count SummaryBar + next L10.
+          (Inline because CommandStrip is owned by the shell surface, not this file.) */}
+      <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 border-b border-border/70 pb-4">
         <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · Readiness</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Pre-meeting accountability
-          </h1>
+          <Eyebrow>{ctx.orgName} · Accountability</Eyebrow>
+          <h1 className="text-xl font-semibold tracking-tight">Readiness</h1>
         </div>
-        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          <Pill tone="red" label={`${counts.red} not ready`} />
-          <Pill tone="yellow" label={`${counts.yellow} almost`} />
-          <Pill tone="green" label={`${counts.green} ready`} />
-          <Pill tone="muted" label={`${counts.none} no obligations`} />
-        </div>
+        <SummaryBar className="items-end">
+          <MetricStat
+            label="Not ready"
+            value={counts.red}
+            tone={counts.red > 0 ? "red" : "muted"}
+          />
+          <MetricStat
+            label="Almost"
+            value={counts.yellow}
+            tone={counts.yellow > 0 ? "yellow" : "muted"}
+          />
+          <MetricStat
+            label="Ready"
+            value={counts.green}
+            tone={counts.green > 0 ? "green" : "muted"}
+          />
+          <MetricStat label="No obligations" value={counts.none} tone="muted" />
+          <div className="ml-2 flex flex-col gap-1 self-end pb-0.5">
+            <Eyebrow>Next L10</Eyebrow>
+            <span className="font-mono text-sm tabular text-foreground/90">
+              {nextL10}
+            </span>
+          </div>
+        </SummaryBar>
       </header>
 
       {members.length === 0 ? (
         <Panel>
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+          <EmptyBlock className="py-8 text-sm">
             No members in this org yet.
-          </p>
+          </EmptyBlock>
         </Panel>
       ) : (
         <Panel>
           <PanelHeader
-            title="Person"
+            title="Team"
             count={members.length}
             hint={
               currentWeek
@@ -82,28 +112,19 @@ export default async function AdminReadinessPage() {
                 : "no week"
             }
             right={
-              nextMeeting ? (
-                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  next L10:{" "}
-                  <span className="text-foreground/90">
-                    {formatMeetingDate(nextMeeting.scheduledFor.toISOString())}
-                  </span>
-                </span>
-              ) : (
-                <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-                  next L10: not scheduled
-                </span>
-              )
+              <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                read-only · edit on /me
+              </span>
             }
           />
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <DataTable>
               <thead>
-                <tr className="text-left">
+                <tr>
                   <Th className="pl-4">Person</Th>
                   <Th>Status</Th>
-                  <Th className="tabular">Filled this week</Th>
-                  <Th className="tabular">Overdue to-dos</Th>
+                  <Th align="right">Filled this week</Th>
+                  <Th align="right">Overdue to-dos</Th>
                   <Th className="pr-4">Owes</Th>
                 </tr>
               </thead>
@@ -111,13 +132,20 @@ export default async function AdminReadinessPage() {
                 {members.map((m) => {
                   const filled =
                     m.readiness.totalMeasurables - m.readiness.missingMeasurables;
-                  const color = m.obligated ? m.readiness.status : "none";
+                  const dot: "green" | "yellow" | "red" | "muted" = m.obligated
+                    ? m.readiness.status
+                    : "muted";
                   const label = m.obligated ? m.readiness.label : "No obligations";
-                  const owes = describeOwes(m);
+                  const hasMeasurables =
+                    m.obligated && m.readiness.totalMeasurables > 0;
+                  const missing = hasMeasurables && m.readiness.missingMeasurables > 0;
                   return (
                     <tr
                       key={m.person.id}
-                      className="border-t border-border/70 align-middle"
+                      className={cn(
+                        "h-9 border-t border-border/70 align-middle transition-colors hover:bg-surface-1/60",
+                        m.obligated && SPINE[m.readiness.status],
+                      )}
                     >
                       <Td className="pl-4">
                         <div className="flex items-center gap-2">
@@ -134,29 +162,57 @@ export default async function AdminReadinessPage() {
                       </Td>
                       <Td>
                         <div className="flex items-center gap-2">
-                          <span
-                            aria-hidden
-                            className={cn("h-2 w-2 rounded-full", DOT_STYLES[color])}
+                          <StatusDot
+                            status={dot}
+                            pulse={m.obligated && m.readiness.status === "red"}
                           />
-                          <span className="text-sm">{label}</span>
+                          {m.obligated ? (
+                            <StatusChip tone={m.readiness.status}>
+                              {label}
+                            </StatusChip>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">
+                              {label}
+                            </span>
+                          )}
                         </div>
                       </Td>
-                      <Td className="font-mono text-xs tabular">
-                        {m.obligated && m.readiness.totalMeasurables > 0
-                          ? `${filled}/${m.readiness.totalMeasurables}`
-                          : "—"}
+                      <Td numeric>
+                        {hasMeasurables ? (
+                          <span
+                            className={cn(missing && "text-status-red")}
+                            title={`${m.readiness.missingMeasurables} missing`}
+                          >
+                            {filled}
+                            <span className="text-muted-foreground/60">
+                              /{m.readiness.totalMeasurables}
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/50">—</span>
+                        )}
                       </Td>
-                      <Td className="font-mono text-xs tabular">
-                        {m.obligated ? m.readiness.overdueTodos : "—"}
+                      <Td numeric>
+                        {m.obligated ? (
+                          <span
+                            className={cn(
+                              m.readiness.overdueTodos > 0 && "text-status-yellow",
+                            )}
+                          >
+                            {m.readiness.overdueTodos}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/50">—</span>
+                        )}
                       </Td>
                       <Td className="pr-4 text-xs text-muted-foreground">
-                        {owes}
+                        {describeOwes(m)}
                       </Td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
+            </DataTable>
           </div>
         </Panel>
       )}
@@ -164,70 +220,26 @@ export default async function AdminReadinessPage() {
   );
 }
 
-function describeOwes(m: {
-  obligated: boolean;
-  readiness: { missingMeasurables: number; overdueTodos: number };
-  measurables: unknown[];
-  rocks: unknown[];
-  todos: unknown[];
-  issues: unknown[];
-}): string {
+function describeOwes(m: OrgTeamMember): string {
   if (!m.obligated) return "—";
   const parts: string[] = [];
   if (m.readiness.missingMeasurables > 0)
-    parts.push(`${m.readiness.missingMeasurables} KPI${m.readiness.missingMeasurables === 1 ? "" : "s"}`);
+    parts.push(
+      `${m.readiness.missingMeasurables} KPI${m.readiness.missingMeasurables === 1 ? "" : "s"}`,
+    );
   if (m.readiness.overdueTodos > 0)
-    parts.push(`${m.readiness.overdueTodos} overdue todo${m.readiness.overdueTodos === 1 ? "" : "s"}`);
+    parts.push(
+      `${m.readiness.overdueTodos} overdue todo${m.readiness.overdueTodos === 1 ? "" : "s"}`,
+    );
   if (parts.length === 0) return "ready";
   return parts.join(" · ");
 }
 
-const DOT_STYLES: Record<"green" | "yellow" | "red" | "none", string> = {
-  green: "bg-emerald-400",
-  yellow: "bg-amber-400",
-  red: "bg-rose-400",
-  none: "bg-muted-foreground/40",
+const SPINE: Record<"green" | "yellow" | "red", string> = {
+  green: "spine-green",
+  yellow: "spine-yellow",
+  red: "spine-red",
 };
-
-function Th({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <th
-      className={cn(
-        "border-b border-border/70 bg-card/40 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground",
-        className,
-      )}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <td className={cn("px-3 py-2 text-sm", className)}>{children}</td>;
-}
-
-function Pill({
-  tone,
-  label,
-}: {
-  tone: "red" | "yellow" | "green" | "muted";
-  label: string;
-}) {
-  const dot =
-    tone === "red"
-      ? "bg-rose-400"
-      : tone === "yellow"
-        ? "bg-amber-400"
-        : tone === "green"
-          ? "bg-emerald-400"
-          : "bg-muted-foreground/40";
-  return (
-    <span className="flex items-center gap-2">
-      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
-      {label}
-    </span>
-  );
-}
 
 function formatMeetingDate(iso: string): string {
   const d = new Date(iso);
