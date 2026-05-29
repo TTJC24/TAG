@@ -204,3 +204,32 @@ Each ADR is dated and numbered. Format: context → decision → consequences. D
 - The scorecard intentionally anchors on the *calendar* current week, not merely the most-recent row — so future-dated rows (e.g. seed data ahead of the server clock) don't capture the editable hero. History shown is the weeks ≤ the current week.
 - The lock is enforced in the UI (the only editable target is the current-week hero). The `updateActual` server action is unchanged; if a hard server-side guard becomes warranted (e.g. once transcript ingestion can target arbitrary weeks), that's a follow-up.
 - Backfilling skipped weeks is out of scope: lazy generation creates only the *current* week, so a gap can appear in the wave if the app wasn't loaded during an intervening week. Acceptable — the snapshot/import paths own historical rows.
+
+---
+
+## ADR-0013 — Weeks are entity-local; entities have independent cadences; CULTIVUS+ has no weekly cadence
+
+**Date:** 2026-05-29
+**Status:** Accepted (supersedes ADR-0012's "weeks are global / Monday-anchored" specifics; keeps its lazy-generation and current-week-only-entry principles. Refines ADR-0009 — the per-org isolation now extends to the week itself.)
+
+**Context.** The three operating companies don't close their books on the same day, and one (CULTIVUS+) doesn't run on a weekly rhythm at all. The original model had a single **global** `weeks` table (one row per date, shared by all orgs) — which cannot represent "week ending Thursday for BLCS" and "week ending Sunday for FS" simultaneously, and which forces a weekly cadence on entities that don't have one. Forcing one global cadence misrepresents how the businesses actually operate.
+
+**Decision.**
+
+- **The week is entity-local, not global.** `weeks` gains `orgId`; its uniqueness moves from `(weekEndingDate)` to `(orgId, weekEndingDate)`. Each entity has its own week rows.
+- **Per-entity cadence config lives on `organizations`** (columns, not Clerk metadata): `weekEndsOn`, `meetingDay`, `entryCutoffDay`, `entryCutoffTime` — all nullable. `entryCutoff*` is a **visual indicator only — no enforcement yet**.
+- **Week generation is config-aware.** `ensureCurrentWeek(orgId, weekEndsOn)` creates the slot for the **upcoming occurrence** of the entity's `weekEndsOn`. A **null `weekEndsOn` generates no week** — the scorecard renders a manual log, never a forced weekly grid.
+- **The dateline reflects the active entity's week.** It's computed from `ctx.weekEndsOn`; switching the Clerk org switches the dateline. Null cadence shows "no weekly cadence".
+- **CULTIVUS+ has no enforced weekly cadence** (`weekEndsOn`/`meetingDay` null) and is configurable later.
+- **Initial config:** FS — ends Sunday, meets Monday, cutoff Monday morning. BLCS — ends Thursday, meets Friday, cutoff Thursday EOD. USA — ends Thursday, meets Friday, cutoff Thursday EOD. CULTIVUS+ — null.
+
+**Migration (chosen: preserve history, new convention forward).**
+
+- The existing global weeks were **cloned per-org on their original dates** and each org's `entries` + `weekSnapshots` were repointed to its clone; the orphaned global rows were then deleted (`scripts/migrate-entity-weeks.ts`). Result: 3 global weeks → 9 per-org weeks, all 75 entries repointed, zero loss.
+- **History keeps the exact dates it was reported on** (the imported Mondays); only weeks generated from now on adopt each entity's `weekEndsOn`. We explicitly rejected re-dating historical entries onto the new cutoff days as semantically lossy.
+
+**Consequences.**
+
+- A deliberate mixed history: pre-migration weeks sit on Mondays, new weeks on each entity's cutoff day. This is honest (it reflects when numbers were actually reported) and self-corrects as new weeks accrue.
+- `scripts/import-workbook.ts` still writes orgless weeks (it predates this change). It must be updated to write per-org weeks, or the clone migration re-run after any future import — flagged as a follow-up.
+- `entryCutoff` enforcement is intentionally deferred; today it only drives visual "expected by" indicators.

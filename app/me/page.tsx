@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import {
+  ensureCurrentWeek,
   getNextMeeting,
   getRecentWeeks,
   getMyIssues,
@@ -49,7 +50,24 @@ export default async function MePage() {
     throw err;
   }
 
-  const weeks = await getRecentWeeks(4);
+  // Entity-local weeks (ADR-0013): ensure this org's current week exists, then
+  // show the trailing window anchored on it. Null cadence → no week columns.
+  const currentWeek = await ensureCurrentWeek(ctx.orgId, ctx.weekEndsOn);
+  const recent = currentWeek ? await getRecentWeeks(ctx.orgId, 8) : [];
+  const weeks = currentWeek
+    ? (() => {
+        const upTo = recent.filter(
+          (w) => w.weekEndingDate <= currentWeek.weekEndingDate,
+        );
+        const all = upTo.some((w) => w.id === currentWeek.id)
+          ? upTo
+          : [...upTo, currentWeek];
+        return all
+          .slice()
+          .sort((a, b) => a.weekEndingDate.localeCompare(b.weekEndingDate))
+          .slice(-4);
+      })()
+    : [];
   const weekIds = weeks.map((w) => w.id);
   const [myMeasurables, myRocks, myTodos, myIssues, nextMeeting] =
     await Promise.all([

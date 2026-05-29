@@ -39,23 +39,31 @@ export default async function ScorecardPage() {
     throw err;
   }
 
-  // Lazy generation: loading the scorecard guarantees the current week exists.
-  const currentWeek = await ensureCurrentWeek();
+  // Lazy generation: loading the scorecard guarantees the current week exists
+  // for entities with a weekly cadence. A null weekEndsOn (e.g. CULTIVUS+)
+  // returns no week — the surface renders as a manual log. See ADR-0013.
+  const currentWeek = await ensureCurrentWeek(ctx.orgId, ctx.weekEndsOn);
 
   // History window = the weeks up to and including the current week. Anchoring
   // on the current week (not merely the latest row) keeps the editable hero on
   // "this week" even if future-dated weeks exist in the data.
-  const recent = await getRecentWeeks(16);
-  const upTo = recent.filter(
-    (w) => w.weekEndingDate <= currentWeek.weekEndingDate,
-  );
-  const weeks = (
-    upTo.some((w) => w.id === currentWeek.id) ? upTo : [...upTo, currentWeek]
-  )
-    .slice()
-    .sort((a, b) => a.weekEndingDate.localeCompare(b.weekEndingDate))
-    .slice(-12);
-  const lastIndex = weeks.length - 1; // currentWeek sits last
+  const recent = currentWeek ? await getRecentWeeks(ctx.orgId, 16) : [];
+  const weeks = currentWeek
+    ? (() => {
+        const upTo = recent.filter(
+          (w) => w.weekEndingDate <= currentWeek.weekEndingDate,
+        );
+        const all = upTo.some((w) => w.id === currentWeek.id)
+          ? upTo
+          : [...upTo, currentWeek];
+        return all
+          .slice()
+          .sort((a, b) => a.weekEndingDate.localeCompare(b.weekEndingDate))
+          .slice(-12);
+      })()
+    : [];
+  const lastIndex = weeks.length - 1; // currentWeek sits last (when present)
+  const weekId = currentWeek?.id ?? null;
 
   const [rows, members] = await Promise.all([
     getOrgScorecard(
@@ -68,9 +76,11 @@ export default async function ScorecardPage() {
 
   const blocks = rows.map((row) => {
     const series = weeks.map((w) => parseNumeric(row.entriesByWeek[w.id]?.actual));
-    const currentEntry = row.entriesByWeek[currentWeek.id];
+    const currentEntry = currentWeek
+      ? row.entriesByWeek[currentWeek.id]
+      : undefined;
     const currentActual = parseNumeric(currentEntry?.actual);
-    const result = cellResult(weeks, lastIndex, row);
+    const result = currentWeek ? cellResult(weeks, lastIndex, row) : null;
     const status: StatusColor | null =
       currentActual === null ? null : (result?.status ?? null);
     return { row, series, currentEntry, currentActual, result, status };
@@ -115,10 +125,16 @@ export default async function ScorecardPage() {
       {/* Unmistakable: which week these numbers go into, and that the rest is locked. */}
       <div className="flex flex-wrap items-center gap-2 rounded-[2px] border border-border bg-surface-1 px-4 py-2.5 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
         <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-foreground/60" />
-        Entering for week ending
-        <span className="text-foreground">{currentWeek.weekEndingDate}</span>
-        <span aria-hidden className="text-border">·</span>
-        prior weeks are locked
+        {currentWeek ? (
+          <>
+            Entering for week ending
+            <span className="text-foreground">{currentWeek.weekEndingDate}</span>
+            <span aria-hidden className="text-border">·</span>
+            prior weeks are locked
+          </>
+        ) : (
+          <>No weekly cadence — numbers are a manual log</>
+        )}
       </div>
 
       {total === 0 ? (
@@ -135,7 +151,7 @@ export default async function ScorecardPage() {
               <MetricBlock
                 key={row.measurable.id}
                 measurableId={row.measurable.id}
-                weekId={currentWeek.id}
+                weekId={weekId}
                 name={row.measurable.name}
                 ownerName={row.owner?.name ?? null}
                 currentActual={currentActual}

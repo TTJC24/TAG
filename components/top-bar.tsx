@@ -52,9 +52,10 @@ export async function TopBar() {
   const [nextMeeting, liveMeeting] = ctx
     ? await Promise.all([getNextMeeting(ctx.orgId), getLiveMeeting(ctx.orgId)])
     : [null, null];
-  // Dateline reflects the true current week (computed, Monday-anchored) so it
-  // always matches the scorecard's "entering for" week. See ADR-0012.
-  const weekEnding = ctx ? currentWeekEndingDate() : null;
+  // Dateline reflects the ACTIVE entity's week-cutoff day (ADR-0013) — switch
+  // entity, the dateline updates. Null cadence (e.g. CULTIVUS+) shows no date.
+  const weekEnding =
+    ctx && ctx.weekEndsOn ? currentWeekEndingDate(ctx.weekEndsOn) : null;
   const quarter = ctx ? currentQuarter() : null;
 
   return (
@@ -117,7 +118,7 @@ export async function TopBar() {
         {ctx && (
           <div className="meeting-hide container flex h-7 items-center gap-3 border-t border-border/70 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
             <span className="text-foreground/90">
-              Week ending {weekEnding ?? "—"}
+              {weekEnding ? `Week ending ${weekEnding}` : "No weekly cadence"}
             </span>
             <span aria-hidden className="text-border">
               ·

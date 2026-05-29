@@ -2,7 +2,6 @@ import { auth } from "@clerk/nextjs/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db/client";
 import { people } from "@/lib/db/schema";
-import { getRecentWeeks } from "@/lib/queries/me";
 import {
   getEntityHealth,
   getUserEntities,
@@ -39,9 +38,8 @@ export default async function HomePage() {
     return <PickOrg />;
   }
 
-  const weeks = await getRecentWeeks(12);
   const healths = await Promise.all(
-    entities.map((e) => getEntityHealth(e.orgId, weeks)),
+    entities.map((e) => getEntityHealth(e.orgId)),
   );
 
   const roll = healths.reduce(

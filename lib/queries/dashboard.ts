@@ -9,6 +9,7 @@ import { db } from "@/lib/db/client";
 import { organizations, orgMemberships } from "@/lib/db/schema";
 import { getOrgScorecard } from "@/lib/queries/scorecard";
 import { getOrgIssues, getOrgRocks } from "@/lib/queries/org-lists";
+import { getRecentWeeks } from "@/lib/queries/me";
 import { computeStatus } from "@/lib/shading/compute-status";
 import type {
   GoalDirection,
@@ -60,20 +61,19 @@ function parseNumeric(v: string | number | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** One entity's health for the most recent week. Reuses the same per-org
- *  queries and shading engine the single-entity surfaces use. */
-export async function getEntityHealth(
-  orgId: string,
-  weeks: { id: string }[],
-): Promise<EntityHealth> {
-  const [rows, issues, rocks] = await Promise.all([
-    getOrgScorecard(
-      orgId,
-      weeks.map((w) => w.id),
-    ),
+/** One entity's health for its most recent week. Weeks are entity-local
+ *  (ADR-0013), so this reads the org's own week rows. A glance view — it does
+ *  not generate weeks; entities with no weekly cadence simply have none. */
+export async function getEntityHealth(orgId: string): Promise<EntityHealth> {
+  const [weeks, issues, rocks] = await Promise.all([
+    getRecentWeeks(orgId, 12),
     getOrgIssues(orgId),
     getOrgRocks(orgId),
   ]);
+  const rows = await getOrgScorecard(
+    orgId,
+    weeks.map((w) => w.id),
+  );
 
   const lastIndex = weeks.length - 1;
   const lastWeekId = weeks[lastIndex]?.id ?? null;

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
-import { getNextMeeting, getRecentWeeks } from "@/lib/queries/me";
+import { ensureCurrentWeek, getNextMeeting } from "@/lib/queries/me";
 import { getOrgTeamView, type OrgTeamMember } from "@/lib/queries/org-readiness";
 import { StatusChip } from "@/components/ui/primitives";
 import { SurfaceBlock, type BlockStatus } from "@/components/ui/surface-block";
@@ -48,8 +48,7 @@ export default async function AdminReadinessPage() {
     redirect("/scorecard");
   }
 
-  const weeks = await getRecentWeeks(1);
-  const currentWeek = weeks[0] ?? null;
+  const currentWeek = await ensureCurrentWeek(ctx.orgId, ctx.weekEndsOn);
   const today = new Date().toISOString().slice(0, 10);
 
   const [members, nextMeeting] = await Promise.all([

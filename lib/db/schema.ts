@@ -45,6 +45,18 @@ export const goalDirection = pgEnum("goal_direction", [
 
 export const cadence = pgEnum("cadence", ["weekly", "monthly"]);
 
+export const dayOfWeek = pgEnum("day_of_week", [
+  "sunday",
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+]);
+
+export type WeekDay = (typeof dayOfWeek.enumValues)[number];
+
 export const statusColor = pgEnum("status_color", ["green", "yellow", "red"]);
 
 export const entrySource = pgEnum("entry_source", [
@@ -112,6 +124,14 @@ export const organizations = pgTable(
     clerkOrgId: text("clerk_org_id").notNull(),
     name: text("name").notNull(),
     code: text("code").notNull(),
+    // Per-entity cadence config (ADR-0013). All nullable: a null weekEndsOn
+    // means no weekly reporting cadence (e.g. CULTIVUS+ — a manual log, not a
+    // weekly rhythm). meetingDay = when the L10 runs; entryCutoff* = when
+    // numbers are expected by (visual indicators only, no enforcement).
+    weekEndsOn: dayOfWeek("week_ends_on"),
+    meetingDay: dayOfWeek("meeting_day"),
+    entryCutoffDay: dayOfWeek("entry_cutoff_day"),
+    entryCutoffTime: text("entry_cutoff_time"), // "HH:MM" or a label, optional
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -226,6 +246,10 @@ export const weeks = pgTable(
   "weeks",
   {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    // Weeks are entity-local (ADR-0013): each org has its own week rows keyed
+    // to its weekEndsOn day. Nullable for the migration window; the clone
+    // migration backfills every row and the app always sets it.
+    orgId: uuid("org_id").references(() => organizations.id),
     weekEndingDate: date("week_ending_date").notNull(),
     weekNumber: integer("week_number").notNull(), // ISO week number
     quarter: text("quarter").notNull(), // e.g. "Q2 2026"
@@ -235,9 +259,11 @@ export const weeks = pgTable(
       .defaultNow(),
   },
   (t) => ({
-    weekEndingDateUnique: uniqueIndex("weeks_week_ending_date_unique").on(
+    orgWeekEndingDateUnique: uniqueIndex("weeks_org_week_ending_date_unique").on(
+      t.orgId,
       t.weekEndingDate,
     ),
+    orgIdx: index("weeks_org_idx").on(t.orgId),
   }),
 );
 
