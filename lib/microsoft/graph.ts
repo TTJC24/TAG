@@ -1,8 +1,10 @@
 // Microsoft Graph client using the MSAL Node client-credentials flow.
 // Used by:
-//   - Teams chat reminders (Phase 3 — pre-meeting nudges)
 //   - Recap messages to entity channels on conclude (Phase 7)
 //   - Optional Teams native transcript pull (Phase 6, TranscriptSource(teams_native))
+//
+// Note: no automated pre-meeting reminders/nudges — the scorecard is
+// manual-input-only and nothing chases owners (ADR-0011).
 //
 // The app is configured in Entra ID with admin consent for:
 //   - Chat.ReadWrite

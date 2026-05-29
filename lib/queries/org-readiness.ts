@@ -279,27 +279,3 @@ function parseNumeric(v: string | null): number | null {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Back-compat: the older obligation-only shape consumed by lib/nudges/dispatch.
-// Returns one row per *obligated* member (the readiness verdict only matters
-// for people who actually have something to report on).
-// ─────────────────────────────────────────────────────────────────────────────
-
-export interface OrgReadinessRow {
-  person: Pick<Person, "id" | "name" | "email" | "avatarUrl"> & {
-    role: "admin" | "member" | "viewer";
-  };
-  readiness: ReadinessResult;
-}
-
-export async function getOrgReadiness(
-  orgId: string,
-  currentWeekId: string | null,
-  today: string,
-): Promise<OrgReadinessRow[]> {
-  const team = await getOrgTeamView(orgId, currentWeekId, today);
-  return team
-    .filter((m) => m.obligated)
-    .map((m) => ({ person: m.person, readiness: m.readiness }));
-}

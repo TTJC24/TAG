@@ -1,9 +1,11 @@
 // Resend client — single source for transactional email.
 //
 // Used by:
-//   - Pre-meeting reminders (Sunday 6pm cron, Phase 3)
 //   - Recap emails on meeting conclude (Phase 4)
 //   - PDF board packets (Phase 7)
+//
+// Note: there are no automated pre-meeting reminders — the scorecard is
+// manual-input-only and nothing chases owners (ADR-0011).
 //
 // All callers go through `sendEmail` so audit logging, retries, and template
 // rendering can be added in one place. v1 is a thin wrapper; expand as

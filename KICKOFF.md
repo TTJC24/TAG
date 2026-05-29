@@ -247,11 +247,12 @@ What Daniel sees when he logs in Monday morning:
 - A "Submit for meeting" button that locks his updates and pings Tim
 - Mobile-optimized — most owners will do this on their phone
 
-### Pre-meeting reminder workflow
+### Pre-meeting workflow
 
-- Sunday 6pm: Microsoft Graph posts a Teams chat to each attendee + Resend email backup: "L10 prep — your scorecard awaits" with a deep link to their personal dashboard
-- Monday 9am: nudge via Teams chat for anyone who hasn't submitted
-- Tim's admin dashboard shows readiness: green check per person, red dot for missing, click-to-poke (sends another Teams nudge)
+> Superseded by ADR-0011: the scorecard is **manual human input only**. There is no automated reminder/nudge cadence and nothing auto-populates a measurable — owners enter their own numbers so accountability stays human-owned.
+
+- Owners update their own measurables, rocks, and to-dos on their personal dashboard whenever they choose, before the meeting
+- Tim's admin dashboard (`/admin/readiness`) shows readiness: green check per person who's submitted, red dot for missing. It is a **passive, read-only view** — it does not send reminders or poke anyone
 
 ### Real-time sync
 
@@ -453,7 +454,7 @@ Slash command `/ingest-transcript` in the meeting runner, or a file upload on th
 - Quarter view: all Rocks status over time, completion rate
 - Owner view: every Measurable, Rock, To-Do, Issue assigned to one person across all entities
 - **Cascading Messages auto-post to Teams channels** — each entity has a Teams channel (FS Leadership, BL Leadership, USA Leadership); the conclude step posts the cascade to the right channels with attribution
-- **Recap digests via Teams chat + Resend email** — Monday recap with rating + key changes, Friday "open to-dos older than 3 days" nudge
+- **Recap digests via Teams chat + Resend email** — Monday recap with rating + key changes (informational digest of what was decided, not a reminder/nudge — see ADR-0011)
 - CSV export + beautifully formatted PDF for board packets
 - Mobile: read-only meeting view + the personal dashboard (already mobile-first from Phase 3)
 - Search across all meetings + transcripts (full-text on transcripts, structured on the rest)

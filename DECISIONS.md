@@ -157,3 +157,27 @@ Each ADR is dated and numbered. Format: context → decision → consequences. D
 **Decision.** `computeStatus(entry, measurable, history): { status, intensity, reason }` is a pure function in `lib/shading/`. Minimum 20 test scenarios are written **before** the implementation. The function depends only on its inputs — no DB, no `Date.now()` (history is passed in).
 
 **Consequences.** TDD on this module is non-negotiable. Note classification is async (an LLM call), so its result is cached on the entry and consumed synchronously by the function — keeps the function pure.
+
+---
+
+## ADR-0011 — Scorecard is manual-input-only; the automated nudge layer is removed
+
+**Date:** 2026-05-29
+**Status:** Accepted (supersedes the pre-meeting reminder/nudge workflow in `KICKOFF.md` and `docs/meeting-flow.md`; removes the nudges slice landed in commit `9e867bd`. Does **not** affect ADR-0005 — Postgres remains the source of truth.)
+
+**Context.** The admin nudge-preview endpoint failed because `DATABASE_URL` was unset, which forced the question of how the scorecard should be populated and chased. The decision: **accountability requires human intention.** If numbers populate automatically — or if the platform chases people to enter them — no one truly owns the result. This is a decision about *behavior*, not *persistence*: the database is not what makes numbers "auto-appear", so removing the nudge/automation layer (not Postgres) is the correct fix.
+
+**Decision.**
+
+- The scorecard is **manual human input only**. No path auto-populates a measurable's actual; owners enter their own numbers before the meeting.
+- The automated nudge/reminder layer is **removed entirely**: `lib/nudges/` (`dispatch`, `compose-nudge`, `types`, and the `in-app` / `teams` / `resend` channels) and the `/api/admin/nudges/preview` endpoint are deleted. No scheduler will be built — the previously-planned `app/api/cron/nudges/route.ts` is cancelled.
+- `getOrgReadiness()` — the obligation-only wrapper consumed only by the dispatcher — is removed from `lib/queries/org-readiness.ts`. `getOrgTeamView()` is retained.
+- `/admin/readiness` **stays** as a **passive, read-only** visibility view: it shows who has and hasn't entered their numbers but sends nothing and pokes no one. Human-initiated visibility is accountability; automated outreach is not.
+- Postgres, Drizzle, and `DATABASE_URL` are **untouched** (ADR-0005 unaffected). Manually-entered numbers persist normally, every write still hits the audit log.
+- The Microsoft Graph and Resend wrappers remain for meeting recaps and transcript pulls — not reminders. The `NUDGES_TEAMS_ENABLED` / `NUDGES_RESEND_ENABLED` env flags are gone.
+
+**Consequences.**
+
+- Owners are responsible for entering their own numbers; the platform will not chase them. Social accountability — the readiness view plus the meeting itself — replaces automated nudging.
+- The original `DATABASE_URL` error disappears because the endpoint that threw is deleted, not because the env var was provisioned.
+- Reversible by intent: re-introducing reminders later would be a new ADR. Nothing in the data model blocks it; the wrappers and audit-log `source` taxonomy still exist.
