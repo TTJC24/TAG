@@ -115,6 +115,18 @@ export async function getMyIssues(personId: string, orgId: string): Promise<Issu
     .orderBy(asc(issues.createdAt));
 }
 
+/** The currently-live L10 for this org, or null. Drives the masthead LIVE
+ *  pill. Read-only and org-scoped; no write path. */
+export async function getLiveMeeting(orgId: string): Promise<Meeting | null> {
+  const [row] = await db
+    .select()
+    .from(meetings)
+    .where(and(eq(meetings.orgId, orgId), eq(meetings.status, "live")))
+    .orderBy(desc(meetings.scheduledFor))
+    .limit(1);
+  return row ?? null;
+}
+
 /** Next scheduled L10 for this org, or null if none. Used by the readiness
  *  banner on /me to show "Next L10: …". */
 export async function getNextMeeting(

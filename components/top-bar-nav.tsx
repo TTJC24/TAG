@@ -23,6 +23,7 @@ export function TopBarNav({ items }: { items: NavItem[] }) {
     let armed = false;
     let armedAt = 0;
     const JUMP: Record<string, string> = {
+      d: "/",
       s: "/scorecard",
       r: "/rocks",
       t: "/todos",
@@ -60,23 +61,32 @@ export function TopBarNav({ items }: { items: NavItem[] }) {
   }, [router]);
 
   return (
-    <nav className="flex items-center gap-0.5 text-[13px]">
+    <nav className="flex items-center gap-1 text-[13px]">
       {items.map((n) => {
+        // "/" must match exactly — startsWith("/") would match every route.
         const active =
-          pathname === n.href || pathname.startsWith(`${n.href}/`);
+          n.href === "/"
+            ? pathname === "/"
+            : pathname === n.href || pathname.startsWith(`${n.href}/`);
         return (
           <Link
             key={n.href}
             href={n.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative rounded px-2.5 py-1 transition focus-ring",
+              "relative px-2.5 py-1.5 transition-colors focus-ring",
               active
-                ? "bg-surface-3 text-foreground"
-                : "text-muted-foreground hover:bg-surface-2 hover:text-foreground",
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
             )}
           >
             {n.label}
+            {active && (
+              <span
+                aria-hidden
+                className="absolute inset-x-2.5 bottom-0 h-[2px] bg-foreground"
+              />
+            )}
           </Link>
         );
       })}

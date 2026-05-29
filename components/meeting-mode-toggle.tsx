@@ -31,10 +31,11 @@ export function MeetingModeToggle({ className }: { className?: string }) {
     <Link
       href={href}
       title={on ? "exit meeting mode" : "enter meeting mode"}
+      aria-pressed={on}
       className={cn(
-        "focus-ring flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition",
+        "focus-ring flex items-center gap-1.5 rounded-[2px] border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
         on
-          ? "border-status-yellow/50 bg-status-yellow/10 text-status-yellow"
+          ? "border-foreground bg-foreground text-background"
           : "border-border bg-surface-2 text-muted-foreground hover:border-border-strong hover:text-foreground",
         className,
       )}
@@ -44,7 +45,7 @@ export function MeetingModeToggle({ className }: { className?: string }) {
         className={cn(
           "h-1.5 w-1.5 rounded-full",
           on
-            ? "bg-status-yellow animate-[pulse-status_2s_ease-in-out_infinite]"
+            ? "bg-background animate-[pulse-status_2s_ease-in-out_infinite]"
             : "bg-muted-foreground/50",
         )}
       />

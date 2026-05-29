@@ -3,83 +3,99 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────
-   TractionOS — operational palette.
-   Dark-mode is the only mode. Color is reserved for risk / blocked /
-   trend / completion / urgency. No decorative color anywhere.
+   TractionOS — editorial palette (Hallmark redesign, ADR-pending).
+   Black / white / grey + ONE accent: Signal Red (--signal). Red is the
+   only hue in chrome and means action / live / critical. Status green &
+   amber survive ONLY as data-ink (scorecard cells, spines, chips, the
+   health verdict) — never on chrome. Both modes are fully designed.
    ─────────────────────────────────────────────────────────────────────── */
 
 @layer base {
+  /* Light = paper. Ink on bright white, neutral greys, hairline rules. */
   :root {
-    /* The light palette is left intact for the Clerk sign-in surface
-       where a short flash of light is acceptable. The app is dark by
-       default (forced via app/layout.tsx <ThemeProvider defaultTheme>). */
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.25rem;
+    color-scheme: light;
 
-    --status-green: 142 50% 42%;
-    --status-yellow: 38 85% 50%;
-    --status-red: 0 65% 48%;
+    --background: 0 0% 100%;             /* paper */
+    --foreground: 0 0% 8%;               /* ink */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 8%;
+    --primary: 0 0% 8%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 8%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;        /* captions / labels only */
+    --accent: 0 0% 96%;                  /* neutral hover wash — NOT brand red */
+    --accent-foreground: 0 0% 8%;
+    --destructive: 4 80% 48%;            /* aligned to --signal */
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 88%;                  /* hairline rule */
+    --input: 0 0% 88%;
+    --ring: 0 0% 8%;                     /* focus is ink, never red */
+    --radius: 0.125rem;                  /* crisp, near-square (newspaper) */
+
+    /* Surface ramp — four tiers of paper elevation. */
+    --surface-0: 0 0% 100%;
+    --surface-1: 0 0% 98%;
+    --surface-2: 0 0% 96%;
+    --surface-3: 0 0% 93%;
+    --border-strong: 0 0% 78%;
+
+    /* The one accent. Carries across both modes. */
+    --signal: 4 80% 48%;
+    --signal-foreground: 0 0% 100%;
+    /* Brain provenance is marked with a mono tag + dotted rule, no hue. */
+    --brain: 0 0% 40%;
+
+    /* Status — DATA-INK ONLY. Variable NAMES are pinned (the shading engine
+       + StatusCell depend on them); only the values change. Red == signal.
+       Green/amber deepened so they read on white. */
+    --status-green: 150 44% 36%;
+    --status-yellow: 38 82% 44%;
+    --status-red: 4 80% 48%;
   }
 
-  /* Dark = the operational mode. Matte graphite. Sharp separators.
-     A denser, sharper command-center base: deeper ground, brighter paper,
-     a four-tier surface ramp for raised structure without decorative color. */
+  /* Dark = near-black. Paper-white ink, neutral charcoal greys, the accent
+     burns hotter so it pops off the black. */
   .dark {
-    --background: 220 16% 6%;            /* deep charcoal ground */
-    --foreground: 210 16% 93%;           /* bright paper */
-    --card: 220 14% 9%;                  /* one tier above bg */
-    --card-foreground: 210 16% 93%;
-    --popover: 220 15% 11%;              /* floating surface */
-    --popover-foreground: 210 16% 93%;
-    --primary: 210 16% 93%;
-    --primary-foreground: 220 16% 6%;
-    --secondary: 220 12% 14%;
-    --secondary-foreground: 210 16% 93%;
-    --muted: 220 12% 14%;
-    --muted-foreground: 215 11% 60%;     /* dim caption */
-    --accent: 220 12% 16%;               /* hover/active wash */
-    --accent-foreground: 210 16% 93%;
-    --destructive: 0 70% 55%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 220 10% 18%;               /* crisp separator */
-    --input: 220 10% 18%;
-    --ring: 210 18% 80%;                 /* focus is paper-bright */
+    color-scheme: dark;
 
-    /* Surface ramp — four tiers of elevation for the command-center.
-       0 = ground, 3 = highest raised control well. */
-    --surface-0: 220 16% 6%;
-    --surface-1: 220 14% 9%;
-    --surface-2: 220 14% 12%;
-    --surface-3: 220 13% 16%;
-    /* Stronger outline for raised/interactive structure. */
-    --border-strong: 220 12% 26%;
-    /* Brain provenance accent — reserved exclusively for KB citations. */
-    --brain: 199 80% 62%;
+    --background: 0 0% 6%;               /* near-black ground */
+    --foreground: 0 0% 95%;              /* paper white */
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 95%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 0 0% 95%;
+    --primary-foreground: 0 0% 6%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 14%;                  /* neutral hover wash — NOT brand red */
+    --accent-foreground: 0 0% 95%;
+    --destructive: 6 90% 60%;            /* aligned to --signal */
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 0 0% 95%;                    /* focus is paper, never red */
 
-    /* Status — high-saturation but never decorative. Used only for
-       risk / blocked / trend / completion / urgency. DO NOT CHANGE:
-       the shading engine + StatusCell depend on these exact values. */
-    --status-green: 145 55% 50%;
-    --status-yellow: 40 92% 58%;
-    --status-red: 0 75% 60%;
+    --surface-0: 0 0% 6%;
+    --surface-1: 0 0% 9%;
+    --surface-2: 0 0% 12%;
+    --surface-3: 0 0% 16%;
+    --border-strong: 0 0% 28%;
+
+    --signal: 6 90% 60%;
+    --signal-foreground: 0 0% 100%;
+    --brain: 0 0% 62%;
+
+    /* Status — data-ink only; red == signal. */
+    --status-green: 145 52% 50%;
+    --status-yellow: 40 90% 56%;
+    --status-red: 6 90% 60%;
   }
 }
 
@@ -87,9 +103,7 @@
   * {
     @apply border-border;
   }
-  html {
-    color-scheme: dark;
-  }
+  /* color-scheme is set per-mode on :root / .dark above. */
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
