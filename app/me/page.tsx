@@ -22,10 +22,10 @@ import { RockStatusPill } from "@/components/rock-status-pill";
 import { TodoCheckbox } from "@/components/todo-checkbox";
 import { LiveSync } from "@/components/live-sync";
 import {
+  CommandStrip,
   DataTable,
   Td,
   Th,
-  Eyebrow,
   EmptyBlock,
   Panel,
   PanelHeader,
@@ -124,17 +124,15 @@ export default async function MePage() {
       <LiveSync clerkOrgId={ctx.clerkOrgId} />
 
       {/* ─── Cockpit header ──────────────────────────────────────── */}
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
-        <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · L10 prep</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">
-            {ctx.personName.split(" ")[0]}&apos;s cockpit
-          </h1>
-        </div>
-        <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
-          measurables · rocks · to-dos · issues — red first
-        </p>
-      </header>
+      <CommandStrip
+        eyebrow={`${ctx.orgName} · L10 prep`}
+        title={`${ctx.personName.split(" ")[0]}'s cockpit`}
+        right={
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+            measurables · rocks · to-dos · issues — red first
+          </p>
+        }
+      />
 
       {/* ─── Readiness hero ──────────────────────────────────────── */}
       <ReadinessBanner

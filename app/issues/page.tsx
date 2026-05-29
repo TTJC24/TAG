@@ -3,7 +3,7 @@ import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgIssues } from "@/lib/queries/org-lists";
 import { AddIssueButton } from "@/components/issue-dialogs";
-import { Eyebrow } from "@/components/ui/primitives";
+import { CommandStrip } from "@/components/ui/primitives";
 import { IssueQueue } from "./issue-queue";
 
 export const dynamic = "force-dynamic";
@@ -55,15 +55,15 @@ export default async function IssuesPage() {
 
   return (
     <main className="container space-y-5 py-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · Issues</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">IDS queue</h1>
-        </div>
-        {canCreate && (
-          <AddIssueButton members={members} defaultOwnerId={ctx.personId} />
-        )}
-      </header>
+      <CommandStrip
+        eyebrow={`${ctx.orgName} · Issues`}
+        title="IDS queue"
+        right={
+          canCreate ? (
+            <AddIssueButton members={members} defaultOwnerId={ctx.personId} />
+          ) : undefined
+        }
+      />
 
       <IssueQueue
         items={items}

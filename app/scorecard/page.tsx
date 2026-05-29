@@ -18,7 +18,7 @@ import { EditableGoalCell } from "@/components/editable-goal-cell";
 import { LiveSync } from "@/components/live-sync";
 import { AddKPIButton, KPIRowControls } from "@/components/kpi-dialogs";
 import {
-  Eyebrow,
+  CommandStrip,
   MetricStat,
   MissingMarker,
   OwnerChip,
@@ -86,24 +86,23 @@ export default async function ScorecardPage() {
     <main className="container space-y-5 py-6">
       <LiveSync clerkOrgId={ctx.clerkOrgId} />
 
-      {/* Command strip: title + operational summary + admin add control. */}
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border pb-4">
-        <div className="flex flex-col gap-2">
-          <Eyebrow>{ctx.orgName} · weekly measurables</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">Scorecard</h1>
-        </div>
-        <SummaryBar className="items-end">
-          <MetricStat label="red" value={summary.red} tone="red" />
-          <MetricStat label="yellow" value={summary.yellow} tone="yellow" />
-          <MetricStat label="green" value={summary.green} tone="green" />
-          <MetricStat label="missing" value={summary.missing} tone="muted" />
-          {isAdmin && (
-            <div className="ml-1 self-center">
-              <AddKPIButton members={members} />
-            </div>
-          )}
-        </SummaryBar>
-      </header>
+      <CommandStrip
+        eyebrow={`${ctx.orgName} · weekly measurables`}
+        title="Scorecard"
+        right={
+          <SummaryBar className="items-end">
+            <MetricStat label="red" value={summary.red} tone="red" />
+            <MetricStat label="yellow" value={summary.yellow} tone="yellow" />
+            <MetricStat label="green" value={summary.green} tone="green" />
+            <MetricStat label="missing" value={summary.missing} tone="muted" />
+            {isAdmin && (
+              <div className="ml-1 self-center">
+                <AddKPIButton members={members} />
+              </div>
+            )}
+          </SummaryBar>
+        }
+      />
 
       {rows.length === 0 ? (
         <Panel>

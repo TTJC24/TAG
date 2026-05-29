@@ -3,6 +3,7 @@ import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getNextMeeting, getRecentWeeks } from "@/lib/queries/me";
 import { getOrgTeamView, type OrgTeamMember } from "@/lib/queries/org-readiness";
 import {
+  CommandStrip,
   DataTable,
   Eyebrow,
   EmptyBlock,
@@ -62,38 +63,36 @@ export default async function AdminReadinessPage() {
 
   return (
     <main className="container space-y-5 py-6">
-      {/* CommandStrip-equivalent header: title + obligated-count SummaryBar + next L10.
-          (Inline because CommandStrip is owned by the shell surface, not this file.) */}
-      <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-4 border-b border-border/70 pb-4">
-        <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · Accountability</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">Readiness</h1>
-        </div>
-        <SummaryBar className="items-end">
-          <MetricStat
-            label="Not ready"
-            value={counts.red}
-            tone={counts.red > 0 ? "red" : "muted"}
-          />
-          <MetricStat
-            label="Almost"
-            value={counts.yellow}
-            tone={counts.yellow > 0 ? "yellow" : "muted"}
-          />
-          <MetricStat
-            label="Ready"
-            value={counts.green}
-            tone={counts.green > 0 ? "green" : "muted"}
-          />
-          <MetricStat label="No obligations" value={counts.none} tone="muted" />
-          <div className="ml-2 flex flex-col gap-1 self-end pb-0.5">
-            <Eyebrow>Next L10</Eyebrow>
-            <span className="font-mono text-sm tabular text-foreground/90">
-              {nextL10}
-            </span>
-          </div>
-        </SummaryBar>
-      </header>
+      <CommandStrip
+        eyebrow={`${ctx.orgName} · Accountability`}
+        title="Readiness"
+        right={
+          <SummaryBar className="items-end">
+            <MetricStat
+              label="Not ready"
+              value={counts.red}
+              tone={counts.red > 0 ? "red" : "muted"}
+            />
+            <MetricStat
+              label="Almost"
+              value={counts.yellow}
+              tone={counts.yellow > 0 ? "yellow" : "muted"}
+            />
+            <MetricStat
+              label="Ready"
+              value={counts.green}
+              tone={counts.green > 0 ? "green" : "muted"}
+            />
+            <MetricStat label="No obligations" value={counts.none} tone="muted" />
+            <div className="ml-2 flex flex-col gap-1 self-end pb-0.5">
+              <Eyebrow>Next L10</Eyebrow>
+              <span className="font-mono text-sm tabular text-foreground/90">
+                {nextL10}
+              </span>
+            </div>
+          </SummaryBar>
+        }
+      />
 
       {members.length === 0 ? (
         <Panel>

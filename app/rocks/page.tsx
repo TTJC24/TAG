@@ -8,7 +8,7 @@ import {
   RockStatusSummary,
   type RockRow,
 } from "@/components/rock-dialogs";
-import { Eyebrow, Panel } from "@/components/ui/primitives";
+import { CommandStrip, Panel } from "@/components/ui/primitives";
 
 export const dynamic = "force-dynamic";
 
@@ -56,17 +56,16 @@ export default async function RocksPage() {
 
   return (
     <main className="container space-y-5 py-6">
-      {/* Command strip — title + status summary + primary action. */}
-      <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-b border-border/60 pb-4">
-        <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · EOS</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">Rocks</h1>
-        </div>
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-x-6 gap-y-3">
-          <RockStatusSummary rows={tableRows} />
-          {isAdmin && <AddRockButton members={members} />}
-        </div>
-      </header>
+      <CommandStrip
+        eyebrow={`${ctx.orgName} · EOS`}
+        title="Rocks"
+        right={
+          <>
+            <RockStatusSummary rows={tableRows} />
+            {isAdmin && <AddRockButton members={members} />}
+          </>
+        }
+      />
 
       {tableRows.length === 0 ? (
         <Panel>

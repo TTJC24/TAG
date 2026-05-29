@@ -8,7 +8,7 @@ import {
   type TodoTableRow,
 } from "@/components/todo-dialogs";
 import {
-  Eyebrow,
+  CommandStrip,
   MetricStat,
   SummaryBar,
 } from "@/components/ui/primitives";
@@ -58,34 +58,34 @@ export default async function TodosPage() {
 
   return (
     <main className="container space-y-5 py-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-2">
-          <Eyebrow>{ctx.orgName} · To-Do&apos;s</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Open commitments
-          </h1>
-          <SummaryBar>
-            <MetricStat
-              label="open"
-              value={tableRows.length}
-              tone="neutral"
-            />
-            <MetricStat
-              label="overdue"
-              value={overdue}
-              tone={overdue > 0 ? "red" : "muted"}
-            />
-            <MetricStat
-              label="rolled"
-              value={rolled}
-              tone={rolled > 0 ? "yellow" : "muted"}
-            />
-          </SummaryBar>
-        </div>
-        {canCreate && (
-          <AddTodoButton members={members} defaultOwnerId={ctx.personId} />
-        )}
-      </header>
+      <CommandStrip
+        eyebrow={`${ctx.orgName} · To-Do's`}
+        title="Open commitments"
+        right={
+          <>
+            <SummaryBar>
+              <MetricStat
+                label="open"
+                value={tableRows.length}
+                tone="neutral"
+              />
+              <MetricStat
+                label="overdue"
+                value={overdue}
+                tone={overdue > 0 ? "red" : "muted"}
+              />
+              <MetricStat
+                label="rolled"
+                value={rolled}
+                tone={rolled > 0 ? "yellow" : "muted"}
+              />
+            </SummaryBar>
+            {canCreate && (
+              <AddTodoButton members={members} defaultOwnerId={ctx.personId} />
+            )}
+          </>
+        }
+      />
 
       <TodosTable rows={tableRows} members={members} />
     </main>

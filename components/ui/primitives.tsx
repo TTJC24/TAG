@@ -146,6 +146,42 @@ export function PanelHeader({
   );
 }
 
+// ── Command strip — canonical page header: eyebrow + title + right slot ─────
+// The single operational page header used across every surface. Owns the
+// border/spacing rhythm so surfaces stay visually consistent; per-surface
+// summary bars, filters, and primary actions are passed via `right`.
+
+export function CommandStrip({
+  eyebrow,
+  title,
+  right,
+  className,
+}: {
+  eyebrow?: ReactNode;
+  title: ReactNode;
+  right?: ReactNode;
+  className?: string;
+}) {
+  return (
+    <header
+      className={cn(
+        "flex flex-wrap items-end justify-between gap-x-6 gap-y-3 border-b border-border pb-4",
+        className,
+      )}
+    >
+      <div className="space-y-1">
+        {eyebrow != null && <Eyebrow>{eyebrow}</Eyebrow>}
+        <h1 className="text-xl font-semibold tracking-tight">{title}</h1>
+      </div>
+      {right != null && (
+        <div className="flex flex-wrap items-end justify-end gap-x-6 gap-y-3">
+          {right}
+        </div>
+      )}
+    </header>
+  );
+}
+
 // ── Empty block — no decorative dashed-border boxes anywhere ────────────────
 
 export function EmptyBlock({

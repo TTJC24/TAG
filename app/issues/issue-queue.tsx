@@ -101,7 +101,8 @@ export function IssueQueue({
 
   return (
     <div className="space-y-4">
-      {/* CommandStrip — surface summary + priority filter (presentation only). */}
+      {/* Summary + priority-filter toolbar (presentation only). The page title
+          header lives in app/issues/page.tsx via the shared CommandStrip. */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <SummaryBar>
           <MetricStat
