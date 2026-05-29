@@ -6,34 +6,29 @@
 
 ## Final summary
 
-**What changed.** Created two files in the `company-brain` repo: `COMPANY_BRAIN.md` (a new
-business-context "brain" doc for Claude) and this `WORK_LOG.md`. No existing files were
-modified or deleted; no code, config, or other repos were touched. Two local commits, **no push**.
+**What changed.** Created `COMPANY_BRAIN.md` (a business-context brain doc for Claude) and this
+`WORK_LOG.md` in the `company-brain` repo, then **filled the brain from Tim's answers** in an
+interactive pass. No existing files modified or deleted; no code or other repos touched.
+Local commits only — **no push**.
 
-**What's usable now.** The brain is rubric-complete in structure and **fully grounded** on
-the things the repo actually proves: the company's tooling/systems (M365, Acumatica ERP,
-Pipedrive CRM, Postgres, ZeroEntropy, Anthropic, gbrain), the platform's surfaces, the exact
-commands to query the brain, and observed engineering conventions.
+**State: substantially complete.** Now grounded and filled in:
+- **Group of three sister companies:** Fastening Specialists (**FS** — fasteners → resellers),
+  Big League Construction Supply (**BLCS** — general construction supply → contractors),
+  Utility Supply Associates (**USA** — waterworks distribution).
+- **Owner:** Tim — COO, sole admin of all systems.
+- **Systems topology:** 1 Acumatica tenant (3 branches), **2** Pipedrive instances (FS; BLCS+USA),
+  1 shared M365 tenant. **TrackPod** = delivery/logistics (not yet ingested). company-brain is
+  the central knowledge base being built.
+- **Voice:** consistent, polished, personal. **Non-negotiables:** none as of 2026-05-28.
+- **Out of scope:** **LeadSprint AI** (`contractor-lead-response`) is Tim's *unrelated* personal
+  side venture — explicitly fenced off.
 
-**What's left.** The *business identity* sections can't be completed from the repo without
-inventing facts (forbidden). They're left as a precise scaffold. Answering the 11 `[NEEDS TIM]`
-questions below turns this from a strong skeleton into a finished brain — that's the only
-remaining work, and it needs Tim.
+**What's left — optional only (the brain is usable now):**
+- Other key people / roles beyond Tim (COO).
+- More internal jargon, branch codes, product categories, customer tiers.
+- Rough headcount / scale per company.
 
-**Every `[NEEDS TIM]` flag (consolidated):**
-- Company legal/trade name + one-line description of what it does + industry.
-- Who it serves (customer type / market) and rough size (people, branches).
-- Team & roles, and who administers M365 / Acumatica / Pipedrive.
-- Is **LeadSprint AI** (`contractor-lead-response`) a product of this company, a separate venture, or unrelated?
-- Does company-brain serve Tim's own company, an employer, or a client?
-- Business terminology, acronyms, product names, branch codes.
-- Brand voice / tone.
-- Customer-facing or compliance/legal non-negotiables.
-- Is **react-doctor 100/100** a company-wide engineering standard or specific to LeadSprint?
-- Any other knowledge stores (wiki / Notion / Drive / runbooks) Claude should know about.
-
-**Repo state:** left on a clean local commit on the current branch. Run `git log --oneline`
-to see the two added commits; nothing is staged or dirty.
+**Repo state:** left on a clean local commit on the current branch; nothing staged or dirty. Not pushed.
 
 ---
 
@@ -146,3 +141,22 @@ Every item that **can** be raised by repo evidence — (c), (e), (f) — is at 4
 Their "done" bar (excellent scaffold + specific, answerable questions) is met. Continuing to
 8 mechanical passes would be busywork or fabrication, so the loop stops here. The 11
 `[NEEDS TIM]` items in `COMPANY_BRAIN.md` §7 are the exact unlock.
+
+### Pass 2 — filled from Tim's interactive answers
+
+Tim answered the gating questions directly, so the previously-capped items are now real (not
+invented). Captured: the three-company structure + offerings + customers, COO/admin ownership,
+systems topology (1 Acumatica/3 branches, 2 Pipedrives, 1 M365), TrackPod, brand voice,
+non-negotiables (none), and LeadSprint fenced out of scope. Trimmed a duplicated topology block
+for skimmability.
+
+| Item | Score | Justification |
+|---|---|---|
+| (a) Entity & purpose | **5** | Three named companies, each with offering + customer + structure. |
+| (b) Terminology | **4** | Real acronyms (FS/BLCS/USA, waterworks) + platform terms; more jargon optional. |
+| (c) People, tools, systems | **5** | Tim/COO + full systems table + topology + TrackPod. |
+| (d) Conventions, voice | **5** | Engineering conventions + voice (polished/personal) + non-negotiables (none). |
+| (e) Pointers | **5** | Where context lives + exact query commands. |
+| (f) Skimmable | **4** | ~1040 words, headers/tables/quick-ref; skimmable in < 3 min. |
+
+Every item is now **4+**. Only optional polish remains (§7). Done.

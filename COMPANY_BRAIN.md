@@ -5,24 +5,26 @@
 >
 > **How to read the markers:** plain text = grounded in this repo's real config/code.
 > `[NEEDS TIM]` = a fact only Tim can supply; it has **not** been invented or guessed.
-> Answer the `[NEEDS TIM]` items (consolidated in §7) to make this brain fully usable.
+> Core identity, systems, and conventions are now filled in; remaining `[NEEDS TIM]` items
+> (§7) are optional polish.
 >
-> _Built autonomously 2026-05-28 from repo evidence. See `WORK_LOG.md` for sourcing._
+> _Built 2026-05-28 from repo evidence + Tim's answers. See `WORK_LOG.md` for sourcing._
 
 ---
 
 ## 1. The company — who & what
 
-- **Name:** `[NEEDS TIM]` — legal/trade name of the company this brain describes.
-- **What it does:** `[NEEDS TIM]` — one or two sentences. (Repo evidence only shows the
-  *shape* of a B2B operation: an ERP with customers/orders/invoices and multiple
-  **branches**, plus a sales pipeline — but the actual industry and offering aren't stated.)
-- **Who it serves:** `[NEEDS TIM]` — customer type / market.
-- **Relationship to its software:** This repo (`company-brain`) is an internal **knowledge
-  platform** that ingests the company's own systems (below) into one searchable "brain."
-  A sibling repo, `contractor-lead-response` (product **"LeadSprint AI"**), also exists under
-  the same GitHub owner. `[NEEDS TIM]` — is LeadSprint a product *of* this company, a
-  separate venture, or unrelated? See §7.
+- **Structure:** a group of **three sister companies** sharing back-office systems (M365 /
+  Acumatica / Pipedrive — see §2):
+  1. **Fastening Specialists** — fasteners, sold to **resellers**.
+  2. **Big League Construction Supply (BLCS)** — general construction supply, sold to **contractors**.
+  3. **Utility Supply Associates (USA)** — **waterworks** distribution (utility / water-infrastructure supply).
+- **Relationship to its software:** This repo (`company-brain`) is the group's own internal
+  **knowledge platform** — it ingests the three companies' shared systems (§2) into one
+  searchable "brain." Tim (COO) builds and owns it.
+- **Out of scope:** the sibling repo `contractor-lead-response` (**LeadSprint AI**) is Tim's
+  **personal side venture** — *unrelated* to the company group or this brain. Do not pull it
+  into company context.
 
 ## 2. Systems & tools Claude will encounter  *(repo-grounded — reliable)*
 
@@ -39,14 +41,22 @@ These are the systems the platform integrates, taken from real config (`.env.exa
 | **Anthropic** | LLM gateway (ask / query expansion) | `ANTHROPIC_API_KEY` |
 | **gbrain** (`garrytan/gbrain`) | Upstream engine the platform is built on (pinned rev) | `package.json` |
 
+**Topology:** 1 Acumatica tenant → 3 branches (FS / BLCS / USA); **2** Pipedrive instances
+(one FS, one shared by BLCS + USA); 1 shared M365 tenant. _(The repo's connector config
+currently assumes a single Pipedrive token — wiring the second instance is a known follow-up.)_
+
+**Not yet integrated:** **TrackPod** (delivery / route / proof-of-delivery management) holds
+the group's logistics data — a future connector candidate, not in the brain yet.
+
 Surfaces the platform exposes: **Query CLI** (`ask`/`search`), **HTTP API** (Hono, port
 4317), **Web UI** (Vite SPA), **Scheduler** (`node-cron`, off by default).
 
-## 3. People  *(Tim-only — fixtures are synthetic, so nothing is grounded here)*
+## 3. People
 
-- **Owner / operator:** Tim (GitHub `TTJC24`) — builds and runs these repos.
-- **Team, roles, key contacts, decision-makers:** `[NEEDS TIM]` — who else, and who owns
-  M365 / Acumatica / Pipedrive administration?
+- **Tim — COO** of the group. Sole administrator/owner of **all systems** (M365, Acumatica,
+  Pipedrive, and this platform). Builds and runs these repos (GitHub `TTJC24`).
+- **Other leadership / key contacts:** `[NEEDS TIM]` — optional; add names/roles if Claude
+  should know who to attribute decisions or requests to.
 
 ## 4. Terminology & acronyms
 
@@ -61,8 +71,11 @@ Surfaces the platform exposes: **Query CLI** (`ask`/`search`), **HTTP API** (Hon
   into `importFromContent` so every fact traces back to its origin.
 - **Dry-run** — every connector runs against stub fixtures with no external calls.
 
-**Business terms / acronyms / product names:** `[NEEDS TIM]` — internal jargon, branch
-codes, product names, customer tiers, anything an outsider wouldn't know.
+**Business terms / acronyms:**
+- **FS** — Fastening Specialists. **BLCS** — Big League Construction Supply. **USA** — Utility
+  Supply Associates. (Note: "USA" internally means the sister company, not the country.)
+- **Waterworks** — USA's product domain (water-infrastructure / utility supply).
+- More internal jargon, branch codes, product names, customer tiers: `[NEEDS TIM]`.
 
 ## 5. Conventions, voice & non-negotiables
 
@@ -74,12 +87,12 @@ codes, product names, customer tiers, anything an outsider wouldn't know.
 - **Provenance is mandatory** — ingestion must thread source identity through, not drop it.
 - **Pinned upstream** — `gbrain` is pinned to a specific git rev, not a floating range.
 
-**Possible company-wide standard to confirm:** the sibling `contractor-lead-response` repo is
-held to a **react-doctor 100/100** quality bar. `[NEEDS TIM]` — is that a company-wide
-engineering standard or specific to that product?
+**Brand voice / tone:** **consistent across all three companies** — **polished and personal**.
+Customer-facing writing (quotes, emails, follow-ups) should read professional but human, not
+generic or templated.
 
-**Brand voice, tone, customer-facing non-negotiables, compliance/legal constraints:**
-`[NEEDS TIM]` — none of this is derivable from code.
+**Customer-facing non-negotiables & compliance/legal constraints:** none specified as of
+2026-05-28 (per Tim). Revisit if regulatory/spec rules emerge (e.g., waterworks material specs).
 
 ## 6. Where deeper context lives
 
@@ -96,17 +109,18 @@ engineering standard or specific to that product?
   M365/SharePoint + Teams (documents & discussion).
 - **Code:** `README.md` (architecture), `src/sources/` (per-connector behavior), `.env.example`
   (the full integration surface).
-- **GitHub:** `github.com/TTJC24` — `company-brain` and `contractor-lead-response`.
-- **Other knowledge stores** (wiki, Notion, Drive, runbooks): `[NEEDS TIM]`.
+- **GitHub:** `github.com/TTJC24` — `company-brain` (this platform). The
+  `contractor-lead-response` repo there is Tim's unrelated personal side project — not group context.
+- **TrackPod** — the group's delivery / route / proof-of-delivery system; operational
+  logistics data lives here (not yet ingested).
+- **No separate wiki / Notion / shared-drive.** Documents live in **Teams / SharePoint**, and
+  **this company-brain platform is the central knowledge base being built** to unify all of the above.
 
-## 7. Open questions for Tim  *(answer these to finish the brain)*
+## 7. Open questions for Tim  *(optional — the brain is usable without these)*
 
-1. Company legal/trade name and a one-line description of what it does + industry.
-2. Who it serves (customer type / market) and rough size (people, branches).
-3. Team & roles — and who administers M365 / Acumatica / Pipedrive.
-4. Is **LeadSprint AI** (`contractor-lead-response`) a product of this company, a separate
-   venture, or unrelated? Does company-brain serve Tim's own company, an employer, or a client?
-5. Business terminology, acronyms, product names, branch codes.
-6. Brand voice / tone and any customer-facing or compliance non-negotiables.
-7. Is **react-doctor 100/100** a company-wide engineering standard?
-8. Any other knowledge stores (wiki/Notion/Drive/runbooks) Claude should know about.
+- **Other key people / roles** beyond Tim (COO) — add if Claude should attribute requests or decisions.
+- **More internal jargon** — branch codes, product categories, customer tiers, anything an outsider wouldn't know.
+- **Rough size** — headcount and relative scale of FS / BLCS / USA, if useful for context.
+
+_Resolved 2026-05-28: company identity & offerings, systems topology, brand voice,
+leadership/admin ownership, LeadSprint scope (out), TrackPod, and where knowledge lives._
