@@ -10,9 +10,13 @@ import { cn } from "@/lib/utils";
 export function OwnerChip({
   name,
   className,
+  compact,
 }: {
   name: string | null | undefined;
   className?: string;
+  /** Initials only — for tight corners where the full name would crowd the
+   *  primary text. Full name stays on hover (title) for accessibility. */
+  compact?: boolean;
 }) {
   if (!name) {
     return <span className={cn("font-mono text-xs text-muted-foreground/60", className)}>—</span>;
@@ -24,6 +28,20 @@ export function OwnerChip({
     .slice(0, 2)
     .map((p) => p[0]!.toUpperCase())
     .join("");
+  if (compact) {
+    return (
+      <span
+        className={cn(
+          "owner-chip font-mono text-[9px] tracking-[0.18em] text-muted-foreground",
+          className,
+        )}
+        title={name}
+        aria-label={name}
+      >
+        {initials}
+      </span>
+    );
+  }
   return (
     <span className={cn("owner-chip", className)} title={name}>
       <span className="font-mono text-[9px] tracking-[0.18em] text-muted-foreground">

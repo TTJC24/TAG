@@ -106,10 +106,10 @@ export default async function AdminReadinessPage() {
               <SurfaceBlock key={m.person.id} status={status} className="min-h-[11rem]">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-lg font-medium leading-tight tracking-tight text-foreground">
+                    <p className="text-lg font-medium leading-tight tracking-tight text-foreground">
                       {m.person.name}
                     </p>
-                    <p className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground/70">
+                    <p className="mt-0.5 break-all font-mono text-[10px] text-muted-foreground/70">
                       {m.person.email}
                     </p>
                   </div>

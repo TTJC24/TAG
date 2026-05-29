@@ -90,29 +90,32 @@ export default async function RocksPage() {
                 status={BLOCK_STATUS[status]}
                 className={cn("min-h-[12rem]", done && "opacity-70")}
               >
-                <div className="flex items-start justify-between gap-2">
-                  <span className="eyebrow truncate pt-0.5">{rock.quarter}</span>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <OwnerChip name={owner?.name ?? null} />
-                    <RockRowControls
-                      rockId={rock.id}
-                      members={members}
-                      current={{
-                        description: rock.description,
-                        ownerId: rock.ownerId,
-                        quarter: rock.quarter,
-                        dueDate: rock.dueDate ?? "",
-                        notes: rock.notes ?? "",
-                      }}
-                      readOnly={readOnly}
-                      canDelete={isAdmin}
-                    />
-                  </div>
+                <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-1.5">
+                  <OwnerChip name={owner?.name ?? null} compact />
+                  {!readOnly && (
+                    <div className="pointer-events-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                      <RockRowControls
+                        rockId={rock.id}
+                        members={members}
+                        current={{
+                          description: rock.description,
+                          ownerId: rock.ownerId,
+                          quarter: rock.quarter,
+                          dueDate: rock.dueDate ?? "",
+                          notes: rock.notes ?? "",
+                        }}
+                        readOnly={readOnly}
+                        canDelete={isAdmin}
+                      />
+                    </div>
+                  )}
                 </div>
+
+                <span className="eyebrow block pr-12">{rock.quarter}</span>
 
                 <p
                   className={cn(
-                    "mt-3 text-lg font-medium leading-snug tracking-tight text-foreground",
+                    "mt-2 text-lg font-medium leading-snug tracking-tight text-foreground",
                     done && "text-muted-foreground line-through",
                   )}
                 >

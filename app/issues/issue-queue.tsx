@@ -116,30 +116,33 @@ export function IssueQueue({
               status={PRIORITY_BLOCK[issue.priority]}
               className="min-h-[12rem]"
             >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <StatusChip tone={PRIORITY_TONE[issue.priority]}>
-                    {issue.priority}
-                  </StatusChip>
-                  {issue.status === "ids_in_progress" && (
-                    <span className="eyebrow text-status-yellow">in IDS</span>
-                  )}
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <OwnerChip name={issue.ownerName} />
-                  <IssueRowControls
-                    issueId={issue.id}
-                    members={members}
-                    current={{
-                      title: issue.title,
-                      ownerId: issue.ownerId,
-                      priority: issue.priority,
-                      rootCause: issue.rootCause ?? "",
-                    }}
-                    readOnly={issue.readOnly}
-                    canDelete={canDelete}
-                  />
-                </div>
+              <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-1.5">
+                <OwnerChip name={issue.ownerName} compact />
+                {!issue.readOnly && (
+                  <div className="pointer-events-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+                    <IssueRowControls
+                      issueId={issue.id}
+                      members={members}
+                      current={{
+                        title: issue.title,
+                        ownerId: issue.ownerId,
+                        priority: issue.priority,
+                        rootCause: issue.rootCause ?? "",
+                      }}
+                      readOnly={issue.readOnly}
+                      canDelete={canDelete}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 pr-12">
+                <StatusChip tone={PRIORITY_TONE[issue.priority]}>
+                  {issue.priority}
+                </StatusChip>
+                {issue.status === "ids_in_progress" && (
+                  <span className="eyebrow text-status-yellow">in IDS</span>
+                )}
               </div>
 
               <p className="mt-3 text-lg font-medium leading-snug tracking-tight text-foreground">

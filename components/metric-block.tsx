@@ -87,14 +87,19 @@ export function MetricBlock({
         className="pointer-events-none absolute inset-x-0 top-0 h-2/3 bg-gradient-to-b from-surface-1 via-surface-1/60 to-transparent"
       />
 
-      <div className="relative z-10 flex h-full flex-col">
-        <div className="flex items-start justify-between gap-2">
-          <span className="eyebrow truncate pt-0.5">{name}</span>
-          <div className="flex shrink-0 items-center gap-2">
-            <OwnerChip name={ownerName} />
-            {children}
-          </div>
+      {/* Corner cluster: owner initials persist; edit/archive controls reveal
+          on hover/focus so they never compete with the metric name. */}
+      <div className="absolute right-3 top-3 z-20 flex flex-col items-end gap-1.5">
+        <OwnerChip name={ownerName} compact />
+        <div className="pointer-events-none opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          {children}
         </div>
+      </div>
+
+      <div className="relative z-10 flex h-full flex-col">
+        {/* The metric name is the most important text on the block — it takes
+            priority, is never truncated, and wraps to a second line if long. */}
+        <span className="eyebrow block pr-12 leading-relaxed">{name}</span>
 
         <div className="mt-3">
           <EditableEntryCell
