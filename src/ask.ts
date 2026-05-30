@@ -46,6 +46,7 @@ export type BrainIntent =
   | 'pipeline_lookup'
   | 'procurement_request'
   | 'collaboration_lookup'
+  | 'mixed_intent'
   | 'general_lookup';
 
 export type BrainScope =
@@ -291,6 +292,17 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       requestedFields: requestedFields(q),
     });
   }
+  if (isCustomerAccountFieldQuestion(q)) {
+    return withEntity({
+      intent: 'customer_lookup',
+      scope: 'revenue_ops',
+      sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
+      label: 'customer',
+      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress'],
+      preferredKinds: ['customer', 'organization'],
+      requestedFields: requestedFields(q),
+    });
+  }
   if (/\b(orders?|so-|\bso\b|sales orders?|status|ship|shipped|shipment|tracking|track|delivered|pod|proof of delivery|route|fulfill|fulfillment|backorder|backordered|back order)\b/.test(q)) {
     return withEntity({
       intent: 'order_lookup',
@@ -504,6 +516,29 @@ function needsDeliveryTrackingNote(question: string): boolean {
 export async function askBrain(opts: AskOptions): Promise<BrainAnswer> {
   const scope = resolveMemoryScope(opts);
   const memoriesPromise = safeRecall(opts.question, scope);
+  const mixedQuestions = mixedIntentQuestions(opts.question, opts.sources);
+  if (mixedQuestions.length > 1) {
+    const answers = await Promise.all(
+      mixedQuestions.map((question) => askSingleIntent({ ...opts, question }, Promise.resolve([]))),
+    );
+    const memories = await memoriesPromise;
+    const citations = uniqueCitations(answers.flatMap((answer) => answer.citations));
+    const confidences = answers.map((answer) => answer.confidence);
+    return {
+      text: answers.map((answer, index) => `${mixedSectionLabel(mixedQuestions[index] ?? `Part ${index + 1}`)}\n${answer.text}`).join('\n\n'),
+      citations,
+      memories,
+      intent: 'mixed_intent',
+      scope: mixedScope(answers),
+      confidence: confidences.includes('low') ? 'low' : confidences.includes('medium') ? 'medium' : 'high',
+      resolvedEntity: answers.find((answer) => answer.resolvedEntity)?.resolvedEntity ?? null,
+    };
+  }
+
+  return askSingleIntent(opts, memoriesPromise);
+}
+
+async function askSingleIntent(opts: AskOptions, memoriesPromise: Promise<string[]>): Promise<BrainAnswer> {
   const profile = profileQuestion(opts.question, opts.sources);
   if (profile.intent === 'procurement_request') {
     const answer = procurementPlanBrainAnswer(await createProcurementActionPlan(opts.question));
@@ -550,6 +585,101 @@ export async function askBrain(opts: AskOptions): Promise<BrainAnswer> {
   } finally {
     await engine.disconnect();
   }
+}
+
+function mixedIntentQuestions(question: string, sources?: string[]): string[] {
+  if (sources?.length) return [];
+  if (!/\s+(?:and|also|plus)\s+/i.test(question)) return [];
+  if (/\bsource\s+and\s+order\b/i.test(question)) return [];
+  if (/\bterms?\b[\s\S]*\bcredit\s+hold\b|\bcredit\s+hold\b[\s\S]*\bterms?\b/i.test(question)) return [];
+
+  const rawParts = question
+    .split(/\s+(?:and|also|plus)\s+/i)
+    .map((part) => part.trim().replace(/[?]+$/, ''))
+    .filter(Boolean);
+  if (rawParts.length < 2 || rawParts.length > 3) return [];
+  if (rawParts.slice(1).some((part) => !looksLikeStandaloneAsk(part))) return [];
+
+  const entity = explicitEntityMention(question);
+  const parts = rawParts.map((part) => carryEntityIntoPronounClause(part, entity));
+  const profiles = parts.map((part) => profileQuestion(part));
+  const intents = new Set(profiles.map((profile) => profile.intent));
+  if (intents.size < 2) return [];
+  if (profiles.some((profile) => profile.intent === 'general_lookup')) return [];
+  return parts;
+}
+
+function looksLikeStandaloneAsk(part: string): boolean {
+  return /\b(who|what|when|where|why|how|did|does|do|is|are|can|could|should|will|would|show|list|find|check|tell|get)\b/i.test(part);
+}
+
+function explicitEntityMention(question: string): string | null {
+  const stripped = stripEntityScopePhrases(question.toLowerCase());
+  const actorMatch = /\b(?:does|is|are|can|could|should|will|would|did)\s+([a-z0-9][a-z0-9 .&'_-]{1,60}?)\s+(?:owe|own|owns|buy|order|get|source|purchase|ship|shipped|have|has)\b/i.exec(stripped);
+  const actor = actorMatch?.[1]?.trim().replace(/[.,;:]+$/, '');
+  if (actor && !/^\d/.test(actor)) return actor;
+
+  const prepositionMatch = /\b(?:for|with|about|to)\s+([a-z0-9][a-z0-9 .&'_-]{1,60}?)(?=\s+(?:and|also|plus|when|who|what|where|why|how|$)|$)/i.exec(stripped);
+  const prepositionEntity = prepositionMatch?.[1]?.trim().replace(/[.,;:]+$/, '');
+  if (prepositionEntity && !/^\d/.test(prepositionEntity)) return prepositionEntity;
+
+  const matches = stripped.match(/\b[a-z][a-z0-9&'_-]{2,}(?:\s+[a-z][a-z0-9&'_-]{2,}){0,3}\b/g) ?? [];
+  const stop = new Set([
+    'how',
+    'much',
+    'does',
+    'owe',
+    'owns',
+    'owner',
+    'who',
+    'what',
+    'when',
+    'where',
+    'did',
+    'ship',
+    'shipped',
+    'next',
+    'meeting',
+    'terms',
+    'credit',
+    'hold',
+    'status',
+  ]);
+  for (const match of matches) {
+    const first = match.split(/\s+/)[0] ?? '';
+    if (!stop.has(first)) return match;
+  }
+  return null;
+}
+
+function carryEntityIntoPronounClause(part: string, entity: string | null): string {
+  if (!entity) return part;
+  if (!/\b(it|them|they|their|that account|that customer)\b/i.test(part)) return part;
+  return part.replace(/\b(it|them|they|their|that account|that customer)\b/gi, entity);
+}
+
+function mixedSectionLabel(question: string): string {
+  const profile = profileQuestion(question);
+  const label = profile.label.charAt(0).toUpperCase() + profile.label.slice(1);
+  return `${label}:`;
+}
+
+function mixedScope(answers: BrainAnswer[]): BrainScope {
+  const scopes = new Set(answers.map((answer) => answer.scope));
+  if (scopes.size === 1) return answers[0]?.scope ?? 'all';
+  return 'all';
+}
+
+function uniqueCitations(citations: BrainCitation[]): BrainCitation[] {
+  const seen = new Set<string>();
+  const out: BrainCitation[] = [];
+  for (const citation of citations) {
+    if (seen.has(citation.slug)) continue;
+    seen.add(citation.slug);
+    out.push(citation);
+    if (out.length >= 5) break;
+  }
+  return out;
 }
 
 async function recentCollaborationHits(
@@ -627,6 +757,10 @@ function isProcurementQuestion(questionLower: string): boolean {
 function isCreditTransactionQuestion(questionLower: string): boolean {
   if (/\bcredit\s+limit\b/.test(questionLower)) return false;
   return /\b(credit\s+memo|credit\s+note|unapplied\s+credit|customer\s+credit|has\s+a\s+credit|have\s+a\s+credit|rma|return|returned|refund)\b/.test(questionLower);
+}
+
+function isCustomerAccountFieldQuestion(questionLower: string): boolean {
+  return /\b(terms?|credit\s+hold|credit\s+limit|tax|taxable|exempt|resale|certificate|cert|branch|price\s+class|priceclass|customer\s+class|pricing\s+tier|pricing\s+class)\b/.test(questionLower);
 }
 
 function isVendorSourcingQuestion(questionLower: string): boolean {

@@ -263,6 +263,19 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'mixed shipment and meeting ask preserves both lanes',
+    question: "did we ship the wedge anchors to acme and when's the next meeting",
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'mixed_intent', `expected mixed_intent, got ${answer.intent}`);
+      assert(answer.scope === 'all', `expected all scope for order + collaboration mix, got ${answer.scope}`);
+      assertText(answer, /^Order:/im, 'mixed shipment/meeting ask did not render order section');
+      assertText(answer, /^Collaboration record:/im, 'mixed shipment/meeting ask did not render collaboration section');
+      assertText(answer, /\bStart:\s*2026-06-01T/i, 'mixed shipment/meeting ask did not answer next meeting lane');
+      assertNotText(answer, /ACME Barricades LC:\s*Status:\s*Active|Terms:\s*N30/i, 'mixed shipment/meeting ask leaked customer account summary into shipment lane');
+    },
+  },
+  {
     name: 'invoice ask for customer does not fall back to customer record',
     question: 'recent invoices for acme',
     assert(answer) {
@@ -343,6 +356,18 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'terms plus credit hold status stays on customer account fields',
+    question: "what's acme's terms and credit hold status",
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'customer_lookup', `expected customer_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /\bTerms:\s*N30\b/i, 'terms + credit hold ask did not answer terms');
+      assertText(answer, /Status:\s*Active/i, 'terms + credit hold ask did not return status context');
+      assertNotText(answer, /could not find a solid order match|Order number:/i, 'terms + credit hold ask was stolen by order status');
+    },
+  },
+  {
     name: 'specific customer does not leak alternates',
     question: 'terms for ACME Barricades',
     assert(answer) {
@@ -388,6 +413,19 @@ const askCases: AskExpectation[] = [
       assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
       assertText(answer, /Owner:\s*Tim Clark/i, 'rep ask with incidental invoice wording did not answer owner');
       assertNotText(answer, /could not find a solid invoice match/i, 'incidental invoice wording stole the contact intent');
+    },
+  },
+  {
+    name: 'mixed AR and owner ask answers both lanes separately',
+    question: 'how much does acme owe and who owns it',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'mixed_intent', `expected mixed_intent, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops' || answer.scope === 'all', `expected revenue/all scope, got ${answer.scope}`);
+      assertText(answer, /^Invoice:/im, 'mixed AR/contact ask did not render invoice section');
+      assertText(answer, /^Contact:/im, 'mixed AR/contact ask did not render contact section');
+      assertText(answer, /Owner:\s*Tim Clark/i, 'mixed AR/contact ask did not answer owner lane');
+      assertNotText(answer, /Also possibly relevant:/i, 'mixed AR/contact ask leaked alternate chunks');
     },
   },
   {
@@ -726,6 +764,18 @@ const askCases: AskExpectation[] = [
         answer.citations.every((citation) => ['acumatica', 'pipedrive'].includes(citation.source_id)),
         'informal procurement answer citations should prefer system-of-record evidence over office-noise sources',
       );
+    },
+  },
+  {
+    name: 'sales phrasing procurement ask preserves customer and line',
+    question: 'can acme buy 12 wedge anchors on terms',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'procurement_request', `expected procurement_request, got ${answer.intent}`);
+      assert(answer.scope === 'procurement', `expected procurement scope, got ${answer.scope}`);
+      assertText(answer, /Customer:\s*ACME Barricades LC/i, 'sales procurement phrasing did not resolve customer');
+      assertText(answer, /Lines:\s*12\s+wedge anchors/i, 'sales procurement phrasing did not preserve quantity and line item');
+      assertNotText(answer, /Customer:\s*Missing|Lines:\s*Missing/i, 'sales procurement phrasing dropped required context');
     },
   },
   {

@@ -210,6 +210,7 @@ function parseLine(line: string, customerName?: string | null): StructuredLine {
     .replace(/^\s*(?:[-*]|\d+[.)])\s*/i, '')
     .replace(/^\s*(?:need|needs|needed|source|buy|order|quote|get)\s+(?:to\s+)?(?:(?:source|buy|order|quote|get|and)\s+)*/i, '')
     .replace(customerName ? new RegExp(`\\s+for\\s+${escapeRegExp(customerName)}\\s*$`, 'i') : /$a/, '')
+    .replace(/\s+(?:on|with)\s+terms\s*$/i, '')
     .trim();
   if (isExactSku(cleaned)) {
     return { description: cleaned, quantity: null, unit: null, confidence: 60 };
@@ -235,6 +236,10 @@ function inferInlineCustomer(text: string): string | null {
   if (/^\s*(?:who\s+sells|vendors?\s+for|suppliers?\s+for|vendor\s+for|supplier\s+for)\b/i.test(text)) {
     return null;
   }
+  const actorMatch = /\b(?:can|could|should|will|would)\s+([a-z0-9][a-z0-9 .&'_-]{1,60}?)\s+(?:buy|order|get|source|purchase)\b/i.exec(text);
+  const actorValue = actorMatch?.[1]?.trim().replace(/[.,;:]+$/, '');
+  if (actorValue && !/^\d/.test(actorValue)) return actorValue;
+
   const match = /\bfor\s+([a-z0-9][a-z0-9 .&'_-]{1,60}?)(?=\s+(?:ship|needed|need by|required|by|with|to|and|$)|$)/i.exec(text);
   const value = match?.[1]?.trim().replace(/[.,;:]+$/, '');
   if (!value) return null;
@@ -244,6 +249,7 @@ function inferInlineCustomer(text: string): string | null {
 
 function inferSourcingLine(text: string, customerName?: string | null): string | null {
   const patterns = [
+    /\b(?:buy|order|get)\s+(?!for\b)(.+?)(?=\s+(?:for|to|on\s+terms|with\s+terms|ship|needed|need\s+by|required\s+by|by)\b|$)/i,
     /\bwho\s+is\s+the\s+vendor\s+for\s+(.+?)\s*$/i,
     /\bwho\s+is\s+the\s+supplier\s+for\s+(.+?)\s*$/i,
     /\bwho\s+sells\s+(.+?)\s*$/i,
@@ -269,6 +275,7 @@ function cleanInferredLine(value: string, customerName?: string | null): string 
   if (customerName) {
     cleaned = cleaned.replace(new RegExp(`\\s+for\\s+${escapeRegExp(customerName)}\\s*$`, 'i'), '');
   }
+  cleaned = cleaned.replace(/\s+(?:on|with)\s+terms\s*$/i, '');
   cleaned = cleaned.replace(/\s+(?:for|to)\s+[a-z0-9][a-z0-9 .&'_-]{1,60}$/i, '').trim();
   if (!cleaned || cleaned.length < 3) return null;
   if (/^\d+$/.test(cleaned) && cleaned.length < 3) return null;
