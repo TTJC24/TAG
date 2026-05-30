@@ -251,6 +251,8 @@ function inferSourcingLine(text: string, customerName?: string | null): string |
     /\bsuppliers?\s+for\s+(.+?)\s*$/i,
     /\bvendor\s+for\s+(.+?)\s*$/i,
     /\bsupplier\s+for\s+(.+?)\s*$/i,
+    /\bpurchase\s+orders?\s+for\s+(.+?)\s*$/i,
+    /\bpo\s+for\s+(.+?)\s*$/i,
     /\bsource\s+(.+?)\s*$/i,
     /\bsourcing\s+(.+?)\s*$/i,
   ];

@@ -25,6 +25,10 @@ export interface BrainAnswer {
   resolvedEntity: EntityResolution | null;
 }
 
+type SourcePage = Pick<SearchResult, 'slug' | 'title' | 'source_id' | 'chunk_text'> & {
+  source_uri?: string | null;
+};
+
 export interface AskOptions {
   question: string;
   sources?: string[];
@@ -70,6 +74,8 @@ const FIELD_LABELS: Record<string, string> = {
   TaxExemptionNumber: 'Tax exemption number',
   ResaleCertificate: 'Resale certificate',
   CreditLimit: 'Credit limit',
+  CreditHold: 'Credit hold',
+  CreditHoldStatus: 'Credit hold',
   Branch: 'Branch',
   BranchID: 'Branch',
   PriceClassID: 'Price class',
@@ -186,6 +192,28 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       label: 'invoice',
       answerFields: ['ReferenceNbr', 'Status', 'Amount', 'Balance', 'DueDate', 'CustomerID'],
       preferredKinds: ['invoice'],
+      requestedFields: requestedFields(q),
+    });
+  }
+  if (/\b(payments?|paid|payment history)\b/.test(q) && !/\bpayment\s+terms?\b/.test(q)) {
+    return withEntity({
+      intent: 'invoice_lookup',
+      scope: 'revenue_ops',
+      sourceIds: explicitSources ?? ['acumatica'],
+      label: 'payment/invoice',
+      answerFields: ['ReferenceNbr', 'Status', 'Amount', 'Balance', 'DueDate', 'CustomerID'],
+      preferredKinds: ['invoice'],
+      requestedFields: requestedFields(q),
+    });
+  }
+  if (/\b(quotes?|sales quotes?|quote status)\b/.test(q)) {
+    return withEntity({
+      intent: 'order_lookup',
+      scope: 'revenue_ops',
+      sourceIds: explicitSources ?? SALES_SUPPORT_SOURCE_IDS,
+      label: 'quote/order',
+      answerFields: ['OrderNbr', 'Status', 'OrderTotal', 'RequestedOn', 'CustomerID'],
+      preferredKinds: ['order', 'salesorder'],
       requestedFields: requestedFields(q),
     });
   }
@@ -367,7 +395,9 @@ function renderAnswer(
     if (profile.intent !== 'collaboration_lookup' && profile.requestedFields.length > 0 && requestedLines.length === 0) {
       lines.push(missingRequestedFieldMessage(profile));
     }
-    const detailLines = fieldLines.filter((line) => !requestedLines.includes(line));
+    const detailLines = fieldLines
+      .filter((line) => !requestedLines.includes(line))
+      .filter((line) => !suppressDetailLine(question, line));
     lines.push(...detailLines.map((line) => `- ${line}`));
     lines.push(...missingRequestedFieldNotes(question, profile, topFields));
     lines.push(...pricingContextNotes(question, profile, topFields));
@@ -432,7 +462,7 @@ export async function askBrain(opts: AskOptions): Promise<BrainAnswer> {
         slug: h.slug,
         source_id: h.source_id ?? 'default',
         title: h.title ?? null,
-        source_uri: h.source_uri ?? null,
+        source_uri: h.source_id ?? null,
       });
       if (citations.length >= 3) break;
     }
@@ -466,7 +496,6 @@ async function recentCollaborationHits(
       slug: page.slug,
       title: page.title,
       source_id: page.source_id,
-      source_uri: page.source_uri,
       chunk_text: page.chunk_text,
       score: Math.max(0.1, recordTimestamp(page as SearchResult) / 1_000_000_000_000),
     }) as SearchResult)
@@ -483,7 +512,7 @@ async function recentCollaborationHits(
 async function readSourcePages(
   engine: Awaited<ReturnType<typeof openEngine>>,
   sourceIds?: string[],
-): Promise<Array<Pick<SearchResult, 'slug' | 'title' | 'source_id' | 'source_uri' | 'chunk_text'>>> {
+): Promise<SourcePage[]> {
   const maybeStore = (engine as any).store;
   if (Array.isArray(maybeStore?.pages)) {
     return maybeStore.pages
@@ -742,7 +771,8 @@ function requestedFields(questionLower: string): string[] {
   if (/\b(tax|taxable|tax exempt|exempt|resale|certificate|cert)\b/.test(questionLower)) {
     fields.push('TaxZone', 'TaxRegistrationID', 'TaxExemptionNumber', 'ResaleCertificate');
   }
-  if (/\bcredit\b/.test(questionLower)) fields.push('CreditLimit');
+  if (/\bcredit\s+hold\b/.test(questionLower)) fields.push('CreditHold', 'CreditHoldStatus', 'Status');
+  if (/\bcredit\b/.test(questionLower) && !/\bcredit\s+hold\b/.test(questionLower)) fields.push('CreditLimit');
   if (/\b(email|contact)\b/.test(questionLower)) fields.push('ContactEmail', 'email', 'from', 'to');
   if (/\b(emails?|mail|inbox)\b/.test(questionLower)) fields.push('From', 'To', 'Received');
   if (/\b(messages?|teams|chat)\b/.test(questionLower)) fields.push('Author', 'Created');
@@ -774,6 +804,11 @@ function missingRequestedFieldMessage(profile: IntentProfile): string {
     return 'I found the likely account/contact record, but I only found an owner id, not a resolved owner name.';
   }
   return `I found the likely ${profile.label}, but I did not find the requested field on that record.`;
+}
+
+function suppressDetailLine(question: string, line: string): boolean {
+  if (/\bcredit\s+hold\b/i.test(question) && /^Credit limit:/i.test(line)) return true;
+  return false;
 }
 
 function missingRequestedFieldNotes(
@@ -957,7 +992,7 @@ function entityAliasTerms(resolution: EntityResolution): string[] {
 }
 
 function recordKind(hit: SearchResult): string {
-  const text = `${hit.source_uri ?? ''} ${hit.slug ?? ''} ${hit.source_id ?? ''} ${hit.title ?? ''}`.toLowerCase();
+  const text = `${hit.source_id ?? ''} ${hit.slug ?? ''} ${hit.title ?? ''}`.toLowerCase();
   if (text.includes('customer')) return 'customer';
   if (text.includes('organization')) return 'organization';
   if (text.includes('person')) return 'person';
@@ -1113,7 +1148,7 @@ function textMatchesEntity(hit: SearchResult, terms: string[], profile: IntentPr
 
 function textMatchesResolvedAlias(hit: SearchResult, resolution: EntityResolution): boolean {
   const text = `${hit.title ?? ''} ${hit.slug ?? ''} ${hit.chunk_text ?? ''}`.toLowerCase();
-  return resolution.aliases.some((alias) => {
+  return resolution.aliases.some((alias: string) => {
     const terms = importantTerms(alias);
     if (!terms.length) return false;
     return terms.every((term) => text.includes(term));

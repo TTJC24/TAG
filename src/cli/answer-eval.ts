@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { agentChat } from '../agent/chat.ts';
 import { askBrain, type BrainAnswer } from '../ask.ts';
+import type { PlannedAction } from '../procurement/actionPlan.ts';
 
 type AskExpectation = {
   name: string;
@@ -198,6 +199,19 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'quote lookup stays read-only and does not create procurement plan',
+    question: 'open quote for acme',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'order_lookup', `expected order_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertNotText(answer, /structured this as a procurement request|No external system writes/i, 'quote lookup was misrouted to procurement planning');
+      if (answer.confidence === 'low') {
+        assertText(answer, /could not find a solid quote\/order match/i, 'missing quote ask should refuse as quote/order lookup');
+      }
+    },
+  },
+  {
     name: 'proof of delivery ask shows TrackPod caveat',
     question: 'proof of delivery for acme',
     assert(answer) {
@@ -256,6 +270,31 @@ const askCases: AskExpectation[] = [
       if (answer.confidence === 'low') {
         assertText(answer, /could not find a solid invoice match/i, 'missing balance ask should refuse cleanly');
       }
+    },
+  },
+  {
+    name: 'payment history ask does not fall back to customer summary',
+    question: 'last payment from acme',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'invoice_lookup', `expected invoice_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertNotText(answer, /Best match:\s*ACME Barricades LC|Customer ID:|Terms:|Status:\s*Active/i, 'payment history ask fell back to customer master data');
+      if (answer.confidence === 'low') {
+        assertText(answer, /could not find a solid payment\/invoice match/i, 'missing payment history ask should refuse as payment/invoice lookup');
+      }
+    },
+  },
+  {
+    name: 'credit hold ask does not answer credit limit',
+    question: 'credit hold for acme',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'customer_lookup', `expected customer_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /ACME Barricades LC/i, 'credit hold ask did not resolve ACME');
+      assertText(answer, /Status:\s*Active/i, 'credit hold ask did not return account status context');
+      assertNotText(answer, /Credit limit:\s*20000/i, 'credit hold ask answered credit limit instead of hold/status context');
     },
   },
   {
@@ -649,6 +688,19 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'purchase order SKU history preserves SKU line context',
+    question: 'latest purchase order for 00286',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'procurement_request', `expected procurement_request, got ${answer.intent}`);
+      assert(answer.scope === 'procurement', `expected procurement scope, got ${answer.scope}`);
+      assertText(answer, /Customer:\s*Missing/i, 'PO-for-SKU ask should not infer SKU as a customer');
+      assertText(answer, /Lines:\s*00286/i, 'PO-for-SKU ask did not preserve exact SKU as a line');
+      assertNotText(answer, /No line items were detected|Best match:|Toole's South Lake Ace Hardware/i, 'PO-for-SKU ask lost line context or leaked unrelated records');
+      assert(answer.citations.every((citation) => citation.source_id === 'acumatica' && /\/item\//i.test(citation.slug)), 'PO-for-SKU ask should cite only Acumatica item evidence');
+    },
+  },
+  {
     name: 'source item for customer preserves both contexts',
     question: 'source wedge anchors for acme',
     assert(answer) {
@@ -825,7 +877,7 @@ async function runAgentCase(): Promise<{ name: string; ok: true }> {
   const actionPlan = response.actionPlan;
   if (!actionPlan) throw new Error('agent did not return an action plan');
   assert(actionPlan.executionPolicy.canExecuteNow === false, 'agent should not execute write actions');
-  assert(actionPlan.actions.some((action) => action.system === 'acumatica'), 'agent plan has no Acumatica action');
+  assert(actionPlan.actions.some((action: PlannedAction) => action.system === 'acumatica'), 'agent plan has no Acumatica action');
   assertCleanAnswer(response.answer);
   assert(response.answer.intent === 'procurement_request', `expected procurement_request intent, got ${response.answer.intent}`);
   assert(response.answer.scope === 'procurement', `expected procurement scope, got ${response.answer.scope}`);
