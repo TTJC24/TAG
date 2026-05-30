@@ -7,6 +7,7 @@
     "ingest": "bun run src/cli/ingest.ts",
     "ask": "bun run src/cli/ask.ts",
     "search": "bun run src/cli/search.ts",
+    "eval:answers": "bun run src/cli/answer-eval.ts",
     "api": "bun run src/api/server.ts",
     "scheduler": "bun run src/scheduler/index.ts",
     "web:dev": "cd web && bun run dev",

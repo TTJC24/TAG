@@ -1,5 +1,5 @@
 import { basename } from 'node:path';
-import { hybridSearch } from 'gbrain/search/hybrid';
+import { hybridSearch } from '../gbrainCompat.ts';
 import { openEngine } from '../engine.ts';
 import {
   structureProcurementRequest,

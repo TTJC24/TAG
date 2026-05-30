@@ -2,16 +2,24 @@
   "customers": [
     {
       "kind": "customer",
-      "id": "ACME001",
-      "name": "Acme Industries",
+      "id": "BLC000118",
+      "name": "ACME Barricades LC",
       "updated_at": "2026-05-20T10:00:00Z",
       "body": {
-        "CustomerID": "ACME001",
-        "CustomerName": "Acme Industries",
+        "CustomerID": "BLC000118",
+        "CustomerName": "ACME Barricades LC",
         "Status": "Active",
-        "CreditLimit": 250000,
-        "Terms": "NET30",
-        "ContactEmail": "ap@acme.example.com"
+        "CreditLimit": 20000,
+        "Terms": "N30",
+        "ContactEmail": "ap@acmebarricades.example.com",
+        "owner_id": {
+          "name": "Tim Clark",
+          "email": "tim@utilitysupplyassociates.com"
+        },
+        "TaxZone": "JACKSON",
+        "PriceClassID": "FS-CIVIL",
+        "CustomerClass": "CIVIL",
+        "CustomerCategory": "I"
       }
     },
     {
@@ -27,17 +35,87 @@
         "Terms": "NET45",
         "ContactEmail": "billing@globotech.example.com"
       }
+    },
+    {
+      "kind": "customer",
+      "id": "POW001",
+      "name": "Anixter Power Solutions",
+      "updated_at": "2026-05-18T12:00:00Z",
+      "body": {
+        "CustomerID": "POW001",
+        "CustomerName": "Anixter Power Solutions",
+        "Status": "Active",
+        "CreditLimit": 50000,
+        "Terms": "N45",
+        "ContactEmail": "ap@anixterpower.example.com"
+      }
+    },
+    {
+      "kind": "customer",
+      "id": "POW002",
+      "name": "National Power LLC",
+      "updated_at": "2026-05-18T12:05:00Z",
+      "body": {
+        "CustomerID": "POW002",
+        "CustomerName": "National Power LLC",
+        "Status": "Active",
+        "CreditLimit": 65000,
+        "Terms": "N15",
+        "ContactEmail": "ap@nationalpower.example.com"
+      }
+    },
+    {
+      "kind": "customer",
+      "id": "HDW001",
+      "name": "Sanford Hardware",
+      "updated_at": "2026-05-18T12:10:00Z",
+      "body": {
+        "CustomerID": "HDW001",
+        "CustomerName": "Sanford Hardware",
+        "Status": "Active",
+        "CreditLimit": 30000,
+        "Terms": "N45",
+        "ContactEmail": "ap@sanfordhardware.example.com"
+      }
+    },
+    {
+      "kind": "customer",
+      "id": "HDW002",
+      "name": "Toole's South Lake Ace Hardware",
+      "updated_at": "2026-05-18T12:15:00Z",
+      "body": {
+        "CustomerID": "HDW002",
+        "CustomerName": "Toole's South Lake Ace Hardware",
+        "Status": "Active",
+        "CreditLimit": 28000,
+        "Terms": "N15",
+        "ContactEmail": "ap@toolesace.example.com"
+      }
+    },
+    {
+      "kind": "customer",
+      "id": "HDW003",
+      "name": "Able Hardware Supply",
+      "updated_at": "2026-05-18T12:20:00Z",
+      "body": {
+        "CustomerID": "HDW003",
+        "CustomerName": "Able Hardware Supply",
+        "Status": "Active",
+        "CreditLimit": 32000,
+        "Terms": "N20",
+        "ContactEmail": "ap@ablehardware.example.com"
+      }
     }
   ],
   "orders": [
     {
       "kind": "order",
       "id": "SO-100231",
-      "name": "SO-100231 - Acme Industries",
+      "name": "SO-100231 - ACME Barricades LC",
       "updated_at": "2026-05-21T15:40:00Z",
       "body": {
         "OrderNbr": "SO-100231",
-        "CustomerID": "ACME001",
+        "CustomerID": "BLC000118",
         "Status": "Open",
         "OrderTotal": 18420.50,
         "RequestedOn": "2026-05-30",
@@ -63,16 +141,17 @@
   "items": [
     {
       "kind": "item",
-      "id": "PMP-A14",
-      "name": "Centrifugal Pump A14",
-      "updated_at": "2026-05-15T18:00:00Z",
+      "id": "00286",
+      "name": "00286 - 3/8 wedge anchors",
+      "updated_at": "2026-05-23T18:00:00Z",
       "body": {
-        "InventoryID": "PMP-A14",
-        "Description": "Centrifugal Pump A14, 3HP, stainless",
-        "ItemClass": "MFG",
+        "InventoryID": "00286",
+        "Description": "3/8 wedge anchors, zinc plated",
+        "ItemClass": "FASTENER",
         "BaseUOM": "EA",
-        "DefaultPrice": 1820.00,
-        "ListPrice": 1995.00
+        "CurySpecificPrice": 25.10,
+        "DefaultPrice": 25.10,
+        "ListPrice": 29.95
       }
     }
   ]

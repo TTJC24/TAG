@@ -1,7 +1,11 @@
 #!/usr/bin/env node
+import { existsSync, unlinkSync } from 'node:fs';
 import { agentChat } from '../agent/chat.ts';
 import { askBrain, type BrainAnswer } from '../ask.ts';
 import type { PlannedAction } from '../procurement/actionPlan.ts';
+import { runIngestion } from '../ingest/run.ts';
+import { connectors } from '../sources/registry.ts';
+import { openEngine } from '../engine.ts';
 
 type AskExpectation = {
   name: string;
@@ -14,6 +18,31 @@ type AskExpectation = {
 type EvalResult =
   | { name: string; ok: true }
   | { name: string; skipped: true; reason: string };
+
+async function ensureFixtureBrain(): Promise<void> {
+  if (existsSync('.company-brain-store.json')) {
+    unlinkSync('.company-brain-store.json');
+  }
+
+  const engine = await openEngine();
+  try {
+    const stats = await engine.getStats() as { page_count?: number };
+    if (Number(stats.page_count ?? 0) > 0) return;
+  } finally {
+    await engine.disconnect();
+  }
+
+  for (const spec of Object.values(connectors)) {
+    const source = await spec.build({ dryRun: true });
+    await runIngestion(spec.id, spec.displayName, source, {
+      dryRun: false,
+      noEmbed: true,
+      ingestedVia: 'answer-eval-fixtures',
+      summaryOnly: true,
+      quiet: true,
+    });
+  }
+}
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -948,6 +977,7 @@ async function runAgentCase(): Promise<{ name: string; ok: true }> {
 }
 
 async function main(): Promise<void> {
+  await ensureFixtureBrain();
   const askResults = await runAskCases();
   const agentResult = await runAgentCase();
   const cases = [...askResults, agentResult];

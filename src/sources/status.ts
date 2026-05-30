@@ -21,13 +21,13 @@ function hasConfigValue(key: string): boolean {
 export async function getConnectorStatuses(): Promise<ConnectorStatus[]> {
   const engine = await openEngine();
   try {
-    const brainStatus = typeof engine.getStatus === 'function'
-      ? await engine.getStatus()
+    const brainStatus = typeof engine.getStats === 'function'
+      ? await engine.getStats() as { sources?: Array<{ id: string; document_count?: number; page_count?: number }> }
       : { sources: [] };
     const documentCounts = new Map<string, number>(
-      brainStatus.sources.map((source: { id: string; document_count: number }) => [
+      (brainStatus.sources ?? []).map((source) => [
         source.id,
-        Number(source.document_count),
+        Number(source.document_count ?? source.page_count ?? 0),
       ]),
     );
 

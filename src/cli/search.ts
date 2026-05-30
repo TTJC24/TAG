@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { hybridSearch } from 'gbrain/search/hybrid';
+import { hybridSearch } from '../gbrainCompat.ts';
 import { openEngine } from '../engine.ts';
 
 function parseArgs(argv: string[]): { query: string; sources: string[]; limit: number; json: boolean } {

@@ -6,7 +6,7 @@ import { askBrain } from '../ask.ts';
 import type { MemoryScope } from '../memory.ts';
 import { agentChat, createAgentProcurementWorkflow } from '../agent/chat.ts';
 import { getBrainStatus } from '../brainStatus.ts';
-import { hybridSearch } from 'gbrain/search/hybrid';
+import { hybridSearch } from '../gbrainCompat.ts';
 import { listConnectorIds } from '../sources/registry.ts';
 import { getConnectorStatuses } from '../sources/status.ts';
 import { structureProcurementRequest } from '../procurement/structure.ts';

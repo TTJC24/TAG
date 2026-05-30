@@ -1,5 +1,29 @@
 [
   {
+    "id": "fixture-share-drive-product-knowledge",
+    "subject": "Share drive and Product Knowledge",
+    "start": "2026-05-22T16:00:00Z",
+    "end": "2026-05-22T16:30:00Z",
+    "type": "singleInstance",
+    "response": "accepted",
+    "organizer": "Tim Clark",
+    "location": "Microsoft Teams Meeting",
+    "attendees": ["Tim Clark", "Craig Zahner"],
+    "body_preview": "Review shared drive structure and product knowledge documents."
+  },
+  {
+    "id": "fixture-upcoming-2026-06-01",
+    "subject": "Upcoming sales operations review",
+    "start": "2026-06-01T14:00:00Z",
+    "end": "2026-06-01T14:30:00Z",
+    "type": "singleInstance",
+    "response": "accepted",
+    "organizer": "Tim Clark",
+    "location": "Microsoft Teams Meeting",
+    "attendees": ["Tim Clark", "Inside Sales"],
+    "body_preview": "Near-future sales operations review."
+  },
+  {
     "id": "AAMkADUwMTU1OTViLTBlZmUtNDI2YS05M2E5LTE4NDM1M2E0MDk2ZgBGAAAAAABcpxOpBWH6Rq-LC_n0NL5XBwAG6IXM0oRDTb4BrqywrOrjAAAAAAENAAAG6IXM0oRDTb4BrqywrOrjAAJ5KckgAAA=",
     "subject": "Brother's college graduation",
     "start": "2026-05-18T00:00:00Z",

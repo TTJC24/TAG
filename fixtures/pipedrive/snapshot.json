@@ -3,11 +3,11 @@
     {
       "kind": "deal",
       "id": "12001",
-      "name": "Acme - Pump upgrade FY26",
+      "name": "ACME Barricades LC - Wedge anchor supply FY26",
       "updated_at": "2026-05-22T14:30:00Z",
       "body": {
         "id": 12001,
-        "title": "Acme - Pump upgrade FY26",
+        "title": "ACME Barricades LC - Wedge anchor supply FY26",
         "value": 48000,
         "currency": "USD",
         "status": "open",
@@ -36,7 +36,7 @@
       "body": {
         "id": 2031,
         "name": "Dana Park",
-        "email": "dana.park@acme.example.com",
+        "email": "dana.park@example.com",
         "phone": "+1-555-0142",
         "org_id": 3011,
         "title": "VP Engineering"
@@ -47,13 +47,16 @@
     {
       "kind": "organization",
       "id": "3011",
-      "name": "Acme Industries",
+      "name": "ACME Barricades LC",
       "updated_at": "2026-05-15T09:30:00Z",
       "body": {
         "id": 3011,
-        "name": "Acme Industries",
-        "owner_id": 9,
-        "industry": "Manufacturing",
+        "name": "ACME Barricades LC",
+        "owner_id": {
+          "name": "Tim Clark",
+          "email": "tim@utilitysupplyassociates.com"
+        },
+        "industry": "Civil construction",
         "people_count": 7,
         "deals_count": 2
       }

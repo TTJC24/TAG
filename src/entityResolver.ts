@@ -1,5 +1,5 @@
 import type { SearchResult } from 'gbrain/types';
-import { hybridSearch } from 'gbrain/search/hybrid';
+import { hybridSearch } from './gbrainCompat.ts';
 import type { Engine } from './engine.ts';
 import { buildEntityGraph, scoreEntityGraphMatches } from './entityGraph.ts';
 
@@ -55,6 +55,13 @@ const ENTITY_STOP_WORDS = new Set([
   'where',
   'who',
 ]);
+
+type KindHit = {
+  slug: string;
+  source_id?: string | null;
+  title?: string | null;
+  source_uri?: string | null;
+};
 
 export async function resolveEntity(
   engine: Engine,
@@ -275,7 +282,7 @@ function fieldValue(hit: SearchResult, keys: string[]): string | null {
   return null;
 }
 
-function recordKind(hit: Pick<SearchResult, 'source_uri' | 'slug' | 'source_id' | 'title'>): string {
+function recordKind(hit: KindHit): string {
   const text = `${hit.source_uri ?? ''} ${hit.slug ?? ''} ${hit.source_id ?? ''} ${hit.title ?? ''}`.toLowerCase();
   if (text.includes('customer')) return 'customer';
   if (text.includes('organization')) return 'organization';

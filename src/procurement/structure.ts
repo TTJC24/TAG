@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import { openEngine } from '../engine.ts';
-import { hybridSearch } from 'gbrain/search/hybrid';
+import { hybridSearch } from '../gbrainCompat.ts';
 
 const FIELD_ALIASES: Record<string, keyof StructuredFields> = {
   customer: 'customerName',

@@ -1,4 +1,4 @@
-import { hybridSearch } from 'gbrain/search/hybrid';
+import { hybridSearch } from './gbrainCompat.ts';
 import type { SearchResult } from 'gbrain/types';
 import { openEngine } from './engine.ts';
 import { config } from './config.ts';
@@ -207,7 +207,7 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
     return withEntity({
       intent: 'contact_lookup',
       scope: 'revenue_ops',
-      sourceIds: explicitSources ?? SALES_SUPPORT_SOURCE_IDS,
+      sourceIds: explicitSources ?? (isContactEmailQuestion(q) ? REVENUE_SOURCE_IDS : SALES_SUPPORT_SOURCE_IDS),
       label: 'contact',
       answerFields: ['owner_id', 'name', 'email', 'phone', 'title', 'CustomerName', 'ContactEmail', 'from', 'to'],
       preferredKinds: ['person', 'organization', 'customer', 'mail', 'teams'],
@@ -317,7 +317,7 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
     return withEntity({
       intent: 'contact_lookup',
       scope: 'revenue_ops',
-      sourceIds: explicitSources ?? SALES_SUPPORT_SOURCE_IDS,
+      sourceIds: explicitSources ?? (isContactEmailQuestion(q) ? REVENUE_SOURCE_IDS : SALES_SUPPORT_SOURCE_IDS),
       label: 'contact',
       answerFields: ['owner_id', 'name', 'email', 'phone', 'title', 'CustomerName', 'ContactEmail', 'from', 'to'],
       preferredKinds: ['person', 'organization', 'customer', 'mail', 'teams'],
@@ -476,7 +476,7 @@ function renderAnswer(
     if (summary) lines.push(summary);
   }
 
-  const alternates = confidence === 'high' && requestedLines.length > 0
+  const alternates = confidence === 'high' && (requestedLines.length > 0 || Boolean(resolvedEntity))
     ? []
     : uniqueAlternates(title, filtered.slice(1, 5));
   if (alternates.length) {

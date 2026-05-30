@@ -1,12 +1,23 @@
 import { createEngine } from 'gbrain/engine-factory';
 import { config } from './config.ts';
+import { createJsonEngine, type JsonBrainEngine } from './gbrainCompat.ts';
 
-export type Engine = Awaited<ReturnType<typeof createEngine>>;
+export type Engine = Awaited<ReturnType<typeof createEngine>> | JsonBrainEngine;
 
 export async function openEngine(): Promise<Engine> {
-  const opts = { engine: config.COMPANY_BRAIN_ENGINE, database_url: config.DATABASE_URL };
+  if (config.COMPANY_BRAIN_ENGINE === 'json') {
+    const engine = createJsonEngine();
+    await engine.connect();
+    await engine.initSchema();
+    return engine;
+  }
+  const opts = {
+    engine: config.COMPANY_BRAIN_ENGINE,
+    database_url: config.DATABASE_URL,
+  } as Parameters<typeof createEngine>[0];
   const engine = await createEngine(opts);
   await engine.connect(opts);
+  await engine.initSchema();
   return engine;
 }
 
