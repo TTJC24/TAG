@@ -227,10 +227,10 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
     return withEntity({
       intent: 'contact_lookup',
       scope: 'revenue_ops',
-      sourceIds: explicitSources ?? (isContactEmailQuestion(q) ? REVENUE_SOURCE_IDS : SALES_SUPPORT_SOURCE_IDS),
+      sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
       label: 'contact',
-      answerFields: ['owner_id', 'name', 'email', 'phone', 'title', 'CustomerName', 'ContactEmail', 'from', 'to'],
-      preferredKinds: ['person', 'organization', 'customer', 'mail', 'teams'],
+      answerFields: ['owner_name', 'user_id', 'owner_id', 'name', 'email', 'phone', 'title', 'CustomerName', 'ContactEmail'],
+      preferredKinds: ['person', 'organization', 'customer'],
       requestedFields: contactRequestedFields(q),
     });
   }
@@ -337,10 +337,10 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
     return withEntity({
       intent: 'contact_lookup',
       scope: 'revenue_ops',
-      sourceIds: explicitSources ?? (isContactEmailQuestion(q) ? REVENUE_SOURCE_IDS : SALES_SUPPORT_SOURCE_IDS),
+      sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
       label: 'contact',
-      answerFields: ['owner_id', 'name', 'email', 'phone', 'title', 'CustomerName', 'ContactEmail', 'from', 'to'],
-      preferredKinds: ['person', 'organization', 'customer', 'mail', 'teams'],
+      answerFields: ['owner_name', 'user_id', 'owner_id', 'name', 'email', 'phone', 'title', 'CustomerName', 'ContactEmail'],
+      preferredKinds: ['person', 'organization', 'customer'],
       requestedFields: contactRequestedFields(q),
     });
   }
@@ -690,8 +690,8 @@ function normalizeEntityCandidate(candidate: string | undefined): string | null 
 
 function carryEntityIntoPronounClause(part: string, entity: string | null): string {
   if (!entity) return part;
-  if (!/\b(it|them|they|their|that account|that customer)\b/i.test(part)) return part;
-  return part.replace(/\b(it|them|they|their|that account|that customer)\b/gi, entity);
+  if (!/\b(it|them|they|their|that account|that customer|the account|the customer)\b/i.test(part)) return part;
+  return part.replace(/\b(it|them|they|their|that account|that customer|the account|the customer)\b/gi, entity);
 }
 
 function mixedSectionLabel(question: string): string {
@@ -1098,10 +1098,10 @@ function requestedFields(questionLower: string): string[] {
 }
 
 function contactRequestedFields(questionLower: string): string[] {
-  const allowed = new Set(['owner_id', 'ContactEmail', 'email', 'from', 'to', 'phone']);
+  const allowed = new Set(['owner_name', 'user_id', 'owner_id', 'ContactEmail', 'email', 'phone']);
   const fields = requestedFields(questionLower).filter((field) => allowed.has(field));
   if (/\b(owner|owns|rep|salesperson|who)\b/.test(questionLower) && !fields.includes('owner_id')) {
-    fields.unshift('owner_id');
+    fields.unshift('owner_name', 'user_id', 'owner_id');
   }
   return fields;
 }
@@ -1124,7 +1124,7 @@ function pipelineRequestedFields(questionLower: string): string[] {
 }
 
 function missingRequestedFieldMessage(profile: IntentProfile): string {
-  if (profile.requestedFields.includes('owner_id')) {
+  if (profile.requestedFields.some((field) => ['owner_name', 'user_id', 'owner_id'].includes(field))) {
     return 'I found the likely account/contact record, but I only found an owner id, not a resolved owner name.';
   }
   return `I found the likely ${profile.label}, but I did not find the requested field on that record.`;
@@ -1147,6 +1147,7 @@ function suppressGenericDetailsForAnsweredRequest(profile: IntentProfile): boole
     'CreditHold',
     'CreditHoldStatus',
   ]);
+  if (profile.intent === 'contact_lookup' && profile.requestedFields.length > 0) return true;
   return profile.intent === 'customer_lookup'
     && profile.requestedFields.length > 0
     && profile.requestedFields.some((field) => exactFields.has(field));
@@ -1162,6 +1163,16 @@ function missingRequestedFieldNotes(
   profile: IntentProfile,
   fields: Record<string, string>,
 ): string[] {
+  if (profile.intent === 'contact_lookup') {
+    const notes: string[] = [];
+    if (profile.requestedFields.includes('phone') && !fields.phone) {
+      notes.push('I did not find a phone number on that record.');
+    }
+    if ((profile.requestedFields.includes('ContactEmail') || profile.requestedFields.includes('email')) && !fields.ContactEmail && !fields.email) {
+      notes.push('I did not find an email address on that record.');
+    }
+    return notes;
+  }
   if (profile.intent !== 'customer_lookup') return [];
   if (!/\b(resale|certificate|cert|tax exempt|exempt)\b/i.test(question)) return [];
   const hasCertificateEvidence = Boolean(fields.TaxRegistrationID || fields.TaxExemptionNumber || fields.ResaleCertificate);
@@ -1426,7 +1437,7 @@ function recordKindMatchesIntent(hit: SearchResult, profile: IntentProfile): boo
   if (profile.intent === 'invoice_lookup') return kind === 'invoice';
   if (profile.intent === 'credit_lookup') return kind === 'invoice';
   if (profile.intent === 'pipeline_lookup') return kind === 'deal';
-  if (profile.intent === 'contact_lookup') return ['person', 'organization', 'customer', 'mail', 'teams'].includes(kind);
+  if (profile.intent === 'contact_lookup') return ['person', 'organization', 'customer'].includes(kind);
   return true;
 }
 

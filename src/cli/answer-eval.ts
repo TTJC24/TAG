@@ -97,6 +97,19 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'rep plus phone stays on contact records and notes missing phone',
+    question: 'who is the rep for ACME and what is their phone number',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'contact_lookup', `expected contact_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /\bOwner:\s*Tim Clark\b/i, 'rep plus phone ask did not resolve owner');
+      assertText(answer, /did not find a phone number/i, 'rep plus phone ask did not call out missing phone');
+      assertNotText(answer, /ACME wedge anchor shipment question|From:\s*ap@acmebarricades/i, 'rep plus phone ask leaked mailbox context');
+      assert(answer.citations.every((citation) => ['acumatica', 'pipedrive'].includes(citation.source_id)), 'rep plus phone ask should cite only revenue records');
+    },
+  },
+  {
     name: 'weak item match is refused',
     question: 'price for pump a14',
     assert(answer) {
@@ -827,6 +840,21 @@ const askCases: AskExpectation[] = [
       assertText(answer, /Tax zone:\s*JACKSON/i, 'mixed tax/meeting ask did not answer tax lane');
       assertText(answer, /ACME Kickoff Meeting/i, 'mixed tax/meeting ask did not carry ACME into meeting lane');
       assertNotText(answer, /Status:\s*Active|Terms:\s*N30|Credit limit:/i, 'mixed tax/meeting ask leaked generic account fields');
+    },
+  },
+  {
+    name: 'mixed resale certificate and account owner carries clean account context',
+    question: 'do we have the resale cert for ACME and who owns the account',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'mixed_intent', `expected mixed_intent, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /^Customer:/im, 'mixed resale/owner ask did not render customer section');
+      assertText(answer, /^Contact:/im, 'mixed resale/owner ask did not render contact section');
+      assertText(answer, /did not find a resale or tax-exemption certificate field/i, 'mixed resale/owner ask did not flag missing cert evidence');
+      assertText(answer, /\bOwner:\s*Tim Clark\b/i, 'mixed resale/owner ask did not carry ACME into owner lane');
+      assertNotText(answer, /could not find a solid contact match|ACME wedge anchor shipment question/i, 'mixed resale/owner ask lost account context or leaked mail');
+      assert(answer.citations.every((citation) => ['acumatica', 'pipedrive'].includes(citation.source_id)), 'mixed resale/owner ask should cite only revenue records');
     },
   },
   {
