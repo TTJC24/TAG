@@ -60,6 +60,7 @@ const schema = z.object({
   SCHEDULER_DRY_RUN: envBoolean.default(true),
   SCHEDULER_NO_EMBED: envBoolean.default(true),
   SCHEDULER_SOURCES: z.string().optional(),
+  SUPERMEMORY_API_KEY: z.string().optional(),
 });
 
 export type Config = z.infer<typeof schema>;

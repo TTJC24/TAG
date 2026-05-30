@@ -1,0 +1,24 @@
+[
+  {
+    "id": "doc_fs_001",
+    "customId": "correction_fs_lead_time",
+    "content": "Correction: Standard lead time for galvanized structural bolts from the primary FS supplier is 3 weeks, not 10 days. The 10-day figure only applies to stock A325 bolts already in the Phoenix warehouse.",
+    "title": "FS galvanized bolt lead time correction",
+    "metadata": { "kind": "correction", "topic": "lead-time" },
+    "createdAt": "2026-05-28T14:10:00Z",
+    "updatedAt": "2026-05-28T14:10:00Z",
+    "status": "done",
+    "containerTags": ["brain-fs"]
+  },
+  {
+    "id": "doc_fs_002",
+    "customId": "fact_fs_reseller_terms",
+    "content": "Fastening Specialists sells exclusively to resellers, never direct to end contractors. Net-30 terms are the default for resellers with an approved credit application on file.",
+    "title": "FS reseller-only channel + Net-30 terms",
+    "metadata": { "kind": "fact", "topic": "channel" },
+    "createdAt": "2026-05-29T09:42:00Z",
+    "updatedAt": "2026-05-29T09:42:00Z",
+    "status": "done",
+    "containerTags": ["brain-fs"]
+  }
+]
