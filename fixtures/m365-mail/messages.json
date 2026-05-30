@@ -53,5 +53,16 @@
     "body_preview": "You have new profile views and sales updates from LinkedIn.",
     "conversation_id": "conv-fixture-linkedin",
     "web_link": "https://outlook.office.com/mail/inbox/id/fixture-mail-linkedin-cultivusplus"
+  },
+  {
+    "id": "fixture-mail-acme-2026-05-30",
+    "subject": "ACME wedge anchor shipment question",
+    "from": "ap@acmebarricades.example.com",
+    "to": ["inside.sales@example.com"],
+    "cc": [],
+    "received_at": "2026-05-30T15:30:00Z",
+    "body_preview": "ACME asked whether the wedge anchors have shipped and requested any available tracking details.",
+    "conversation_id": "conv-fixture-acme-shipment-question",
+    "web_link": "https://outlook.office.com/mail/inbox/id/fixture-mail-acme-2026-05-30"
   }
 ]

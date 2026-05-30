@@ -303,7 +303,7 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       requestedFields: requestedFields(q),
     });
   }
-  if (/\b(orders?|so-|\bso\b|sales orders?|status|ship|shipped|shipment|tracking|track|delivered|pod|proof of delivery|route|fulfill|fulfillment|backorder|backordered|back order)\b/.test(q)) {
+  if (/\b(orders?|so-|\bso\b|sos|sales orders?|status|ship|shipped|shipment|tracking|track|delivered|pod|proof of delivery|route|fulfill|fulfillment|backorder|backordered|back order)\b/.test(q)) {
     return withEntity({
       intent: 'order_lookup',
       scope: 'revenue_ops',
@@ -421,6 +421,7 @@ function usefulHits(
   return ranked
     .filter((hit) => Number(hit.score ?? 0) >= threshold || titleMatches(hit, terms))
     .filter((hit) => recordKindMatchesIntent(hit, profile))
+    .filter((hit) => salesActivityRecordMatches(question, profile, hit))
     .filter((hit) => receivablesRecordMatches(question, profile, hit))
     .filter((hit) => matchingTerms.length === 0 || textMatchesAny(hit, matchingTerms))
     .filter((hit) => collaborationRoleMatches(question, profile, hit))
@@ -610,7 +611,11 @@ function mixedIntentQuestions(question: string, sources?: string[]): string[] {
 }
 
 function looksLikeStandaloneAsk(part: string): boolean {
-  return /\b(who|what|when|where|why|how|did|does|do|is|are|can|could|should|will|would|show|list|find|check|tell|get)\b/i.test(part);
+  if (/\b(who|what|when|where|why|how|did|does|do|is|are|can|could|should|will|would|show|list|find|check|tell|get)\b/i.test(part)) {
+    return true;
+  }
+  const lower = part.toLowerCase();
+  return isCollaborationQuestion(lower) && /\b(any|next|latest|recent|today|tomorrow|upcoming|emails?|meetings?)\b/.test(lower);
 }
 
 function explicitEntityMention(question: string): string | null {
@@ -660,6 +665,13 @@ function carryEntityIntoPronounClause(part: string, entity: string | null): stri
 
 function mixedSectionLabel(question: string): string {
   const profile = profileQuestion(question);
+  if (profile.intent === 'collaboration_lookup') {
+    const lower = question.toLowerCase();
+    if (/\b(meetings?|calendar|events?|appointments?|kickoff)\b/.test(lower)) return 'Meeting:';
+    if (/\b(emails?|mail|inbox)\b/.test(lower)) return 'Email:';
+    if (/\b(teams|chat|messages?)\b/.test(lower)) return 'Teams:';
+    if (/\b(sharepoint|documents?|files?|drive)\b/.test(lower)) return 'File:';
+  }
   const label = profile.label.charAt(0).toUpperCase() + profile.label.slice(1);
   return `${label}:`;
 }
@@ -1124,6 +1136,13 @@ function receivablesRecordMatches(question: string, profile: IntentProfile, hit:
   return numericField(fields.Balance) > 0 || numericField(fields.Amount) > 0;
 }
 
+function salesActivityRecordMatches(question: string, profile: IntentProfile, hit: SearchResult): boolean {
+  if (profile.label !== 'sales activity') return true;
+  if (!/\bcalls?\b/i.test(question)) return true;
+  const text = `${hit.title ?? ''} ${hit.slug ?? ''} ${hit.chunk_text ?? ''}`.toLowerCase();
+  return /\bcall\b/.test(text) || recordKind(hit) === 'activity';
+}
+
 function isBroadReceivablesAsk(question: string, profile: IntentProfile): boolean {
   return profile.intent === 'invoice_lookup' && entityTerms(question, profile).length === 0 && isReceivablesQuestion(question.toLowerCase());
 }
@@ -1261,6 +1280,9 @@ function entityTerms(question: string, profile: IntentProfile): string[] {
     'upcoming',
     'next',
     'future',
+    'today',
+    'tomorrow',
+    'yesterday',
     'calendar',
     'event',
     'events',
@@ -1414,6 +1436,9 @@ const STOP_TERMS = new Set([
   'upcoming',
   'next',
   'future',
+  'today',
+  'tomorrow',
+  'yesterday',
   'teams',
   'chat',
   'meeting',

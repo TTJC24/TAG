@@ -270,9 +270,53 @@ const askCases: AskExpectation[] = [
       assert(answer.intent === 'mixed_intent', `expected mixed_intent, got ${answer.intent}`);
       assert(answer.scope === 'all', `expected all scope for order + collaboration mix, got ${answer.scope}`);
       assertText(answer, /^Order:/im, 'mixed shipment/meeting ask did not render order section');
-      assertText(answer, /^Collaboration record:/im, 'mixed shipment/meeting ask did not render collaboration section');
+      assertText(answer, /^Meeting:/im, 'mixed shipment/meeting ask did not render meeting section');
       assertText(answer, /\bStart:\s*2026-06-01T/i, 'mixed shipment/meeting ask did not answer next meeting lane');
       assertNotText(answer, /ACME Barricades LC:\s*Status:\s*Active|Terms:\s*N30/i, 'mixed shipment/meeting ask leaked customer account summary into shipment lane');
+    },
+  },
+  {
+    name: 'mixed ACME shipment and kickoff meeting keeps lanes independent',
+    question: "did ACME's wedge anchors ship and when's the kickoff meeting",
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'mixed_intent', `expected mixed_intent, got ${answer.intent}`);
+      assert(answer.scope === 'all', `expected all scope for order + meeting mix, got ${answer.scope}`);
+      assertText(answer, /^Order:/im, 'ACME shipment/kickoff ask did not render order section');
+      assertText(answer, /^Meeting:/im, 'ACME shipment/kickoff ask did not render meeting section');
+      assertText(answer, /ACME Kickoff Meeting/i, 'ACME shipment/kickoff ask did not answer kickoff meeting lane');
+      assertNotText(answer, /TrackPod/i, 'plain shipped wording should not show TrackPod caveat');
+      assertNotText(answer, /ACME Barricades LC:\s*Status:\s*Active|Terms:\s*N30/i, 'ACME shipment/kickoff ask leaked customer account summary into order lane');
+    },
+  },
+  {
+    name: 'mixed tracking and ACME email scopes TrackPod note to order lane',
+    question: 'tracking for 00286 and any emails from ACME today',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'mixed_intent', `expected mixed_intent, got ${answer.intent}`);
+      assert(answer.scope === 'all', `expected all scope for tracking + email mix, got ${answer.scope}`);
+      assertText(answer, /^Order:/im, 'tracking/email ask did not render order section');
+      assertText(answer, /^Email:/im, 'tracking/email ask did not render email section');
+      assertText(answer, /Delivery and tracking data \(TrackPod\) is not yet connected to the brain/i, 'tracking/email ask did not show TrackPod caveat');
+      assertText(answer, /From:\s*ap@acmebarricades\.example\.com/i, 'tracking/email ask did not answer ACME email lane');
+      const orderIndex = answer.text.indexOf('Order:');
+      const emailIndex = answer.text.indexOf('Email:');
+      const noteIndex = answer.text.indexOf('Delivery and tracking data (TrackPod)');
+      assert(orderIndex >= 0 && emailIndex > orderIndex && noteIndex > orderIndex && noteIndex < emailIndex, `TrackPod note was not scoped to order section\nAnswer:\n${answer.text}`);
+    },
+  },
+  {
+    name: 'mixed open SOs and next meeting carries customer into meeting lane',
+    question: 'open SOs for ACME plus next meeting with them',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'mixed_intent', `expected mixed_intent, got ${answer.intent}`);
+      assert(answer.scope === 'all', `expected all scope for SO + meeting mix, got ${answer.scope}`);
+      assertText(answer, /^Order:/im, 'open SOs/meeting ask did not render order section');
+      assertText(answer, /^Meeting:/im, 'open SOs/meeting ask did not render meeting section');
+      assertText(answer, /ACME Kickoff Meeting/i, 'open SOs/meeting ask did not carry ACME context into meeting lane');
+      assertNotText(answer, /TrackPod/i, 'generic open SOs mixed ask should not show TrackPod caveat');
     },
   },
   {
@@ -896,14 +940,14 @@ const askCases: AskExpectation[] = [
   },
   {
     name: 'email ask does not borrow revenue records when no email match exists',
-    question: 'emails about acme',
+    question: 'emails about globotech',
     assert(answer) {
       assertCleanAnswer(answer);
       assert(answer.intent === 'collaboration_lookup', `expected collaboration_lookup, got ${answer.intent}`);
       assert(answer.scope === 'collaboration', `expected collaboration scope, got ${answer.scope}`);
       assert(answer.confidence === 'low', `expected low confidence for missing email match, got ${answer.confidence}`);
       assertText(answer, /could not find a solid collaboration record match/i, 'missing email ask did not refuse cleanly');
-      assertNotText(answer, /ACME Barricades LC:|Terms:|Customer ID:/i, 'missing email ask borrowed revenue account data');
+      assertNotText(answer, /Globotech LLC:|Terms:|Customer ID:/i, 'missing email ask borrowed revenue account data');
       assert(answer.citations.length === 0, 'missing email ask should not return unrelated citations');
     },
   },
