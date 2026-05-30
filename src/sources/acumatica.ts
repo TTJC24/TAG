@@ -122,6 +122,8 @@ export const acumaticaConnector: ConnectorSpec = {
   id: SOURCE_ID,
   displayName: 'Acumatica ERP',
   kind: SOURCE_KIND,
+  fixturePath: FIXTURE_PATH,
+  requiredEnv: ['ACUMATICA_BASE_URL', 'ACUMATICA_USERNAME', 'ACUMATICA_PASSWORD', 'ACUMATICA_TENANT'],
   async build({ dryRun }) {
     const snapshot = await loadSnapshot(dryRun);
     return new AcumaticaSource(snapshot);
