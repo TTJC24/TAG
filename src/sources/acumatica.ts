@@ -74,11 +74,10 @@ ${renderBody(e.body)}
 }
 
 class AcumaticaSource implements IngestionSource {
-  readonly id = SOURCE_ID;
   readonly kind = SOURCE_KIND;
   readonly mode = 'migration' as const;
 
-  constructor(private readonly snapshot: AcumaticaSnapshot) {}
+  constructor(readonly id: string, private readonly snapshot: AcumaticaSnapshot) {}
 
   async start(ctx: IngestionSourceContext): Promise<void> {
     const all = [
@@ -127,7 +126,7 @@ export function createAcumaticaConnector(id = SOURCE_ID, displayName = 'Acumatic
     requiredEnv: ['ACUMATICA_BASE_URL', 'ACUMATICA_USERNAME', 'ACUMATICA_PASSWORD', 'ACUMATICA_TENANT'],
     async build({ dryRun }) {
       const snapshot = await loadSnapshot(dryRun, branch?.());
-      return new AcumaticaSource(snapshot);
+      return new AcumaticaSource(id, snapshot);
     },
   };
 }

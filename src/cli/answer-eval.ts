@@ -976,6 +976,29 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'today email ask filters to current-day mailbox records',
+    question: 'what emails came in today',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'collaboration_lookup', `expected collaboration_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'collaboration', `expected collaboration scope, got ${answer.scope}`);
+      assertText(answer, /\bReceived:\s*2026-05-30T/i, 'today email ask did not return a current-day mail record');
+      assertNotText(answer, /2026-05-20T|2026-05-22T/i, 'today email ask returned an older mail record');
+      assert(answer.citations.every((citation) => citation.source_id === 'm365-mail'), 'today email should cite only mail records');
+    },
+  },
+  {
+    name: 'payment wording inside email ask stays mailbox not invoice',
+    question: 'emails from 247digitize about duplicate payment',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'collaboration_lookup', `expected collaboration_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'collaboration', `expected collaboration scope, got ${answer.scope}`);
+      assertText(answer, /could not find a solid collaboration record match/i, 'missing payment email ask should refuse as mailbox search');
+      assertNotText(answer, /payment\/invoice|Reference number:|Balance:/i, 'payment email ask was stolen by invoice routing');
+    },
+  },
+  {
     name: 'recent meetings prefer recent past calendar entries',
     question: 'recent meetings',
     assert(answer) {
@@ -997,6 +1020,16 @@ const askCases: AskExpectation[] = [
       assertText(answer, /\bStart:\s*2026-06-01T/i, 'upcoming meetings should choose the next future calendar event');
       assertNotText(answer, /Vacation|2026-12-28/i, 'upcoming meetings should not jump to the farthest future event');
       assert(answer.citations.every((citation) => citation.source_id === 'm365-calendar'), 'upcoming meetings should cite only calendar records');
+    },
+  },
+  {
+    name: 'sharepoint vendor wording stays file search not procurement plan',
+    question: 'do we have any sharepoint files about vendor setup',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'collaboration_lookup', `expected collaboration_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'collaboration', `expected collaboration scope, got ${answer.scope}`);
+      assertNotText(answer, /structured this as a procurement request|No external system writes/i, 'SharePoint file ask was misrouted to procurement');
     },
   },
   {

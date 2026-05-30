@@ -75,6 +75,13 @@ async function graphDownloadText(path: string, maxBytes: number): Promise<string
   return text.slice(0, maxBytes);
 }
 
+function isPlainTextDownload(item: { name?: string; file?: { mimeType?: string } }): boolean {
+  const mimeType = item.file?.mimeType ?? '';
+  const name = item.name ?? '';
+  if (/\.(docx|xlsx|pptx|doc|xls|ppt|pdf)$/i.test(name)) return false;
+  return /text|json|xml|csv|html|markdown/i.test(mimeType);
+}
+
 async function graphPages<TItem>(path: string, max = config.M365_MAX_ITEMS): Promise<TItem[]> {
   const items: TItem[] = [];
   let next: string | undefined = path;
@@ -205,7 +212,7 @@ export async function fetchSharePointItems(): Promise<SharePointItem[]> {
       }
       for (const item of children) {
         if (!item.file) continue;
-        const canDownload = (item.size ?? 0) <= config.M365_SHAREPOINT_MAX_DOWNLOAD_BYTES;
+        const canDownload = isPlainTextDownload(item) && (item.size ?? 0) <= config.M365_SHAREPOINT_MAX_DOWNLOAD_BYTES;
         let contentText: string | null = null;
         if (canDownload) {
           try {

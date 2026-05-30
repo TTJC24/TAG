@@ -80,6 +80,7 @@ const FIELD_LABELS: Record<string, string> = {
   CreditHoldStatus: 'Credit hold',
   Branch: 'Branch',
   BranchID: 'Branch',
+  ShippingBranch: 'Shipping branch',
   PriceClassID: 'Price class',
   CustomerClass: 'Customer class',
   CustomerCategory: 'Customer category',
@@ -94,6 +95,8 @@ const FIELD_LABELS: Record<string, string> = {
   BillTo: 'Bill-to',
   BillingAddress: 'Billing address',
   owner_id: 'Owner ID',
+  owner_name: 'Owner',
+  user_id: 'Owner',
   name: 'Name',
   email: 'Email',
   phone: 'Phone',
@@ -154,6 +157,11 @@ const REVENUE_SOURCE_IDS = ['acumatica', 'pipedrive'];
 const PROCUREMENT_SOURCE_IDS = ['acumatica', 'pipedrive', 'm365-mail', 'm365-teams'];
 const SALES_SUPPORT_SOURCE_IDS = ['acumatica', 'pipedrive', 'm365-mail', 'm365-teams'];
 const COLLABORATION_SOURCE_IDS = ['m365-mail', 'm365-calendar', 'm365-teams', 'm365-sharepoint'];
+const ENTITY_SOURCE_IDS: Record<Exclude<MemoryScope, 'shared'>, { acumatica: string; pipedrive: string }> = {
+  fs: { acumatica: 'acumatica-fs', pipedrive: 'pipedrive-fs' },
+  blcs: { acumatica: 'acumatica-blcs', pipedrive: 'pipedrive-blcs-usa' },
+  usa: { acumatica: 'acumatica-usa', pipedrive: 'pipedrive-blcs-usa' },
+};
 
 function profileQuestion(question: string, sourcesOrEntity?: string[] | MemoryScope): IntentProfile {
   const q = question.toLowerCase();
@@ -166,7 +174,7 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       scope: 'revenue_ops',
       sourceIds: explicitSources ?? ['pipedrive'],
       label: 'deal/pipeline',
-      answerFields: ['title', 'status', 'stage_name', 'value', 'currency', 'expected_close_date', 'person_id', 'org_id'],
+      answerFields: ['title', 'status', 'stage_name', 'value', 'currency', 'expected_close_date', 'owner_name', 'user_id', 'person_id', 'org_id'],
       preferredKinds: ['deal'],
       requestedFields: pipelineRequestedFields(q),
     });
@@ -180,6 +188,17 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       answerFields: ['subject', 'type', 'due_date', 'due_time', 'done', 'name', 'email', 'phone', 'From', 'To', 'Received', 'Author', 'Created', 'Start', 'End'],
       preferredKinds: ['activity', 'deal', 'person', 'organization', 'mail', 'teams', 'calendar'],
       requestedFields: salesActivityRequestedFields(q),
+    });
+  }
+  if (isCollaborationQuestion(q)) {
+    return withEntity({
+      intent: 'collaboration_lookup',
+      scope: 'collaboration',
+      sourceIds: explicitSources ?? collaborationSourceIds(q),
+      label: 'collaboration record',
+      answerFields: ['From', 'To', 'Received', 'Author', 'Created', 'Start', 'End', 'Organizer', 'Location', 'Site', 'Drive', 'Last modified'],
+      preferredKinds: ['mail', 'teams', 'calendar', 'sharepoint'],
+      requestedFields: requestedFields(q),
     });
   }
   if (isVendorSourcingQuestion(q)) {
@@ -232,7 +251,7 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       scope: 'revenue_ops',
       sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
       label: 'customer',
-      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail'],
+      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'PriceClassID', 'CustomerClass', 'CustomerCategory', 'ContactEmail'],
       preferredKinds: ['customer', 'organization'],
       requestedFields: requestedFields(q),
     });
@@ -281,24 +300,13 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       requestedFields: requestedFields(q),
     });
   }
-  if (isCollaborationQuestion(q)) {
-    return withEntity({
-      intent: 'collaboration_lookup',
-      scope: 'collaboration',
-      sourceIds: explicitSources ?? collaborationSourceIds(q),
-      label: 'collaboration record',
-      answerFields: ['From', 'To', 'Received', 'Author', 'Created', 'Start', 'End', 'Organizer', 'Location', 'Site', 'Drive', 'Last modified'],
-      preferredKinds: ['mail', 'teams', 'calendar', 'sharepoint'],
-      requestedFields: requestedFields(q),
-    });
-  }
   if (isCustomerAccountFieldQuestion(q)) {
     return withEntity({
       intent: 'customer_lookup',
       scope: 'revenue_ops',
       sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
       label: 'customer',
-      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress'],
+      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress', 'Branch', 'BranchID', 'ShippingBranch'],
       preferredKinds: ['customer', 'organization'],
       requestedFields: requestedFields(q),
     });
@@ -342,7 +350,7 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       scope: 'revenue_ops',
       sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
       label: 'customer',
-      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress'],
+      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress', 'Branch', 'BranchID', 'ShippingBranch'],
       preferredKinds: ['customer', 'organization'],
       requestedFields: requestedFields(q),
     });
@@ -353,7 +361,7 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       scope: 'revenue_ops',
       sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
       label: 'customer',
-      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress'],
+      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress', 'Branch', 'BranchID', 'ShippingBranch'],
       preferredKinds: ['customer', 'organization'],
       requestedFields: requestedFields(q),
     });
@@ -374,6 +382,18 @@ function inferEntityScope(questionLower: string): MemoryScope | undefined {
   if (/\b(bl|blcs|big league|big league construction)\b/.test(questionLower)) return 'blcs';
   if (/\b(usa|utility|utility supply|waterworks|utility supply associates)\b/.test(questionLower)) return 'usa';
   return undefined;
+}
+
+function applyEntitySourceScope(profile: IntentProfile, hasExplicitSources: boolean): IntentProfile {
+  if (hasExplicitSources || !profile.entity || profile.entity === 'shared' || !profile.sourceIds?.length) return profile;
+  const scoped = ENTITY_SOURCE_IDS[profile.entity];
+  const sourceIds = new Set<string>();
+  for (const sourceId of profile.sourceIds) {
+    if (sourceId === 'acumatica') sourceIds.add(scoped.acumatica);
+    if (sourceId === 'pipedrive') sourceIds.add(scoped.pipedrive);
+    sourceIds.add(sourceId);
+  }
+  return { ...profile, sourceIds: Array.from(sourceIds) };
 }
 
 function stripEntityScopePhrases(value: string): string {
@@ -411,7 +431,8 @@ function usefulHits(
   resolvedEntity: EntityResolution | null = null,
 ): SearchResult[] {
   const terms = importantTerms(question);
-  const matchingTerms = profile.intent === 'invoice_lookup' && entityTerms(question, profile).length === 0
+  const matchingTerms = (profile.intent === 'invoice_lookup' && entityTerms(question, profile).length === 0)
+    || (profile.intent === 'collaboration_lookup' && isRecentQuestion(question) && !roleTerm(question, 'from') && !roleTerm(question, 'to'))
     ? []
     : terms;
   const entities = shouldConstrainToResolvedEntity(resolvedEntity) ? [] : entityTerms(question, profile);
@@ -540,7 +561,7 @@ export async function askBrain(opts: AskOptions): Promise<BrainAnswer> {
 }
 
 async function askSingleIntent(opts: AskOptions, memoriesPromise: Promise<string[]>): Promise<BrainAnswer> {
-  const profile = profileQuestion(opts.question, opts.sources);
+  const profile = applyEntitySourceScope(profileQuestion(opts.question, opts.sources ?? opts.entity), Boolean(opts.sources?.length));
   if (profile.intent === 'procurement_request') {
     const answer = procurementPlanBrainAnswer(await createProcurementActionPlan(opts.question));
     return { ...answer, memories: await memoriesPromise };
@@ -703,6 +724,7 @@ async function recentCollaborationHits(
   const pages = await readSourcePages(engine, profile.sourceIds);
   const now = Date.now();
   const upcoming = isUpcomingQuestion(question);
+  const dateWindow = dateWindowForQuestion(question, now);
   return pages
     .map((page) => ({
       slug: page.slug,
@@ -713,8 +735,9 @@ async function recentCollaborationHits(
     }) as SearchResult)
     .filter((hit) => recordTimestamp(hit) > 0)
     .filter((hit) => {
-      if (!profile.sourceIds?.includes('m365-calendar')) return true;
       const timestamp = recordTimestamp(hit);
+      if (dateWindow) return timestamp >= dateWindow.start && timestamp < dateWindow.end;
+      if (!profile.sourceIds?.includes('m365-calendar')) return true;
       return upcoming ? timestamp >= now : timestamp <= now;
     })
     .sort((a, b) => upcoming ? recordTimestamp(a) - recordTimestamp(b) : recordTimestamp(b) - recordTimestamp(a))
@@ -776,6 +799,9 @@ function isCustomerAccountFieldQuestion(questionLower: string): boolean {
 }
 
 function isVendorSourcingQuestion(questionLower: string): boolean {
+  if (/\b(emails?|mail|inbox|messages?|teams|chat|meetings?|calendar|events?|appointments?|sharepoint|drive|documents?|files?)\b/.test(questionLower)) {
+    return false;
+  }
   return /\b(who\s+sells|vendors?\s+for|suppliers?\s+for|vendor|supplier|source|sourcing)\b/.test(questionLower);
 }
 
@@ -1027,7 +1053,7 @@ function requestedFields(questionLower: string): string[] {
     fields.push('PriceClassID', 'CustomerClass', 'CustomerCategory');
   }
   if (/\b(branch)\b/.test(questionLower)) {
-    fields.push('Branch', 'BranchID');
+    fields.push('Branch', 'BranchID', 'ShippingBranch');
   }
   if (/\b(deals?|pipeline|opportunit(?:y|ies)|stage|expected close|close date)\b/.test(questionLower)) {
     fields.push('title', 'status', 'stage_name', 'value', 'currency', 'expected_close_date');
@@ -1057,7 +1083,7 @@ function requestedFields(questionLower: string): string[] {
   if (/\b(status|open|closed)\b/.test(questionLower)) fields.push('Status');
   if (/\b(ship|shipped|shipment|tracking|track|delivered|pod|proof of delivery|route|fulfill|fulfillment|backorder|backordered|back order)\b/.test(questionLower)) fields.push('Status', 'RequestedOn');
   if (/\b(due|needed|requested)\b/.test(questionLower)) fields.push('DueDate', 'RequestedOn');
-  if (/\b(owner|owns|rep|salesperson)\b/.test(questionLower)) fields.push('owner_id');
+  if (/\b(owner|owns|rep|salesperson)\b/.test(questionLower)) fields.push('owner_name', 'user_id', 'owner_id');
   return fields;
 }
 
@@ -1082,6 +1108,7 @@ function pipelineRequestedFields(questionLower: string): string[] {
   if (/\b(open|status)\b/.test(questionLower)) fields.push('status');
   if (/\b(value|amount|worth)\b/.test(questionLower)) fields.push('value', 'currency');
   if (/\b(expected close|close date|closing|close)\b/.test(questionLower)) fields.push('expected_close_date');
+  if (/\b(owner|owns|rep|salesperson|who)\b/.test(questionLower)) fields.push('owner_name', 'user_id', 'owner_id');
   if (!fields.length) fields.push('title', 'status', 'stage_name', 'value', 'currency', 'expected_close_date');
   return fields;
 }
@@ -1419,6 +1446,7 @@ const STOP_TERMS = new Set([
   'tell',
   'show',
   'find',
+  'came',
   'details',
   'email',
   'emails',
@@ -1460,11 +1488,23 @@ const STOP_TERMS = new Set([
 ]);
 
 function isRecentQuestion(question: string): boolean {
-  return /\b(latest|recent|newest|last|upcoming|next)\b/i.test(question);
+  return /\b(latest|recent|newest|last|upcoming|next|today|tomorrow|yesterday)\b/i.test(question);
 }
 
 function isUpcomingQuestion(question: string): boolean {
   return /\b(upcoming|next|future)\b/i.test(question);
+}
+
+function dateWindowForQuestion(question: string, now = Date.now()): { start: number; end: number } | null {
+  const lower = question.toLowerCase();
+  const offset = /\btoday\b/.test(lower) ? 0 : /\btomorrow\b/.test(lower) ? 1 : /\byesterday\b/.test(lower) ? -1 : null;
+  if (offset === null) return null;
+  const base = new Date(now);
+  base.setHours(0, 0, 0, 0);
+  base.setDate(base.getDate() + offset);
+  const end = new Date(base);
+  end.setDate(end.getDate() + 1);
+  return { start: base.getTime(), end: end.getTime() };
 }
 
 function recordTimestamp(hit: SearchResult): number {

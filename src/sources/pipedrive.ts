@@ -102,11 +102,10 @@ ${renderRelated(e)}
 }
 
 class PipedriveSource implements IngestionSource {
-  readonly id = SOURCE_ID;
   readonly kind = SOURCE_KIND;
   readonly mode = 'migration' as const;
 
-  constructor(private readonly snapshot: PipedriveSnapshot) {}
+  constructor(readonly id: string, private readonly snapshot: PipedriveSnapshot) {}
 
   async start(ctx: IngestionSourceContext): Promise<void> {
     const all = [
@@ -156,7 +155,7 @@ export function createPipedriveConnector(id = SOURCE_ID, displayName = 'Pipedriv
     requiredEnv: ['PIPEDRIVE_COMPANY_DOMAIN', ...(tokenEnv ? [tokenEnv] : ['PIPEDRIVE_API_TOKEN'])],
     async build({ dryRun }) {
       const snapshot = await loadSnapshot(dryRun, tokenEnv ? config[tokenEnv] : undefined);
-      return new PipedriveSource(snapshot);
+      return new PipedriveSource(id, snapshot);
     },
   };
 }
