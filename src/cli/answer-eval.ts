@@ -758,6 +758,29 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'price class ask does not leak generic account fields',
+    question: "what is ACME's price class",
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'customer_lookup', `expected customer_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /Price class:\s*FS-CIVIL/i, 'price class ask did not answer the requested pricing field');
+      assertNotText(answer, /Status:\s*Active|Terms:\s*N30|Credit limit:/i, 'price class ask leaked generic account fields');
+    },
+  },
+  {
+    name: 'tax exemption ask does not leak generic account fields',
+    question: 'is ACME tax exempt',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'customer_lookup', `expected customer_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /Tax zone:\s*JACKSON/i, 'tax exemption ask did not return available tax context');
+      assertText(answer, /did not find a resale or tax-exemption certificate field/i, 'tax exemption ask did not flag missing certificate evidence');
+      assertNotText(answer, /Status:\s*Active|Terms:\s*N30|Credit limit:/i, 'tax exemption ask leaked generic account fields');
+    },
+  },
+  {
     name: 'terms ask does not include unrequested tax context',
     question: 'terms for acme',
     assert(answer) {
@@ -790,6 +813,20 @@ const askCases: AskExpectation[] = [
         'bare customer summary should stay inside revenue system-of-record sources',
       );
       assertNoCitation(answer, /calendar|mail|teams|Share drive|Rig Roofing/i, 'bare customer summary leaked office-noise source');
+    },
+  },
+  {
+    name: 'mixed tax exemption and next meeting carries clean customer context',
+    question: 'is ACME tax exempt and when is their next meeting',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'mixed_intent', `expected mixed_intent, got ${answer.intent}`);
+      assert(answer.scope === 'all', `expected all scope for tax + meeting mix, got ${answer.scope}`);
+      assertText(answer, /^Customer:/im, 'mixed tax/meeting ask did not render customer section');
+      assertText(answer, /^Meeting:/im, 'mixed tax/meeting ask did not render meeting section');
+      assertText(answer, /Tax zone:\s*JACKSON/i, 'mixed tax/meeting ask did not answer tax lane');
+      assertText(answer, /ACME Kickoff Meeting/i, 'mixed tax/meeting ask did not carry ACME into meeting lane');
+      assertNotText(answer, /Status:\s*Active|Terms:\s*N30|Credit limit:/i, 'mixed tax/meeting ask leaked generic account fields');
     },
   },
   {

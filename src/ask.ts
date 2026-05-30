@@ -497,7 +497,7 @@ function renderAnswer(
     if (profile.intent !== 'collaboration_lookup' && requestedButMissing) {
       lines.push(missingRequestedFieldMessage(profile));
     }
-    const detailLines = suppressGenericDetailsForMissingRequest(profile)
+    const detailLines = suppressGenericDetailsForMissingRequest(profile) || suppressGenericDetailsForAnsweredRequest(profile)
       ? []
       : fieldLines
         .filter((line) => !requestedLines.includes(line))
@@ -642,11 +642,11 @@ function looksLikeStandaloneAsk(part: string): boolean {
 function explicitEntityMention(question: string): string | null {
   const stripped = stripEntityScopePhrases(question.toLowerCase());
   const actorMatch = /\b(?:does|is|are|can|could|should|will|would|did)\s+([a-z0-9][a-z0-9 .&'_-]{1,60}?)\s+(?:owe|own|owns|buy|order|get|source|purchase|ship|shipped|have|has)\b/i.exec(stripped);
-  const actor = actorMatch?.[1]?.trim().replace(/[.,;:]+$/, '');
+  const actor = normalizeEntityCandidate(actorMatch?.[1]);
   if (actor && !/^\d/.test(actor)) return actor;
 
   const prepositionMatch = /\b(?:for|with|about|to)\s+([a-z0-9][a-z0-9 .&'_-]{1,60}?)(?=\s+(?:and|also|plus|when|who|what|where|why|how|$)|$)/i.exec(stripped);
-  const prepositionEntity = prepositionMatch?.[1]?.trim().replace(/[.,;:]+$/, '');
+  const prepositionEntity = normalizeEntityCandidate(prepositionMatch?.[1]);
   if (prepositionEntity && !/^\d/.test(prepositionEntity)) return prepositionEntity;
 
   const matches = stripped.match(/\b[a-z][a-z0-9&'_-]{2,}(?:\s+[a-z][a-z0-9&'_-]{2,}){0,3}\b/g) ?? [];
@@ -672,10 +672,20 @@ function explicitEntityMention(question: string): string | null {
     'status',
   ]);
   for (const match of matches) {
-    const first = match.split(/\s+/)[0] ?? '';
-    if (!stop.has(first)) return match;
+    const candidate = normalizeEntityCandidate(match);
+    const first = candidate?.split(/\s+/)[0] ?? '';
+    if (candidate && !stop.has(first)) return candidate;
   }
   return null;
+}
+
+function normalizeEntityCandidate(candidate: string | undefined): string | null {
+  const cleaned = candidate
+    ?.trim()
+    .replace(/[.,;:]+$/, '')
+    .replace(/\b(?:tax\s+exempt|exempt|taxable|tax|price\s+class|pricing\s+tier|class|terms?|credit\s+hold|status|shipping\s+address|billing\s+address|ship\s*to|bill\s*to|address|next\s+meeting|latest\s+email|email|meeting)\b.*$/i, '')
+    .trim();
+  return cleaned && cleaned.length >= 2 ? cleaned : null;
 }
 
 function carryEntityIntoPronounClause(part: string, entity: string | null): string {
@@ -926,7 +936,7 @@ async function runSearches(
 
 function extractFields(text: string): Record<string, string> {
   const fields: Record<string, string> = {};
-  for (const match of text.matchAll(/-\s+\*\*([^*]+)\*\*:\s*([\s\S]*?)(?=\s+-\s+\*\*|$)/g)) {
+  for (const match of text.matchAll(/-\s+\*\*([^*]+)\*\*:\s*([\s\S]*?)(?=\s+-\s+\*\*|\s+##\s+|$)/g)) {
     const key = match[1]?.trim();
     const value = match[2]?.replace(/\s+/g, ' ').trim();
     if (key && value && value !== '{}') fields[key] = value;
@@ -936,7 +946,7 @@ function extractFields(text: string): Record<string, string> {
     const value = match[2]?.replace(/\s+/g, ' ').trim();
     if (key && value && value !== '{}' && !fields[key]) fields[key] = value;
   }
-  for (const match of text.matchAll(/-\s+([A-Za-z][A-Za-z /]+):\s*([\s\S]*?)(?=\s+-\s+[A-Za-z][A-Za-z /]+:|$)/g)) {
+  for (const match of text.matchAll(/-\s+([A-Za-z][A-Za-z /]+):\s*([\s\S]*?)(?=\s+-\s+[A-Za-z][A-Za-z /]+:|\s+##\s+|$)/g)) {
     const key = match[1]?.trim();
     const value = match[2]?.replace(/\s+/g, ' ').trim();
     if (key && value && value !== '{}' && !fields[key]) fields[key] = value;
@@ -1123,6 +1133,23 @@ function missingRequestedFieldMessage(profile: IntentProfile): string {
 function suppressGenericDetailsForMissingRequest(profile: IntentProfile): boolean {
   const exactFields = new Set(['phone', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress']);
   return profile.requestedFields.some((field) => exactFields.has(field));
+}
+
+function suppressGenericDetailsForAnsweredRequest(profile: IntentProfile): boolean {
+  const exactFields = new Set([
+    'PriceClassID',
+    'CustomerClass',
+    'CustomerCategory',
+    'TaxZone',
+    'TaxRegistrationID',
+    'TaxExemptionNumber',
+    'ResaleCertificate',
+    'CreditHold',
+    'CreditHoldStatus',
+  ]);
+  return profile.intent === 'customer_lookup'
+    && profile.requestedFields.length > 0
+    && profile.requestedFields.some((field) => exactFields.has(field));
 }
 
 function suppressDetailLine(question: string, line: string): boolean {
