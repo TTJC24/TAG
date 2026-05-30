@@ -43,6 +43,7 @@ export type BrainIntent =
   | 'invoice_lookup'
   | 'credit_lookup'
   | 'contact_lookup'
+  | 'pipeline_lookup'
   | 'procurement_request'
   | 'collaboration_lookup'
   | 'general_lookup';
@@ -96,6 +97,13 @@ const FIELD_LABELS: Record<string, string> = {
   email: 'Email',
   phone: 'Phone',
   title: 'Title',
+  value: 'Value',
+  currency: 'Currency',
+  status: 'Status',
+  stage_name: 'Stage',
+  expected_close_date: 'Expected close',
+  person_id: 'Person ID',
+  org_id: 'Organization ID',
   industry: 'Industry',
   people_count: 'People count',
   deals_count: 'Deals count',
@@ -151,6 +159,17 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
   const explicitSources = Array.isArray(sourcesOrEntity) && sourcesOrEntity.length > 0 ? sourcesOrEntity : undefined;
   const entity = typeof sourcesOrEntity === 'string' ? sourcesOrEntity : inferEntityScope(q);
   const withEntity = (profile: Omit<IntentProfile, 'entity'>): IntentProfile => ({ ...profile, entity });
+  if (isPipelineQuestion(q)) {
+    return withEntity({
+      intent: 'pipeline_lookup',
+      scope: 'revenue_ops',
+      sourceIds: explicitSources ?? ['pipedrive'],
+      label: 'deal/pipeline',
+      answerFields: ['title', 'status', 'stage_name', 'value', 'currency', 'expected_close_date', 'person_id', 'org_id'],
+      preferredKinds: ['deal'],
+      requestedFields: pipelineRequestedFields(q),
+    });
+  }
   if (isSalesActivityQuestion(q)) {
     return withEntity({
       intent: 'collaboration_lookup',
@@ -170,6 +189,17 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       label: 'procurement request',
       answerFields: ['CustomerName', 'CustomerID', 'InventoryID', 'Description', 'Status', 'Terms'],
       preferredKinds: ['customer', 'item', 'organization', 'mail', 'teams'],
+      requestedFields: requestedFields(q),
+    });
+  }
+  if (isReceivablesQuestion(q)) {
+    return withEntity({
+      intent: 'invoice_lookup',
+      scope: 'revenue_ops',
+      sourceIds: explicitSources ?? ['acumatica'],
+      label: 'invoice',
+      answerFields: ['ReferenceNbr', 'Status', 'Amount', 'Balance', 'DueDate', 'CustomerID'],
+      preferredKinds: ['invoice'],
       requestedFields: requestedFields(q),
     });
   }
@@ -369,6 +399,9 @@ function usefulHits(
   resolvedEntity: EntityResolution | null = null,
 ): SearchResult[] {
   const terms = importantTerms(question);
+  const matchingTerms = profile.intent === 'invoice_lookup' && entityTerms(question, profile).length === 0
+    ? []
+    : terms;
   const entities = shouldConstrainToResolvedEntity(resolvedEntity) ? [] : entityTerms(question, profile);
   const ranked = rerankHits(question, profile, hits);
   const maxScore = Math.max(0, ...ranked.map((hit) => Number(hit.score ?? 0)));
@@ -376,7 +409,8 @@ function usefulHits(
   return ranked
     .filter((hit) => Number(hit.score ?? 0) >= threshold || titleMatches(hit, terms))
     .filter((hit) => recordKindMatchesIntent(hit, profile))
-    .filter((hit) => terms.length === 0 || textMatchesAny(hit, terms))
+    .filter((hit) => receivablesRecordMatches(question, profile, hit))
+    .filter((hit) => matchingTerms.length === 0 || textMatchesAny(hit, matchingTerms))
     .filter((hit) => collaborationRoleMatches(question, profile, hit))
     .filter((hit) => !shouldConstrainToResolvedEntity(resolvedEntity) || textMatchesResolvedAlias(hit, resolvedEntity))
     .filter((hit) => entities.length === 0 || textMatchesEntity(hit, entities, profile))
@@ -419,7 +453,7 @@ function renderAnswer(
   const confidence = resolvedEntity?.confidence === 'high' && Number(top.score ?? 0) >= 1.2
     ? 'high'
     : Number(top.score ?? 0) >= 2.5 ? 'high' : Number(top.score ?? 0) >= 1.2 ? 'medium' : 'low';
-  const title = top.title || top.slug;
+  const title = displayTitle(top, topFields);
   const lines = requestedLines.length > 0
     ? [`${title}: ${requestedLines.join('; ')}`]
     : [`Best match: ${title}`];
@@ -479,9 +513,9 @@ export async function askBrain(opts: AskOptions): Promise<BrainAnswer> {
   const engine = await openEngine();
   try {
     const resolutionQuestion = entityResolutionQuestion(opts.question, profile);
-    const resolvedEntity = profile.intent === 'collaboration_lookup' || hasSpecificRecordId(opts.question, profile)
-      ? null
-      : await resolveEntity(engine, resolutionQuestion, profile.sourceIds, entityResolutionKinds(profile));
+    const resolvedEntity = shouldResolveEntityForQuestion(opts.question, profile)
+      ? await resolveEntity(engine, resolutionQuestion, profile.sourceIds, entityResolutionKinds(profile))
+      : null;
     const hits = profile.intent === 'collaboration_lookup' && isRecentQuestion(opts.question)
       ? await recentCollaborationHits(engine, profile, opts.question, opts.limit ?? 12)
       : resolvedEntity?.ambiguous
@@ -497,7 +531,7 @@ export async function askBrain(opts: AskOptions): Promise<BrainAnswer> {
       citations.push({
         slug: h.slug,
         source_id: h.source_id ?? 'default',
-        title: h.title ?? null,
+        title: displayTitle(h, extractFields(h.chunk_text ?? '')),
         source_uri: h.source_id ?? null,
       });
       if (citations.length >= 3) break;
@@ -599,6 +633,15 @@ function isVendorSourcingQuestion(questionLower: string): boolean {
   return /\b(who\s+sells|vendors?\s+for|suppliers?\s+for|vendor|supplier|source|sourcing)\b/.test(questionLower);
 }
 
+function isReceivablesQuestion(questionLower: string): boolean {
+  return /\b(who|what|which)\b.*\b(owe|owes|owed|past due|overdue|receivable|receivables|a\/r|ar|balance|balances)\b/.test(questionLower)
+    || /\b(owe|owes|owed|past due|overdue|receivable|receivables|a\/r|ar)\b.*\b(money|us|open|balance|balances)\b/.test(questionLower);
+}
+
+function isPipelineQuestion(questionLower: string): boolean {
+  return /\b(deals?|pipeline|opportunit(?:y|ies)|stage|expected close|close date)\b/.test(questionLower);
+}
+
 function isSalesActivityQuestion(questionLower: string): boolean {
   if (/\b(follow[-\s]?ups?|activity|activities|touchpoint|touchpoints)\b/.test(questionLower)) return true;
   return (
@@ -624,6 +667,13 @@ function entityResolutionKinds(profile: IntentProfile): string[] | undefined {
   if (profile.intent === 'contact_lookup') return ['person', 'organization', 'customer'];
   if (profile.intent === 'item_lookup') return ['item'];
   return undefined;
+}
+
+function shouldResolveEntityForQuestion(question: string, profile: IntentProfile): boolean {
+  if (profile.intent === 'collaboration_lookup' || profile.intent === 'pipeline_lookup') return false;
+  if (hasSpecificRecordId(question, profile)) return false;
+  if (profile.intent === 'invoice_lookup' && entityTerms(question, profile).length === 0) return false;
+  return true;
 }
 
 function hasSpecificRecordId(question: string, profile: IntentProfile): boolean {
@@ -684,11 +734,12 @@ async function runSearches(
   limit: number,
   resolvedEntity: EntityResolution | null,
 ): Promise<SearchResult[]> {
-  const queries = searchQueries(question, resolvedEntity);
+  const queries = searchQueries(question, profile, resolvedEntity);
   const combined = new Map<string, SearchResult>();
+  const searchLimit = isBroadReceivablesAsk(question, profile) ? Math.max(limit, 50) : limit;
   for (const query of queries) {
     const hits = await hybridSearch(engine, query, {
-      limit,
+      limit: searchLimit,
       sourceIds: profile.sourceIds,
     });
     for (const hit of hits) {
@@ -698,7 +749,7 @@ async function runSearches(
       }
     }
   }
-  return rerankHits(question, profile, Array.from(combined.values())).slice(0, limit);
+  return rerankHits(question, profile, Array.from(combined.values())).slice(0, searchLimit);
 }
 
 function extractFields(text: string): Record<string, string> {
@@ -756,6 +807,25 @@ function formatFieldValue(key: string, raw: string): string {
   return value.slice(0, 220);
 }
 
+function displayTitle(hit: SearchResult, fields: Record<string, string>): string {
+  const title = hit.title?.trim();
+  if (title && !isBadDisplayValue(title)) return title;
+  const fallback = fields.ReferenceNbr
+    ?? fields.OrderNbr
+    ?? fields.CustomerName
+    ?? fields.name
+    ?? fields.title
+    ?? fields.InventoryID
+    ?? hit.slug;
+  return isBadDisplayValue(fallback) ? hit.slug : fallback;
+}
+
+function isBadDisplayValue(value: string | null | undefined): boolean {
+  if (!value) return true;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '[object object]' || normalized === 'unknown' || normalized === 'null';
+}
+
 function prioritizedFields(profile: IntentProfile, fields: Record<string, string>): string[] {
   const requested = profile.requestedFields.filter((field) => fields[field]);
   const rest = profile.answerFields.filter((field) => !requested.includes(field));
@@ -784,10 +854,14 @@ function importantTerms(question: string): string[] {
     .filter((term) => !STOP_TERMS.has(term));
 }
 
-function searchQueries(question: string, resolvedEntity: EntityResolution | null = null): string[] {
+function searchQueries(question: string, profile: IntentProfile, resolvedEntity: EntityResolution | null = null): string[] {
   const queries = new Set<string>([question.trim()]);
   const recordIds = question.match(/\b(?:so|inv|po)-?\d+\b/gi) ?? [];
   for (const id of recordIds) queries.add(id);
+  if (profile.intent === 'invoice_lookup' && entityTerms(question, profile).length === 0) {
+    queries.add('invoice balance');
+    queries.add('ReferenceNbr Balance Amount');
+  }
   const useful = importantTerms(question);
   if (useful.length > 0) queries.add(useful.join(' '));
   const possibleName = entityTerms(question, profileQuestion(question))
@@ -808,6 +882,9 @@ function requestedFields(questionLower: string): string[] {
   }
   if (/\b(branch)\b/.test(questionLower)) {
     fields.push('Branch', 'BranchID');
+  }
+  if (/\b(deals?|pipeline|opportunit(?:y|ies)|stage|expected close|close date)\b/.test(questionLower)) {
+    fields.push('title', 'status', 'stage_name', 'value', 'currency', 'expected_close_date');
   }
   if (/\b(warehouse|bin|availability|available|on hand|on-hand|quantity|qty)\b/.test(questionLower)) {
     fields.push('Warehouse', 'SiteID', 'QtyOnHand', 'QtyAvailable');
@@ -850,6 +927,16 @@ function contactRequestedFields(questionLower: string): string[] {
 function salesActivityRequestedFields(questionLower: string): string[] {
   const fields = ['subject', 'type', 'due_date', 'due_time', 'done'];
   if (/\bphone\b/.test(questionLower)) fields.push('phone');
+  return fields;
+}
+
+function pipelineRequestedFields(questionLower: string): string[] {
+  const fields: string[] = [];
+  if (/\bstage\b/.test(questionLower)) fields.push('stage_name', 'status');
+  if (/\b(open|status)\b/.test(questionLower)) fields.push('status');
+  if (/\b(value|amount|worth)\b/.test(questionLower)) fields.push('value', 'currency');
+  if (/\b(expected close|close date|closing|close)\b/.test(questionLower)) fields.push('expected_close_date');
+  if (!fields.length) fields.push('title', 'status', 'stage_name', 'value', 'currency', 'expected_close_date');
   return fields;
 }
 
@@ -896,7 +983,27 @@ function pricingContextNotes(
   return ['I found item/base pricing, but I did not find customer-specific contract or special pricing on that record.'];
 }
 
+function receivablesRecordMatches(question: string, profile: IntentProfile, hit: SearchResult): boolean {
+  if (!isBroadReceivablesAsk(question, profile)) return true;
+  const fields = extractFields(hit.chunk_text ?? '');
+  if (/closed|void|paid/i.test(fields.Status ?? '')) return false;
+  return numericField(fields.Balance) > 0 || numericField(fields.Amount) > 0;
+}
+
+function isBroadReceivablesAsk(question: string, profile: IntentProfile): boolean {
+  return profile.intent === 'invoice_lookup' && entityTerms(question, profile).length === 0 && isReceivablesQuestion(question.toLowerCase());
+}
+
+function numericField(value: string | undefined): number {
+  if (!value) return 0;
+  const parsed = Number(value.replace(/[^0-9.-]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function noMatchHint(profile: IntentProfile): string {
+  if (profile.intent === 'pipeline_lookup') {
+    return 'Try adding the customer or deal name, owner, stage, expected close date, or a more specific opportunity identifier.';
+  }
   if (profile.label === 'sales activity') {
     return 'Try adding a contact name, activity subject, deal name, owner, or date range.';
   }
@@ -944,9 +1051,18 @@ function entityTerms(question: string, profile: IntentProfile): string[] {
     'class',
     'tier',
     'cost',
+    'money',
     'credit',
     'details',
     'status',
+    'stage',
+    'open',
+    'closed',
+    'pipeline',
+    'deal',
+    'deals',
+    'opportunity',
+    'opportunities',
     'owner',
     'owns',
     'owned',
@@ -980,6 +1096,14 @@ function entityTerms(question: string, profile: IntentProfile): string[] {
     'backorder',
     'backordered',
     'invoice',
+    'owe',
+    'owes',
+    'owed',
+    'receivable',
+    'receivables',
+    'balance',
+    'balances',
+    'overdue',
     'item',
     'stock',
     'warehouse',
@@ -1019,6 +1143,7 @@ function entityTerms(question: string, profile: IntentProfile): string[] {
     'who',
     'what',
     'where',
+    'us',
     'call',
     'calls',
     'follow',
@@ -1090,6 +1215,7 @@ function recordKindMatchesIntent(hit: SearchResult, profile: IntentProfile): boo
   if (profile.intent === 'order_lookup') return kind === 'order';
   if (profile.intent === 'invoice_lookup') return kind === 'invoice';
   if (profile.intent === 'credit_lookup') return kind === 'invoice';
+  if (profile.intent === 'pipeline_lookup') return kind === 'deal';
   if (profile.intent === 'contact_lookup') return ['person', 'organization', 'customer', 'mail', 'teams'].includes(kind);
   return true;
 }
@@ -1127,6 +1253,7 @@ const STOP_TERMS = new Set([
   'where',
   'when',
   'who',
+  'us',
   'how',
   'are',
   'was',
@@ -1220,6 +1347,7 @@ function textMatchesEntity(hit: SearchResult, terms: string[], profile: IntentPr
     || profile.intent === 'invoice_lookup'
     || profile.intent === 'credit_lookup'
     || profile.intent === 'collaboration_lookup'
+    || profile.intent === 'pipeline_lookup'
   ) {
     return terms.every((term) => text.includes(term));
   }

@@ -286,6 +286,22 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'broad AR ask routes to invoices not contact/customer noise',
+    question: 'who owes us money',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'invoice_lookup', `expected invoice_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertNotText(answer, /Owner:|Owner ID:|Terms:|Customer ID:\s*ACME|Status:\s*Active/i, 'broad AR ask fell back to contact or customer master data');
+      if (answer.citations.length > 0) {
+        assert(answer.citations.every((citation) => citation.source_id === 'acumatica'), 'broad AR ask should cite only Acumatica invoices');
+        assertText(answer, /Reference number:|Balance:|Amount:/i, 'broad AR ask with citations should render invoice fields');
+      } else {
+        assertText(answer, /could not find a solid invoice match/i, 'broad AR ask should refuse as invoice lookup when no invoice evidence exists');
+      }
+    },
+  },
+  {
     name: 'credit hold ask does not answer credit limit',
     question: 'credit hold for acme',
     assert(answer) {
@@ -389,6 +405,17 @@ const askCases: AskExpectation[] = [
       assertText(answer, /sales activity|Subject:|Type:\s*call/i, 'latest call ask should stay in sales activity context');
       assertNotText(answer, /Terms:|Credit limit:|Customer ID:/i, 'latest call ask borrowed customer master data');
       assert(answer.citations.every((citation) => ['pipedrive', 'm365-mail', 'm365-teams', 'm365-calendar'].includes(citation.source_id)), 'latest call should cite activity/collaboration context only');
+    },
+  },
+  {
+    name: 'deal ask stays in pipeline and does not answer customer terms',
+    question: 'open deals for acme',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'pipeline_lookup', `expected pipeline_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertNotText(answer, /Terms:|Credit limit:|Customer ID:|ACME Barricades LC:\s*Status:\s*Active/i, 'deal ask fell back to customer master data');
+      assert(answer.citations.every((citation) => citation.source_id === 'pipedrive'), 'deal ask should cite only Pipedrive pipeline evidence');
     },
   },
   {
