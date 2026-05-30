@@ -6,6 +6,7 @@ import {
 } from 'gbrain/ingestion';
 import type { ConnectorSpec } from './types.ts';
 import { fetchPipedriveSnapshot } from './pipedrive/client.ts';
+import { config } from '../config.ts';
 
 const SOURCE_ID = 'pipedrive';
 const SOURCE_KIND = 'pipedrive';
@@ -139,21 +140,25 @@ class PipedriveSource implements IngestionSource {
   async stop(): Promise<void> {}
 }
 
-async function loadSnapshot(dryRun: boolean): Promise<PipedriveSnapshot> {
+async function loadSnapshot(dryRun: boolean, apiToken?: string): Promise<PipedriveSnapshot> {
   if (dryRun) {
     return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as PipedriveSnapshot;
   }
-  return await fetchPipedriveSnapshot();
+  return await fetchPipedriveSnapshot({ apiToken });
 }
 
-export const pipedriveConnector: ConnectorSpec = {
-  id: SOURCE_ID,
-  displayName: 'Pipedrive CRM',
-  kind: SOURCE_KIND,
-  fixturePath: FIXTURE_PATH,
-  requiredEnv: ['PIPEDRIVE_API_TOKEN', 'PIPEDRIVE_COMPANY_DOMAIN'],
-  async build({ dryRun }) {
-    const snapshot = await loadSnapshot(dryRun);
-    return new PipedriveSource(snapshot);
-  },
-};
+export function createPipedriveConnector(id = SOURCE_ID, displayName = 'Pipedrive CRM', tokenEnv?: 'PIPEDRIVE_API_TOKEN_FS' | 'PIPEDRIVE_API_TOKEN_BLCS_USA'): ConnectorSpec {
+  return {
+    id,
+    displayName,
+    kind: SOURCE_KIND,
+    fixturePath: FIXTURE_PATH,
+    requiredEnv: ['PIPEDRIVE_COMPANY_DOMAIN', ...(tokenEnv ? [tokenEnv] : ['PIPEDRIVE_API_TOKEN'])],
+    async build({ dryRun }) {
+      const snapshot = await loadSnapshot(dryRun, tokenEnv ? config[tokenEnv] : undefined);
+      return new PipedriveSource(snapshot);
+    },
+  };
+}
+
+export const pipedriveConnector: ConnectorSpec = createPipedriveConnector();

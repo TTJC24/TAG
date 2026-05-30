@@ -49,8 +49,13 @@ const schema = z.object({
   ACUMATICA_PASSWORD: z.string().optional(),
   ACUMATICA_TENANT: z.string().optional(),
   ACUMATICA_BRANCH: z.string().optional(),
+  ACUMATICA_BRANCH_FS: z.string().optional(),
+  ACUMATICA_BRANCH_BLCS: z.string().optional(),
+  ACUMATICA_BRANCH_USA: z.string().optional(),
   ACUMATICA_MAX_ITEMS: z.coerce.number().int().positive().default(500),
   PIPEDRIVE_API_TOKEN: z.string().optional(),
+  PIPEDRIVE_API_TOKEN_FS: z.string().optional(),
+  PIPEDRIVE_API_TOKEN_BLCS_USA: z.string().optional(),
   PIPEDRIVE_COMPANY_DOMAIN: z.string().optional(),
   PIPEDRIVE_MAX_ITEMS: z.coerce.number().int().positive().default(500),
   COMPANY_BRAIN_API_TOKEN: z.string().default('dev-local-token'),
@@ -73,4 +78,11 @@ export function requireEnv<K extends keyof Config>(key: K): NonNullable<Config[K
     throw new Error(`Missing required env: ${key}`);
   }
   return value as NonNullable<Config[K]>;
+}
+
+export type EntityCode = 'FS' | 'BLCS' | 'USA';
+
+export function entityBranch(entity: EntityCode): string {
+  const key = `ACUMATICA_BRANCH_${entity}` as const;
+  return requireEnv(key);
 }

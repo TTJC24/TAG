@@ -6,7 +6,6 @@ let sessionCookie: string | null = null;
 function companyCandidates(): string[] {
   const values = [
     config.ACUMATICA_TENANT,
-    ...(config.ACUMATICA_BRANCH ?? '').split(','),
   ];
   return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
 }
@@ -44,13 +43,14 @@ async function login(): Promise<void> {
   throw new Error(`Acumatica login failed for configured company candidates: ${errors.join(' | ')}`);
 }
 
-async function get<T>(endpoint: string): Promise<T> {
+async function get<T>(endpoint: string, branch?: string): Promise<T> {
   if (!sessionCookie) await login();
   const base = normalizeBaseUrl(requireEnv('ACUMATICA_BASE_URL'));
   const res = await fetch(`${base}/entity/Default/${config.ACUMATICA_ENDPOINT_VERSION}/${endpoint}`, {
     headers: {
       Accept: 'application/json',
       Cookie: sessionCookie ?? '',
+      ...(branch ? { 'PX-CbApiBranch': branch } : {}),
     },
   });
   if (!res.ok) {
@@ -65,12 +65,12 @@ function normalizeBaseUrl(value: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-async function listAll(entity: string, max = config.ACUMATICA_MAX_ITEMS): Promise<ContractRow[]> {
+async function listAll(entity: string, max = config.ACUMATICA_MAX_ITEMS, branch?: string): Promise<ContractRow[]> {
   const rows: ContractRow[] = [];
   const top = Math.min(100, max);
   for (let skip = 0; rows.length < max; skip += top) {
     const sep = entity.includes('?') ? '&' : '?';
-    const page = await get<ContractRow[]>(`${entity}${sep}$top=${top}&$skip=${skip}`);
+    const page = await get<ContractRow[]>(`${entity}${sep}$top=${top}&$skip=${skip}`, branch);
     rows.push(...page);
     if (page.length < top) break;
   }
@@ -128,12 +128,13 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
   return { kind, id: String(id), name, updated_at: updated, body: plainRow(row) };
 }
 
-export async function fetchAcumaticaSnapshot(): Promise<AcumaticaSnapshot> {
+export async function fetchAcumaticaSnapshot(branch?: string): Promise<AcumaticaSnapshot> {
+  sessionCookie = null;
   const [customers, orders, invoices, items] = await Promise.all([
-    listAll('Customer'),
-    listAll('SalesOrder'),
-    listAll('SalesInvoice'),
-    listAll('StockItem'),
+    listAll('Customer', config.ACUMATICA_MAX_ITEMS, branch),
+    listAll('SalesOrder', config.ACUMATICA_MAX_ITEMS, branch),
+    listAll('SalesInvoice', config.ACUMATICA_MAX_ITEMS, branch),
+    listAll('StockItem', config.ACUMATICA_MAX_ITEMS, branch),
   ]);
   return {
     customers: customers.map((r) => toEntity('customer', r)),

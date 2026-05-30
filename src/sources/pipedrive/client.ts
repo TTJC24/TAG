@@ -1,6 +1,11 @@
 import { config, requireEnv } from '../../config.ts';
 import type { PipedriveEntity, PipedriveSnapshot, PipedriveEntityKind } from '../pipedrive.ts';
 
+export interface PipedriveFetchOptions {
+  apiToken?: string;
+  companyDomain?: string;
+}
+
 type PipedriveListResponse<T> = {
   data: T[];
   additional_data?: {
@@ -13,9 +18,9 @@ type PipedriveListResponse<T> = {
   };
 };
 
-async function getJson<T>(path: string): Promise<T> {
-  const token = requireEnv('PIPEDRIVE_API_TOKEN');
-  const domain = normalizeCompanyDomain(requireEnv('PIPEDRIVE_COMPANY_DOMAIN'));
+async function getJson<T>(path: string, opts: PipedriveFetchOptions = {}): Promise<T> {
+  const token = opts.apiToken ?? requireEnv('PIPEDRIVE_API_TOKEN');
+  const domain = normalizeCompanyDomain(opts.companyDomain ?? requireEnv('PIPEDRIVE_COMPANY_DOMAIN'));
   const sep = path.includes('?') ? '&' : '?';
   const res = await fetch(`https://${domain}.pipedrive.com/api/v1${path}${sep}api_token=${token}`);
   if (!res.ok) {
@@ -33,7 +38,7 @@ function normalizeCompanyDomain(value: string): string {
     .replace(/\.pipedrive\.com$/i, '');
 }
 
-async function listAll(path: string, max = config.PIPEDRIVE_MAX_ITEMS): Promise<Record<string, unknown>[]> {
+async function listAll(path: string, max = config.PIPEDRIVE_MAX_ITEMS, opts: PipedriveFetchOptions = {}): Promise<Record<string, unknown>[]> {
   const rows: Record<string, unknown>[] = [];
   let start = 0;
   const limit = Math.min(100, max);
@@ -41,6 +46,7 @@ async function listAll(path: string, max = config.PIPEDRIVE_MAX_ITEMS): Promise<
     const sep = path.includes('?') ? '&' : '?';
     const page = await getJson<PipedriveListResponse<Record<string, unknown>>>(
       `${path}${sep}start=${start}&limit=${limit}`,
+      opts,
     );
     rows.push(...(page.data ?? []));
     const pagination = page.additional_data?.pagination;
@@ -58,13 +64,13 @@ function toEntity(kind: PipedriveEntityKind, row: Record<string, unknown>): Pipe
   return { kind, id, name, updated_at: updated, body: row };
 }
 
-export async function fetchPipedriveSnapshot(): Promise<PipedriveSnapshot> {
+export async function fetchPipedriveSnapshot(opts: PipedriveFetchOptions = {}): Promise<PipedriveSnapshot> {
   const [deals, persons, orgs, activities, notes] = await Promise.all([
-    listAll('/deals?sort=update_time%20DESC'),
-    listAll('/persons?sort=update_time%20DESC'),
-    listAll('/organizations?sort=update_time%20DESC'),
-    listAll('/activities?sort=update_time%20DESC'),
-    listAll('/notes?sort=update_time%20DESC'),
+    listAll('/deals?sort=update_time%20DESC', config.PIPEDRIVE_MAX_ITEMS, opts),
+    listAll('/persons?sort=update_time%20DESC', config.PIPEDRIVE_MAX_ITEMS, opts),
+    listAll('/organizations?sort=update_time%20DESC', config.PIPEDRIVE_MAX_ITEMS, opts),
+    listAll('/activities?sort=update_time%20DESC', config.PIPEDRIVE_MAX_ITEMS, opts),
+    listAll('/notes?sort=update_time%20DESC', config.PIPEDRIVE_MAX_ITEMS, opts),
   ]);
   const activityByDeal = new Map<string, Array<{ id: string; subject: string; type?: string; done?: boolean }>>();
   for (const row of activities) {

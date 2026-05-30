@@ -111,21 +111,25 @@ class AcumaticaSource implements IngestionSource {
   async stop(): Promise<void> {}
 }
 
-async function loadSnapshot(dryRun: boolean): Promise<AcumaticaSnapshot> {
+async function loadSnapshot(dryRun: boolean, branch?: string): Promise<AcumaticaSnapshot> {
   if (dryRun) {
     return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as AcumaticaSnapshot;
   }
-  return await fetchAcumaticaSnapshot();
+  return await fetchAcumaticaSnapshot(branch);
 }
 
-export const acumaticaConnector: ConnectorSpec = {
-  id: SOURCE_ID,
-  displayName: 'Acumatica ERP',
-  kind: SOURCE_KIND,
-  fixturePath: FIXTURE_PATH,
-  requiredEnv: ['ACUMATICA_BASE_URL', 'ACUMATICA_USERNAME', 'ACUMATICA_PASSWORD', 'ACUMATICA_TENANT'],
-  async build({ dryRun }) {
-    const snapshot = await loadSnapshot(dryRun);
-    return new AcumaticaSource(snapshot);
-  },
-};
+export function createAcumaticaConnector(id = SOURCE_ID, displayName = 'Acumatica ERP', branch?: () => string): ConnectorSpec {
+  return {
+    id,
+    displayName,
+    kind: SOURCE_KIND,
+    fixturePath: FIXTURE_PATH,
+    requiredEnv: ['ACUMATICA_BASE_URL', 'ACUMATICA_USERNAME', 'ACUMATICA_PASSWORD', 'ACUMATICA_TENANT'],
+    async build({ dryRun }) {
+      const snapshot = await loadSnapshot(dryRun, branch?.());
+      return new AcumaticaSource(snapshot);
+    },
+  };
+}
+
+export const acumaticaConnector: ConnectorSpec = createAcumaticaConnector();
