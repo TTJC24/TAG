@@ -86,6 +86,11 @@ const FIELD_LABELS: Record<string, string> = {
   QtyOnHand: 'Qty on hand',
   QtyAvailable: 'Qty available',
   ContactEmail: 'Contact email',
+  Address: 'Address',
+  ShipTo: 'Ship-to',
+  ShipToAddress: 'Ship-to address',
+  BillTo: 'Bill-to',
+  BillingAddress: 'Billing address',
   owner_id: 'Owner ID',
   name: 'Name',
   email: 'Email',
@@ -108,9 +113,15 @@ const FIELD_LABELS: Record<string, string> = {
   Type: 'Type',
   DocType: 'Document type',
   DocTypeLabel: 'Document type',
+  id: 'ID',
+  type: 'Type',
+  due_date: 'Due date',
+  due_time: 'Due time',
+  done: 'Done',
   Amount: 'Amount',
   Balance: 'Balance',
   DueDate: 'Due date',
+  Updated: 'Updated',
   from: 'From',
   to: 'To',
   subject: 'Subject',
@@ -140,6 +151,17 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
   const explicitSources = Array.isArray(sourcesOrEntity) && sourcesOrEntity.length > 0 ? sourcesOrEntity : undefined;
   const entity = typeof sourcesOrEntity === 'string' ? sourcesOrEntity : inferEntityScope(q);
   const withEntity = (profile: Omit<IntentProfile, 'entity'>): IntentProfile => ({ ...profile, entity });
+  if (isSalesActivityQuestion(q)) {
+    return withEntity({
+      intent: 'collaboration_lookup',
+      scope: 'revenue_ops',
+      sourceIds: explicitSources ?? ['pipedrive', 'm365-mail', 'm365-teams', 'm365-calendar'],
+      label: 'sales activity',
+      answerFields: ['subject', 'type', 'due_date', 'due_time', 'done', 'name', 'email', 'phone', 'From', 'To', 'Received', 'Author', 'Created', 'Start', 'End'],
+      preferredKinds: ['activity', 'deal', 'person', 'organization', 'mail', 'teams', 'calendar'],
+      requestedFields: salesActivityRequestedFields(q),
+    });
+  }
   if (isVendorSourcingQuestion(q)) {
     return withEntity({
       intent: 'procurement_request',
@@ -278,7 +300,18 @@ function profileQuestion(question: string, sourcesOrEntity?: string[] | MemorySc
       scope: 'revenue_ops',
       sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
       label: 'customer',
-      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail'],
+      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress'],
+      preferredKinds: ['customer', 'organization'],
+      requestedFields: requestedFields(q),
+    });
+  }
+  if (/\b(address|ship\s*to|shipping|bill\s*to|billing)\b/.test(q)) {
+    return withEntity({
+      intent: 'customer_lookup',
+      scope: 'revenue_ops',
+      sourceIds: explicitSources ?? REVENUE_SOURCE_IDS,
+      label: 'customer',
+      answerFields: ['CustomerID', 'CustomerName', 'Status', 'Terms', 'CreditLimit', 'ContactEmail', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress'],
       preferredKinds: ['customer', 'organization'],
       requestedFields: requestedFields(q),
     });
@@ -390,14 +423,17 @@ function renderAnswer(
   const lines = requestedLines.length > 0
     ? [`${title}: ${requestedLines.join('; ')}`]
     : [`Best match: ${title}`];
+  const requestedButMissing = profile.requestedFields.length > 0 && requestedLines.length === 0;
 
   if (fieldLines.length) {
-    if (profile.intent !== 'collaboration_lookup' && profile.requestedFields.length > 0 && requestedLines.length === 0) {
+    if (profile.intent !== 'collaboration_lookup' && requestedButMissing) {
       lines.push(missingRequestedFieldMessage(profile));
     }
-    const detailLines = fieldLines
-      .filter((line) => !requestedLines.includes(line))
-      .filter((line) => !suppressDetailLine(question, line));
+    const detailLines = suppressGenericDetailsForMissingRequest(profile)
+      ? []
+      : fieldLines
+        .filter((line) => !requestedLines.includes(line))
+        .filter((line) => !suppressDetailLine(question, line));
     lines.push(...detailLines.map((line) => `- ${line}`));
     lines.push(...missingRequestedFieldNotes(question, profile, topFields));
     lines.push(...pricingContextNotes(question, profile, topFields));
@@ -561,6 +597,14 @@ function isCreditTransactionQuestion(questionLower: string): boolean {
 
 function isVendorSourcingQuestion(questionLower: string): boolean {
   return /\b(who\s+sells|vendors?\s+for|suppliers?\s+for|vendor|supplier|source|sourcing)\b/.test(questionLower);
+}
+
+function isSalesActivityQuestion(questionLower: string): boolean {
+  if (/\b(follow[-\s]?ups?|activity|activities|touchpoint|touchpoints)\b/.test(questionLower)) return true;
+  return (
+    /\b(latest|recent|newest|last|next|upcoming)\b.*\bcalls?\b/.test(questionLower)
+    || /\bcalls?\b.*\b(with|about)\b/.test(questionLower)
+  );
 }
 
 function entityResolutionQuestion(question: string, profile: IntentProfile): string {
@@ -771,8 +815,12 @@ function requestedFields(questionLower: string): string[] {
   if (/\b(tax|taxable|tax exempt|exempt|resale|certificate|cert)\b/.test(questionLower)) {
     fields.push('TaxZone', 'TaxRegistrationID', 'TaxExemptionNumber', 'ResaleCertificate');
   }
+  if (/\b(ship\s*to|shipping)\b/.test(questionLower)) fields.push('ShipTo', 'ShipToAddress', 'Address');
+  if (/\b(bill\s*to|billing)\b/.test(questionLower)) fields.push('BillTo', 'BillingAddress', 'Address');
+  if (/\baddress\b/.test(questionLower)) fields.push('Address', 'ShipToAddress', 'BillingAddress');
   if (/\bcredit\s+hold\b/.test(questionLower)) fields.push('CreditHold', 'CreditHoldStatus', 'Status');
   if (/\bcredit\b/.test(questionLower) && !/\bcredit\s+hold\b/.test(questionLower)) fields.push('CreditLimit');
+  if (/\b(phone|call)\b/.test(questionLower)) fields.push('phone');
   if (/\b(email|contact)\b/.test(questionLower)) fields.push('ContactEmail', 'email', 'from', 'to');
   if (/\b(emails?|mail|inbox)\b/.test(questionLower)) fields.push('From', 'To', 'Received');
   if (/\b(messages?|teams|chat)\b/.test(questionLower)) fields.push('Author', 'Created');
@@ -791,11 +839,17 @@ function requestedFields(questionLower: string): string[] {
 }
 
 function contactRequestedFields(questionLower: string): string[] {
-  const allowed = new Set(['owner_id', 'ContactEmail', 'email', 'from', 'to']);
+  const allowed = new Set(['owner_id', 'ContactEmail', 'email', 'from', 'to', 'phone']);
   const fields = requestedFields(questionLower).filter((field) => allowed.has(field));
   if (/\b(owner|owns|rep|salesperson|who)\b/.test(questionLower) && !fields.includes('owner_id')) {
     fields.unshift('owner_id');
   }
+  return fields;
+}
+
+function salesActivityRequestedFields(questionLower: string): string[] {
+  const fields = ['subject', 'type', 'due_date', 'due_time', 'done'];
+  if (/\bphone\b/.test(questionLower)) fields.push('phone');
   return fields;
 }
 
@@ -804,6 +858,11 @@ function missingRequestedFieldMessage(profile: IntentProfile): string {
     return 'I found the likely account/contact record, but I only found an owner id, not a resolved owner name.';
   }
   return `I found the likely ${profile.label}, but I did not find the requested field on that record.`;
+}
+
+function suppressGenericDetailsForMissingRequest(profile: IntentProfile): boolean {
+  const exactFields = new Set(['phone', 'Address', 'ShipTo', 'ShipToAddress', 'BillTo', 'BillingAddress']);
+  return profile.requestedFields.some((field) => exactFields.has(field));
 }
 
 function suppressDetailLine(question: string, line: string): boolean {
@@ -838,6 +897,9 @@ function pricingContextNotes(
 }
 
 function noMatchHint(profile: IntentProfile): string {
+  if (profile.label === 'sales activity') {
+    return 'Try adding a contact name, activity subject, deal name, owner, or date range.';
+  }
   if (profile.intent === 'collaboration_lookup') {
     return 'Try adding a subject, sender, mailbox, Teams channel, file name, meeting title, or date range.';
   }
@@ -957,6 +1019,18 @@ function entityTerms(question: string, profile: IntentProfile): string[] {
     'who',
     'what',
     'where',
+    'call',
+    'calls',
+    'follow',
+    'followup',
+    'activity',
+    'activities',
+    'touchpoint',
+    'touchpoints',
+    'address',
+    'shipping',
+    'billing',
+    'phone',
   ]);
   const intentWords = new Set(profile.intent.split('_'));
   return importantTerms(question).filter((term) => !fieldWords.has(term) && !intentWords.has(term));
@@ -993,6 +1067,9 @@ function entityAliasTerms(resolution: EntityResolution): string[] {
 
 function recordKind(hit: SearchResult): string {
   const text = `${hit.source_id ?? ''} ${hit.slug ?? ''} ${hit.title ?? ''}`.toLowerCase();
+  if (text.includes('activity')) return 'activity';
+  if (text.includes('deal')) return 'deal';
+  if (text.includes('note')) return 'note';
   if (text.includes('customer')) return 'customer';
   if (text.includes('organization')) return 'organization';
   if (text.includes('person')) return 'person';
@@ -1109,9 +1186,12 @@ function recordTimestamp(hit: SearchResult): number {
   const candidates = [
     fields.Received,
     fields.Created,
+    fields.Updated,
     fields.Start,
     fields.End,
     fields['Last modified'],
+    fields.due_date,
+    fields.DueDate,
     hit.slug?.match(/\d{4}-\d{2}-\d{2}/)?.[0],
   ].filter((value): value is string => Boolean(value));
   for (const value of candidates) {

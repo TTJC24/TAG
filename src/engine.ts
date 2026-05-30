@@ -4,7 +4,7 @@ import { config } from './config.ts';
 export type Engine = Awaited<ReturnType<typeof createEngine>>;
 
 export async function openEngine(): Promise<Engine> {
-  const opts = { engine: 'postgres' as const, database_url: config.DATABASE_URL };
+  const opts = { engine: config.COMPANY_BRAIN_ENGINE, database_url: config.DATABASE_URL };
   const engine = await createEngine(opts);
   await engine.connect(opts);
   return engine;

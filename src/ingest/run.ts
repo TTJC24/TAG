@@ -19,6 +19,8 @@ export interface IngestRunOptions {
   dryRun: boolean;
   noEmbed?: boolean;
   ingestedVia?: string;
+  summaryOnly?: boolean;
+  quiet?: boolean;
 }
 
 export async function runIngestion(
@@ -60,9 +62,11 @@ export async function runIngestion(
     let skipped = 0;
 
     if (opts.dryRun) {
-      for (const event of emitted) {
-        const slug = String(event.metadata?.slug ?? basename(event.source_uri));
-        console.log(`dry-run\t${event.source_id}\t${slug}\t${event.content_hash}`);
+      if (!opts.summaryOnly && !opts.quiet) {
+        for (const event of emitted) {
+          const slug = String(event.metadata?.slug ?? basename(event.source_uri));
+          console.log(`dry-run\t${event.source_id}\t${slug}\t${event.content_hash}`);
+        }
       }
     } else {
       if (!engine) throw new Error('engine missing for non-dry-run');
@@ -74,10 +78,13 @@ export async function runIngestion(
           source_kind: event.source_kind,
           source_uri: event.source_uri,
           ingested_via: ingestedVia,
+          metadata: event.metadata ?? {},
+          raw_event: event,
+          received_at: event.received_at,
         });
         if (result.status === 'imported') imported += 1;
         if (result.status === 'skipped') skipped += 1;
-        console.log(`${result.status}\t${slug}\t${event.content_hash}`);
+        if (!opts.quiet) console.log(`${result.status}\t${slug}\t${event.content_hash}`);
       }
     }
 

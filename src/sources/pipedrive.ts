@@ -150,6 +150,8 @@ export const pipedriveConnector: ConnectorSpec = {
   id: SOURCE_ID,
   displayName: 'Pipedrive CRM',
   kind: SOURCE_KIND,
+  fixturePath: FIXTURE_PATH,
+  requiredEnv: ['PIPEDRIVE_API_TOKEN', 'PIPEDRIVE_COMPANY_DOMAIN'],
   async build({ dryRun }) {
     const snapshot = await loadSnapshot(dryRun);
     return new PipedriveSource(snapshot);

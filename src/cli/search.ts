@@ -10,7 +10,7 @@ function parseArgs(argv: string[]): { query: string; sources: string[]; limit: n
   }
   const sources: string[] = [];
   let limit = 10;
-  let json = false;
+  let json = process.env.npm_config_json === 'true';
   const queryParts: string[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i];

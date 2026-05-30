@@ -18,11 +18,19 @@ export interface TeamsThread {
   channel_id: string;
   channel_name: string;
   channel_web_url: string;
+  user_upn?: string;
   author: string;
   created_at: string;
   body: string;
   body_content_type: string;
   reply_to_id: string | null;
+  replies?: Array<{
+    id: string;
+    author: string;
+    created_at: string;
+    body: string;
+    body_content_type: string;
+  }>;
 }
 
 function slugFor(t: TeamsThread): string {
@@ -32,6 +40,9 @@ function slugFor(t: TeamsThread): string {
 }
 
 function sourceUri(t: TeamsThread): string {
+  if (t.user_upn) {
+    return `m365-teams://user/${encodeURIComponent(t.user_upn)}/team/${encodeURIComponent(t.team_id)}/channel/${encodeURIComponent(t.channel_id)}/message/${encodeURIComponent(t.id)}`;
+  }
   return `m365-teams://team/${encodeURIComponent(t.team_id)}/channel/${encodeURIComponent(t.channel_id)}/message/${encodeURIComponent(t.id)}`;
 }
 
@@ -41,6 +52,16 @@ function stripHtml(s: string): string {
 
 function markdownFor(t: TeamsThread): string {
   const body = t.body_content_type === 'html' ? stripHtml(t.body) : t.body;
+  const replies = t.replies?.length
+    ? '\n## Replies\n\n' +
+      t.replies
+        .map((reply) => {
+          const replyBody = reply.body_content_type === 'html' ? stripHtml(reply.body) : reply.body;
+          return `- ${reply.created_at} ${reply.author}: ${replyBody.slice(0, 1000)}`;
+        })
+        .join('\n') +
+      '\n'
+    : '';
   return `---
 type: note
 title: "${(t.team_name + ' / ' + t.channel_name).replaceAll('"', '\\"')}"
@@ -49,6 +70,7 @@ source_uri: "${sourceUri(t)}"
 source_kind: "${SOURCE_KIND}"
 team_name: "${t.team_name.replaceAll('"', '\\"')}"
 channel_name: "${t.channel_name.replaceAll('"', '\\"')}"
+user_upn: "${t.user_upn ?? ''}"
 author: "${t.author.replaceAll('"', '\\"')}"
 created_at: "${t.created_at}"
 reply_to_id: "${t.reply_to_id ?? ''}"
@@ -57,12 +79,14 @@ reply_to_id: "${t.reply_to_id ?? ''}"
 # ${t.team_name} / ${t.channel_name}
 
 - Source: ${sourceUri(t)}
+- User: ${t.user_upn ?? 'Unknown'}
 - Channel web link: ${t.channel_web_url}
 - Author: ${t.author}
 - Created: ${t.created_at}
 ${t.reply_to_id ? `- In reply to: ${t.reply_to_id}` : ''}
 
 ${body ? `## Message\n\n${body.slice(0, 4000)}\n` : ''}
+${replies}
 `;
 }
 
@@ -88,6 +112,7 @@ class M365TeamsSource implements IngestionSource {
         metadata: {
           slug: slugFor(t),
           message_id: t.id,
+          user_upn: t.user_upn,
           channel_id: t.channel_id,
           team_id: t.team_id,
         },
@@ -109,6 +134,9 @@ export const m365TeamsConnector: ConnectorSpec = {
   id: SOURCE_ID,
   displayName: 'M365 Teams',
   kind: SOURCE_KIND,
+  fixturePath: FIXTURE_PATH,
+  requiredEnv: ['M365_TENANT_ID', 'M365_CLIENT_ID', 'M365_CLIENT_SECRET'],
+  requiredAnyEnv: [['M365_USER_PRINCIPAL_NAME', 'M365_USER_PRINCIPAL_NAMES']],
   async build({ dryRun }) {
     const threads = await loadThreads(dryRun);
     return new M365TeamsSource(threads);

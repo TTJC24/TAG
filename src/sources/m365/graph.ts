@@ -47,22 +47,60 @@ async function graphFetch<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
-async function graphPages<TItem>(path: string, max = 500): Promise<TItem[]> {
+async function graphFetchAbsolute<T>(url: string): Promise<T> {
+  const token = await getToken();
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Graph ${url} ${res.status}: ${body.slice(0, 500)}`);
+  }
+  return (await res.json()) as T;
+}
+
+async function graphDownloadText(path: string, maxBytes: number): Promise<string | null> {
+  const token = await getToken();
+  const res = await fetch(`${GRAPH_BASE}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 415) return null;
+    const body = await res.text();
+    throw new Error(`Graph download ${path} ${res.status}: ${body.slice(0, 500)}`);
+  }
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!/text|json|xml|csv|html|markdown/i.test(contentType)) return null;
+  const text = await res.text();
+  return text.slice(0, maxBytes);
+}
+
+async function graphPages<TItem>(path: string, max = config.M365_MAX_ITEMS): Promise<TItem[]> {
   const items: TItem[] = [];
   let next: string | undefined = path;
   while (next && items.length < max) {
-    const url: string = next.startsWith('http') ? next.replace(GRAPH_BASE, '') : next;
-    const page: { value: TItem[]; '@odata.nextLink'?: string } =
-      await graphFetch(url);
+    const page: { value: TItem[]; '@odata.nextLink'?: string } = next.startsWith('http')
+      ? await graphFetchAbsolute(next)
+      : await graphFetch(next);
     items.push(...page.value);
     next = page['@odata.nextLink'];
   }
   return items.slice(0, max);
 }
 
+function configuredUsers(): string[] {
+  const raw = config.M365_USER_PRINCIPAL_NAMES || config.M365_USER_PRINCIPAL_NAME || '';
+  const users = raw
+    .split(/[\n,;]+/)
+    .map((user) => user.trim())
+    .filter(Boolean);
+  if (users.length === 0) {
+    throw new Error('Missing M365 user principal name(s). Set M365_USER_PRINCIPAL_NAME or M365_USER_PRINCIPAL_NAMES.');
+  }
+  return [...new Set(users)];
+}
+
 export async function fetchCalendarEvents(): Promise<CalendarEvent[]> {
-  const upn = requireEnv('M365_USER_PRINCIPAL_NAME');
-  const path = `/users/${encodeURIComponent(upn)}/calendar/events?$top=50&$orderby=start/dateTime%20desc`;
   type GraphEvent = {
     id: string;
     subject: string;
@@ -75,25 +113,33 @@ export async function fetchCalendarEvents(): Promise<CalendarEvent[]> {
     attendees?: Array<{ emailAddress?: { name?: string; address?: string } }>;
     bodyPreview?: string;
   };
-  const items = await graphPages<GraphEvent>(path);
-  return items.map((g) => ({
-    id: g.id,
-    subject: g.subject,
-    start: g.start.dateTime,
-    end: g.end.dateTime,
-    timezone: g.start.timeZone,
-    type: g.type,
-    response: g.responseStatus?.response,
-    organizer: g.organizer?.emailAddress?.address ?? g.organizer?.emailAddress?.name,
-    location: g.location?.displayName ?? '',
-    attendees: g.attendees?.map((a) => a.emailAddress?.address ?? a.emailAddress?.name ?? '').filter(Boolean),
-    body_preview: g.bodyPreview ?? null,
-  }));
+  const events: CalendarEvent[] = [];
+  for (const upn of configuredUsers()) {
+    try {
+      const path = `/users/${encodeURIComponent(upn)}/calendar/events?$top=50&$orderby=start/dateTime%20desc`;
+      const items = await graphPages<GraphEvent>(path);
+      events.push(...items.map((g) => ({
+        id: g.id,
+        mailbox_upn: upn,
+        subject: g.subject,
+        start: g.start.dateTime,
+        end: g.end.dateTime,
+        timezone: g.start.timeZone,
+        type: g.type,
+        response: g.responseStatus?.response,
+        organizer: g.organizer?.emailAddress?.address ?? g.organizer?.emailAddress?.name,
+        location: g.location?.displayName ?? '',
+        attendees: g.attendees?.map((a) => a.emailAddress?.address ?? a.emailAddress?.name ?? '').filter(Boolean),
+        body_preview: g.bodyPreview ?? null,
+      })));
+    } catch (err) {
+      console.warn(`[m365-calendar] skipped ${upn}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return events;
 }
 
 export async function fetchMailMessages(): Promise<MailMessage[]> {
-  const upn = requireEnv('M365_USER_PRINCIPAL_NAME');
-  const path = `/users/${encodeURIComponent(upn)}/messages?$top=50&$orderby=receivedDateTime%20desc&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,conversationId,webLink`;
   type GraphMessage = {
     id: string;
     subject: string;
@@ -105,26 +151,41 @@ export async function fetchMailMessages(): Promise<MailMessage[]> {
     conversationId?: string;
     webLink?: string;
   };
-  const items = await graphPages<GraphMessage>(path);
-  return items.map((m) => ({
-    id: m.id,
-    subject: m.subject,
-    from: m.from?.emailAddress?.address ?? m.from?.emailAddress?.name ?? '',
-    to: m.toRecipients?.map((r) => r.emailAddress?.address ?? '').filter(Boolean) ?? [],
-    cc: m.ccRecipients?.map((r) => r.emailAddress?.address ?? '').filter(Boolean) ?? [],
-    received_at: m.receivedDateTime,
-    body_preview: m.bodyPreview ?? null,
-    conversation_id: m.conversationId ?? null,
-    web_link: m.webLink ?? null,
-  }));
+  const messages: MailMessage[] = [];
+  for (const upn of configuredUsers()) {
+    try {
+      const path = `/users/${encodeURIComponent(upn)}/messages?$top=50&$orderby=receivedDateTime%20desc&$select=id,subject,from,toRecipients,ccRecipients,receivedDateTime,bodyPreview,conversationId,webLink`;
+      const items = await graphPages<GraphMessage>(path);
+      messages.push(...items.map((m) => ({
+        id: m.id,
+        mailbox_upn: upn,
+        subject: m.subject,
+        from: m.from?.emailAddress?.address ?? m.from?.emailAddress?.name ?? '',
+        to: m.toRecipients?.map((r) => r.emailAddress?.address ?? '').filter(Boolean) ?? [],
+        cc: m.ccRecipients?.map((r) => r.emailAddress?.address ?? '').filter(Boolean) ?? [],
+        received_at: m.receivedDateTime,
+        body_preview: m.bodyPreview ?? null,
+        conversation_id: m.conversationId ?? null,
+        web_link: m.webLink ?? null,
+      })));
+    } catch (err) {
+      console.warn(`[m365-mail] skipped ${upn}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return messages;
 }
 
 export async function fetchSharePointItems(): Promise<SharePointItem[]> {
-  if (!config.M365_TENANT_ID) throw new Error('Missing M365 creds');
   const sites = await graphPages<{ id: string; name: string; webUrl: string }>(`/sites?search=*&$top=20`);
   const items: SharePointItem[] = [];
   for (const site of sites) {
-    const drives = await graphPages<{ id: string; name: string }>(`/sites/${site.id}/drives`);
+    let drives: Array<{ id: string; name: string }>;
+    try {
+      drives = await graphPages<{ id: string; name: string }>(`/sites/${site.id}/drives`);
+    } catch (err) {
+      console.warn(`[m365-sharepoint] skipped site ${site.name || site.id}: ${err instanceof Error ? err.message : String(err)}`);
+      continue;
+    }
     for (const drive of drives) {
       type DriveItem = {
         id: string;
@@ -135,9 +196,27 @@ export async function fetchSharePointItems(): Promise<SharePointItem[]> {
         lastModifiedDateTime?: string;
         createdBy?: { user?: { displayName?: string } };
       };
-      const children = await graphPages<DriveItem>(`/drives/${drive.id}/root/children?$top=25`);
+      let children: DriveItem[];
+      try {
+        children = await graphPages<DriveItem>(`/drives/${drive.id}/root/children?$top=25`);
+      } catch (err) {
+        console.warn(`[m365-sharepoint] skipped drive ${drive.name || drive.id}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
       for (const item of children) {
         if (!item.file) continue;
+        const canDownload = (item.size ?? 0) <= config.M365_SHAREPOINT_MAX_DOWNLOAD_BYTES;
+        let contentText: string | null = null;
+        if (canDownload) {
+          try {
+            contentText = await graphDownloadText(
+                `/drives/${drive.id}/items/${item.id}/content`,
+                config.M365_SHAREPOINT_MAX_DOWNLOAD_BYTES,
+              );
+          } catch (err) {
+            console.warn(`[m365-sharepoint] skipped content for ${item.name || item.id}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
         items.push({
           id: item.id,
           site_id: site.id,
@@ -150,6 +229,7 @@ export async function fetchSharePointItems(): Promise<SharePointItem[]> {
           mime_type: item.file.mimeType ?? 'application/octet-stream',
           last_modified: item.lastModifiedDateTime ?? new Date().toISOString(),
           modified_by: item.createdBy?.user?.displayName ?? '',
+          content_text: contentText,
         });
       }
     }
@@ -158,39 +238,65 @@ export async function fetchSharePointItems(): Promise<SharePointItem[]> {
 }
 
 export async function fetchTeamsThreads(): Promise<TeamsThread[]> {
-  const teams = await graphPages<{ id: string; displayName: string }>(`/me/joinedTeams`);
   const threads: TeamsThread[] = [];
-  for (const team of teams) {
-    const channels = await graphPages<{ id: string; displayName: string; webUrl: string }>(
-      `/teams/${team.id}/channels`,
-    );
-    for (const channel of channels) {
-      type GraphMessage = {
-        id: string;
-        from?: { user?: { displayName?: string } };
-        createdDateTime: string;
-        body?: { content?: string; contentType?: string };
-        replyToId?: string | null;
-      };
-      const messages = await graphPages<GraphMessage>(
-        `/teams/${team.id}/channels/${channel.id}/messages?$top=20`,
-        100,
+  const seenMessages = new Set<string>();
+  for (const upn of configuredUsers()) {
+    try {
+      const teams = await graphPages<{ id: string; displayName: string }>(
+        `/users/${encodeURIComponent(upn)}/joinedTeams`,
       );
-      for (const msg of messages) {
-        threads.push({
-          id: msg.id,
-          team_id: team.id,
-          team_name: team.displayName,
-          channel_id: channel.id,
-          channel_name: channel.displayName,
-          channel_web_url: channel.webUrl,
-          author: msg.from?.user?.displayName ?? '',
-          created_at: msg.createdDateTime,
-          body: msg.body?.content ?? '',
-          body_content_type: msg.body?.contentType ?? 'text',
-          reply_to_id: msg.replyToId ?? null,
-        });
+      for (const team of teams) {
+        const channels = await graphPages<{ id: string; displayName: string; webUrl: string }>(
+          `/teams/${team.id}/channels`,
+        );
+        for (const channel of channels) {
+          type GraphMessage = {
+            id: string;
+            from?: { user?: { displayName?: string } };
+            createdDateTime: string;
+            body?: { content?: string; contentType?: string };
+            replyToId?: string | null;
+          };
+          const messages = await graphPages<GraphMessage>(
+            `/teams/${team.id}/channels/${channel.id}/messages?$top=20`,
+            100,
+          );
+          for (const msg of messages) {
+            const messageKey = `${team.id}:${channel.id}:${msg.id}`;
+            if (seenMessages.has(messageKey)) continue;
+            seenMessages.add(messageKey);
+            const replies = msg.replyToId
+              ? []
+              : await graphPages<GraphMessage>(
+                  `/teams/${team.id}/channels/${channel.id}/messages/${msg.id}/replies?$top=20`,
+                  100,
+                );
+            threads.push({
+              id: msg.id,
+              user_upn: upn,
+              team_id: team.id,
+              team_name: team.displayName,
+              channel_id: channel.id,
+              channel_name: channel.displayName,
+              channel_web_url: channel.webUrl,
+              author: msg.from?.user?.displayName ?? '',
+              created_at: msg.createdDateTime,
+              body: msg.body?.content ?? '',
+              body_content_type: msg.body?.contentType ?? 'text',
+              reply_to_id: msg.replyToId ?? null,
+              replies: replies.map((reply) => ({
+                id: reply.id,
+                author: reply.from?.user?.displayName ?? '',
+                created_at: reply.createdDateTime,
+                body: reply.body?.content ?? '',
+                body_content_type: reply.body?.contentType ?? 'text',
+              })),
+            });
+          }
+        }
       }
+    } catch (err) {
+      console.warn(`[m365-teams] skipped ${upn}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
   return threads;

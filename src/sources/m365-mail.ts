@@ -17,6 +17,7 @@ export interface MailMessage {
   from: string;
   to: string[];
   cc: string[];
+  mailbox_upn?: string;
   received_at: string;
   body_preview: string | null;
   conversation_id: string | null;
@@ -30,6 +31,9 @@ function slugFor(m: MailMessage): string {
 }
 
 function sourceUri(m: MailMessage): string {
+  if (m.mailbox_upn) {
+    return `m365-mail://user/${encodeURIComponent(m.mailbox_upn)}/message/${encodeURIComponent(m.id)}`;
+  }
   return `m365-mail://message/${encodeURIComponent(m.id)}`;
 }
 
@@ -49,6 +53,7 @@ mail_message_id: "${m.id.replaceAll('"', '\\"')}"
 source_uri: "${sourceUri(m)}"
 source_kind: "${SOURCE_KIND}"
 conversation_id: "${m.conversation_id ?? ''}"
+mailbox_upn: "${m.mailbox_upn ?? ''}"
 received_at: "${m.received_at}"
 mail_from: "${m.from.replaceAll('"', '\\"')}"
 ---
@@ -56,6 +61,7 @@ mail_from: "${m.from.replaceAll('"', '\\"')}"
 # ${m.subject}
 
 - Source: ${sourceUri(m)}
+- Mailbox: ${m.mailbox_upn ?? 'Unknown'}
 - From: ${m.from}
 - To: ${to}
 - Cc: ${cc}
@@ -88,6 +94,7 @@ class M365MailSource implements IngestionSource {
         metadata: {
           slug: slugFor(msg),
           message_id: msg.id,
+          mailbox_upn: msg.mailbox_upn,
           conversation_id: msg.conversation_id,
           mail_received_at: msg.received_at,
         },
@@ -109,6 +116,9 @@ export const m365MailConnector: ConnectorSpec = {
   id: SOURCE_ID,
   displayName: 'M365 Mail',
   kind: SOURCE_KIND,
+  fixturePath: FIXTURE_PATH,
+  requiredEnv: ['M365_TENANT_ID', 'M365_CLIENT_ID', 'M365_CLIENT_SECRET'],
+  requiredAnyEnv: [['M365_USER_PRINCIPAL_NAME', 'M365_USER_PRINCIPAL_NAMES']],
   async build({ dryRun }) {
     const messages = await loadMessages(dryRun);
     return new M365MailSource(messages);

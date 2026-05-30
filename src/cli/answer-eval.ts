@@ -380,6 +380,28 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'latest call ask returns sales activity not customer terms',
+    question: 'latest call with acme',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'collaboration_lookup', `expected collaboration_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /sales activity|Subject:|Type:\s*call/i, 'latest call ask should stay in sales activity context');
+      assertNotText(answer, /Terms:|Credit limit:|Customer ID:/i, 'latest call ask borrowed customer master data');
+      assert(answer.citations.every((citation) => ['pipedrive', 'm365-mail', 'm365-teams', 'm365-calendar'].includes(citation.source_id)), 'latest call should cite activity/collaboration context only');
+    },
+  },
+  {
+    name: 'phone ask does not answer with generic account summary when phone is missing',
+    question: 'phone number for acme',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'contact_lookup', `expected contact_lookup, got ${answer.intent}`);
+      assertText(answer, /did not find the requested field/i, 'missing phone ask should say the phone field is absent');
+      assertNotText(answer, /Terms:|Status:\s*Active|Customer ID:/i, 'missing phone ask leaked unrelated account fields');
+    },
+  },
+  {
     name: 'general customer ask stays on resolved entity',
     question: 'what do we know about acme',
     assert(answer) {
@@ -605,6 +627,17 @@ const askCases: AskExpectation[] = [
       assert(answer.intent === 'customer_lookup', `expected customer_lookup, got ${answer.intent}`);
       assertText(answer, /\bTerms:\s*N30\b/i, 'terms ask did not answer terms');
       assertNotText(answer, /Tax zone:/i, 'terms ask leaked unrequested tax context');
+    },
+  },
+  {
+    name: 'shipping address ask does not fall back to terms/status',
+    question: 'shipping address for acme',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'customer_lookup', `expected customer_lookup, got ${answer.intent}`);
+      assert(answer.resolvedEntity?.canonicalName === 'ACME Barricades LC', 'shipping address ask did not resolve ACME');
+      assertText(answer, /did not find the requested field/i, 'missing shipping address should be called out directly');
+      assertNotText(answer, /Terms:|Status:\s*Active|Credit limit:/i, 'shipping address ask fell back to generic account fields');
     },
   },
   {

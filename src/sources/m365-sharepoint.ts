@@ -23,6 +23,7 @@ export interface SharePointItem {
   mime_type: string;
   last_modified: string;
   modified_by: string;
+  content_text?: string | null;
 }
 
 function slugFor(it: SharePointItem): string {
@@ -35,7 +36,21 @@ function sourceUri(it: SharePointItem): string {
   return `m365-sharepoint://drive/${encodeURIComponent(it.drive_id)}/item/${encodeURIComponent(it.id)}`;
 }
 
+function cleanExtractedText(s: string): string {
+  return s
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function markdownFor(it: SharePointItem): string {
+  const extracted = it.content_text ? cleanExtractedText(it.content_text) : '';
   return `---
 type: note
 title: "${it.name.replaceAll('"', '\\"')}"
@@ -58,8 +73,7 @@ last_modified: "${it.last_modified}"
 - MIME: ${it.mime_type}
 - Last modified: ${it.last_modified} by ${it.modified_by}
 
-> Body extraction is not implemented in v1. This page indexes file metadata
-> only; click through to the web URL for the content.
+${extracted ? `## Extracted Content\n\n${extracted.slice(0, 12000)}\n` : '> No plain-text body was available for this file; metadata and the web URL were indexed.'}
 `;
 }
 
@@ -106,6 +120,8 @@ export const m365SharePointConnector: ConnectorSpec = {
   id: SOURCE_ID,
   displayName: 'M365 SharePoint',
   kind: SOURCE_KIND,
+  fixturePath: FIXTURE_PATH,
+  requiredEnv: ['M365_TENANT_ID', 'M365_CLIENT_ID', 'M365_CLIENT_SECRET'],
   async build({ dryRun }) {
     const items = await loadItems(dryRun);
     return new M365SharePointSource(items);

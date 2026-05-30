@@ -123,6 +123,8 @@ function connectorFor(scope: MemoryScope): ConnectorSpec {
     id: sourceIdFor(scope),
     displayName: DISPLAY_NAMES[scope],
     kind: SOURCE_KIND,
+    fixturePath: fixturePath(scope),
+    requiredEnv: ['SUPERMEMORY_API_KEY'],
     async build({ dryRun }) {
       const docs = await loadMemories(scope, dryRun);
       return new SupermemorySource(scope, docs);
