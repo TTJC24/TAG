@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const FALLBACK_SOURCES = [
   'm365-calendar',
@@ -345,6 +345,50 @@ function Search({
   );
 }
 
+function AnswerPane({ text }: { text: string }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  // Reset expansion whenever the answer text changes (e.g. a new question).
+  useEffect(() => {
+    setExpanded(false);
+  }, [text]);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Only meaningful when collapsed — when expanded there's no max-height clip.
+    if (expanded) {
+      setOverflowing(false);
+      return;
+    }
+    setOverflowing(el.scrollHeight > el.clientHeight + 1);
+  }, [text, expanded]);
+
+  return (
+    <>
+      <div
+        ref={ref}
+        className={`answer ${expanded ? 'expanded' : ''}`}
+        aria-expanded={expanded}
+      >
+        {text}
+      </div>
+      {overflowing && !expanded && (
+        <button
+          type="button"
+          className="link-button answer-expand"
+          aria-expanded={expanded}
+          onClick={() => setExpanded(true)}
+        >
+          Show full answer
+        </button>
+      )}
+    </>
+  );
+}
+
 function formatAnswerForCopy(answer: AskAnswer): string {
   const lines = [answer.text.trimEnd()];
   if (answer.citations.length > 0) {
@@ -457,7 +501,7 @@ function Ask({
               {copied ? 'Copied' : 'Copy answer'}
             </button>
           </div>
-          <div className="answer">{answer.text}</div>
+          <AnswerPane text={answer.text} />
           {answer.citations.length > 0 && (
             <div>
               <strong>Citations</strong>

@@ -61,7 +61,13 @@ h1 { font-size: 1.4rem; margin: 0 0 1rem; }
 .result .meta { color: var(--muted); font-size: .8rem; margin-bottom: .35rem; }
 .result .snippet { font-size: .9rem; line-height: 1.4; }
 .answer { white-space: pre-wrap; background: var(--card); border: 1px solid var(--border);
-  border-radius: 8px; padding: 1rem; margin: .5rem 0 1rem; }
+  border-radius: 8px; padding: 1rem; margin: .5rem 0 1rem;
+  max-height: 60vh; overflow-y: auto; position: relative; }
+.answer.expanded { max-height: none; overflow-y: visible; }
+.answer-expand {
+  display: block; margin: -.5rem 0 1rem auto;
+  border-color: var(--accent); color: var(--accent); background: var(--card);
+}
 .answer-toolbar { display: flex; justify-content: flex-end; margin-top: 1rem; }
 .link-button {
   background: transparent; border: 1px solid var(--border); color: var(--fg);
