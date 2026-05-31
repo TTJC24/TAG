@@ -22,10 +22,21 @@ async function getJson<T>(path: string, opts: PipedriveFetchOptions = {}): Promi
   const token = opts.apiToken ?? requireEnv('PIPEDRIVE_API_TOKEN');
   const domain = normalizeCompanyDomain(opts.companyDomain ?? requireEnv('PIPEDRIVE_COMPANY_DOMAIN'));
   const sep = path.includes('?') ? '&' : '?';
-  const res = await fetch(`https://${domain}.pipedrive.com/api/v1${path}${sep}api_token=${token}`);
+  let res: Response;
+  try {
+    res = await fetch(`https://${domain}.pipedrive.com/api/v1${path}${sep}api_token=${token}`);
+  } catch (err) {
+    throw new Error(
+      `Pipedrive network error for ${path} (domain=${domain}): ${err instanceof Error ? err.message : String(err)}. Check PIPEDRIVE_COMPANY_DOMAIN in .env.`,
+    );
+  }
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Pipedrive ${path} ${res.status}: ${body.slice(0, 500)}`);
+    const hint =
+      res.status === 401 || res.status === 403
+        ? ' — check PIPEDRIVE_API_TOKEN (or PIPEDRIVE_API_TOKEN_FS / PIPEDRIVE_API_TOKEN_BLCS_USA for multi-tenant) in .env'
+        : '';
+    throw new Error(`Pipedrive ${path} ${res.status}: ${body.slice(0, 500)}${hint}`);
   }
   return (await res.json()) as T;
 }

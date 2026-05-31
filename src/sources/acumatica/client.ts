@@ -80,29 +80,54 @@ function cookieHeader(raw: string | null): string {
     .join('; ');
 }
 
+function acumaticaLoginHint(status: number): string {
+  switch (status) {
+    case 401:
+      return 'check ACUMATICA_USERNAME / ACUMATICA_PASSWORD';
+    case 403:
+      return 'user authenticated but lacks API access';
+    case 404:
+      return 'check ACUMATICA_BASE_URL and ACUMATICA_ENDPOINT_VERSION';
+    default:
+      return '';
+  }
+}
+
 async function login(): Promise<void> {
   const base = normalizeBaseUrl(requireEnv('ACUMATICA_BASE_URL'));
   const errors: string[] = [];
+  let firstStatus: number | null = null;
   for (const company of companyCandidates()) {
     const body: Record<string, string> = {
       name: requireEnv('ACUMATICA_USERNAME'),
       password: requireEnv('ACUMATICA_PASSWORD'),
       company,
     };
-    const res = await fetch(`${base}/entity/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${base}/entity/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (err) {
+      throw new Error(
+        `Acumatica login network error against ${base}: ${err instanceof Error ? err.message : String(err)}. Check ACUMATICA_BASE_URL (DNS/TLS reachable?) in .env.`,
+      );
+    }
     if (res.ok) {
       sessionCookie = cookieHeader(res.headers.get('set-cookie'));
       if (sessionCookie) saveCachedSession(sessionCookie);
       return;
     }
+    if (firstStatus === null) firstStatus = res.status;
     const text = await res.text();
     errors.push(`${company}: ${res.status} ${text.slice(0, 300)}`);
   }
-  throw new Error(`Acumatica login failed for configured company candidates: ${errors.join(' | ')}`);
+  const hint = firstStatus !== null ? acumaticaLoginHint(firstStatus) : '';
+  throw new Error(
+    `Acumatica login failed for configured company candidates: ${errors.join(' | ')}${hint ? ` — ${hint}` : ''}`,
+  );
 }
 
 async function get<T>(endpoint: string, branch?: string): Promise<T> {

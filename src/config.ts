@@ -75,7 +75,9 @@ export const config: Config = schema.parse(process.env);
 export function requireEnv<K extends keyof Config>(key: K): NonNullable<Config[K]> {
   const value = config[key];
   if (value === undefined || value === null || value === '') {
-    throw new Error(`Missing required env: ${key}`);
+    throw new Error(
+      `Missing required env: ${String(key)}. Add it to .env (see .env.example) or run \`bun run doctor\` to see which connectors need configuration.`,
+    );
   }
   return value as NonNullable<Config[K]>;
 }

@@ -24,15 +24,49 @@ async function getToken(): Promise<string> {
       clientSecret,
     },
   });
-  const result = await app.acquireTokenByClientCredential({
-    scopes: ['https://graph.microsoft.com/.default'],
-  });
-  if (!result?.accessToken) throw new Error('Failed to acquire M365 token');
+  let result;
+  try {
+    result = await app.acquireTokenByClientCredential({
+      scopes: ['https://graph.microsoft.com/.default'],
+    });
+  } catch (err) {
+    const e = err as { errorCode?: string; errorMessage?: string; correlationId?: string; message?: string };
+    const parts = [
+      e.errorCode ? `errorCode=${e.errorCode}` : null,
+      e.errorMessage ? `errorMessage=${e.errorMessage}` : (e.message ?? null),
+      e.correlationId ? `correlationId=${e.correlationId}` : null,
+    ].filter(Boolean);
+    throw new Error(
+      `Failed to acquire M365 token: ${parts.join('; ') || String(err)}. Check M365_CLIENT_ID / M365_CLIENT_SECRET / M365_TENANT_ID in .env.`,
+    );
+  }
+  if (!result?.accessToken) {
+    throw new Error(
+      'Failed to acquire M365 token: no access token returned. Check M365_CLIENT_ID / M365_CLIENT_SECRET / M365_TENANT_ID in .env.',
+    );
+  }
   cachedToken = {
     token: result.accessToken,
     expiresAt: result.expiresOn?.getTime() ?? Date.now() + 30 * 60_000,
   };
   return cachedToken.token;
+}
+
+function graphErrorHint(status: number, path: string, retryAfter: string | null): string {
+  switch (status) {
+    case 401:
+      return 'Bearer token rejected — secret may have rotated; check M365_CLIENT_SECRET.';
+    case 403:
+      return `Graph permission denied for ${path} — grant the missing application permission (Mail.Read for /messages, Sites.Read.All for /sites) in Entra and admin-consent.`;
+    case 404:
+      return `Resource not found for ${path} — check M365_USER_PRINCIPAL_NAME.`;
+    case 429:
+      return retryAfter
+        ? `Throttled by Graph — Retry-After: ${retryAfter}s.`
+        : 'Throttled by Graph — no Retry-After header provided.';
+    default:
+      return '';
+  }
 }
 
 async function graphFetch<T>(path: string): Promise<T> {
@@ -42,7 +76,8 @@ async function graphFetch<T>(path: string): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Graph ${path} ${res.status}: ${body.slice(0, 500)}`);
+    const hint = graphErrorHint(res.status, path, res.headers.get('retry-after'));
+    throw new Error(`Graph ${path} ${res.status}: ${body.slice(0, 500)}${hint ? ` — ${hint}` : ''}`);
   }
   return (await res.json()) as T;
 }
@@ -54,7 +89,8 @@ async function graphFetchAbsolute<T>(url: string): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Graph ${url} ${res.status}: ${body.slice(0, 500)}`);
+    const hint = graphErrorHint(res.status, url, res.headers.get('retry-after'));
+    throw new Error(`Graph ${url} ${res.status}: ${body.slice(0, 500)}${hint ? ` — ${hint}` : ''}`);
   }
   return (await res.json()) as T;
 }
@@ -67,7 +103,8 @@ async function graphDownloadText(path: string, maxBytes: number): Promise<string
   if (!res.ok) {
     if (res.status === 404 || res.status === 415) return null;
     const body = await res.text();
-    throw new Error(`Graph download ${path} ${res.status}: ${body.slice(0, 500)}`);
+    const hint = graphErrorHint(res.status, path, res.headers.get('retry-after'));
+    throw new Error(`Graph download ${path} ${res.status}: ${body.slice(0, 500)}${hint ? ` — ${hint}` : ''}`);
   }
   const contentType = res.headers.get('content-type') ?? '';
   if (!/text|json|xml|csv|html|markdown/i.test(contentType)) return null;
@@ -102,7 +139,9 @@ function configuredUsers(): string[] {
     .map((user) => user.trim())
     .filter(Boolean);
   if (users.length === 0) {
-    throw new Error('Missing M365 user principal name(s). Set M365_USER_PRINCIPAL_NAME or M365_USER_PRINCIPAL_NAMES.');
+    throw new Error(
+      'Missing M365 user principal name(s). Set M365_USER_PRINCIPAL_NAME=user@contoso.com (single mailbox) or M365_USER_PRINCIPAL_NAMES="a@x.com, b@x.com" (multiple) in .env.',
+    );
   }
   return [...new Set(users)];
 }
