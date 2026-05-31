@@ -48,13 +48,16 @@ bun run ingest acumatica --dry-run
 ## Running
 
 ```bash
+# 1) One-time setup
 cp .env.example .env   # fill in real values as you go
 bun install
 docker run -d --name company-brain-pg -e POSTGRES_PASSWORD=company_brain \
   -e POSTGRES_USER=company_brain -e POSTGRES_DB=company_brain \
   -p 5432:5432 postgres:16
 bun run ingest m365-calendar --dry-run
-bun run api
-bun run web:dev
-bun run scheduler
+
+# 2) Start servers (each is long-running — run in its own terminal)
+bun run api          # long-running; run in its own terminal
+bun run web:dev      # long-running; run in its own terminal
+bun run scheduler    # long-running; run in its own terminal
 ```
