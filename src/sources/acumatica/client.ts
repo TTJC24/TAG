@@ -1,7 +1,68 @@
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { config, requireEnv } from '../../config.ts';
 import type { AcumaticaEntity, AcumaticaSnapshot } from '../acumatica.ts';
 
+/**
+ * Disk-cached Acumatica session.
+ *
+ * Acumatica enforces a per-user seat limit on the Contract API. Each
+ * /entity/auth/login burns a seat until the session expires (or is
+ * logged out). With three entity connectors (acumatica-fs/-blcs/-usa)
+ * and any CLI invocation creating fresh processes, we were re-logging
+ * in on every run and tripping the seat cap.
+ *
+ * The cache file `.acumatica-session` (gitignored) holds the last
+ * successful session cookie. Lookup order is memory → disk → fresh
+ * login. A request that returns 401/403 invalidates the cache and
+ * triggers exactly one re-login + retry; a second auth failure throws.
+ */
+const SESSION_FILE = '.acumatica-session';
 let sessionCookie: string | null = null;
+
+interface CachedSession {
+  cookie: string;
+  savedAt: string;
+}
+
+function loadCachedSession(): string | null {
+  try {
+    if (!existsSync(SESSION_FILE)) return null;
+    const raw = readFileSync(SESSION_FILE, 'utf8');
+    const parsed = JSON.parse(raw) as Partial<CachedSession>;
+    return typeof parsed.cookie === 'string' && parsed.cookie.length > 0 ? parsed.cookie : null;
+  } catch {
+    // Corrupt cache file is non-fatal — fall through to fresh login.
+    return null;
+  }
+}
+
+function saveCachedSession(cookie: string): void {
+  try {
+    const payload: CachedSession = { cookie, savedAt: new Date().toISOString() };
+    writeFileSync(SESSION_FILE, JSON.stringify(payload, null, 2));
+  } catch {
+    // Caching is best-effort; a write failure should not block the live request.
+  }
+}
+
+function clearCachedSession(): void {
+  sessionCookie = null;
+  try {
+    if (existsSync(SESSION_FILE)) unlinkSync(SESSION_FILE);
+  } catch {
+    // Stale file is non-fatal; the next login will overwrite it.
+  }
+}
+
+async function ensureSession(): Promise<void> {
+  if (sessionCookie) return;
+  const cached = loadCachedSession();
+  if (cached) {
+    sessionCookie = cached;
+    return;
+  }
+  await login();
+}
 
 function companyCandidates(): string[] {
   const values = [
@@ -35,6 +96,7 @@ async function login(): Promise<void> {
     });
     if (res.ok) {
       sessionCookie = cookieHeader(res.headers.get('set-cookie'));
+      if (sessionCookie) saveCachedSession(sessionCookie);
       return;
     }
     const text = await res.text();
@@ -44,7 +106,11 @@ async function login(): Promise<void> {
 }
 
 async function get<T>(endpoint: string, branch?: string): Promise<T> {
-  if (!sessionCookie) await login();
+  return await getOnce<T>(endpoint, branch, /* allowReloginOnAuthFail */ true);
+}
+
+async function getOnce<T>(endpoint: string, branch: string | undefined, allowReloginOnAuthFail: boolean): Promise<T> {
+  await ensureSession();
   const base = normalizeBaseUrl(requireEnv('ACUMATICA_BASE_URL'));
   const res = await fetch(`${base}/entity/Default/${config.ACUMATICA_ENDPOINT_VERSION}/${endpoint}`, {
     headers: {
@@ -53,6 +119,13 @@ async function get<T>(endpoint: string, branch?: string): Promise<T> {
       ...(branch ? { 'PX-CbApiBranch': branch } : {}),
     },
   });
+  // Expired or revoked session — clear the cache, log in fresh, and retry once.
+  // Second 401/403 falls through to the generic error below.
+  if ((res.status === 401 || res.status === 403) && allowReloginOnAuthFail) {
+    clearCachedSession();
+    await login();
+    return await getOnce<T>(endpoint, branch, /* allowReloginOnAuthFail */ false);
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Acumatica ${endpoint} ${res.status}: ${text.slice(0, 500)}`);
@@ -129,7 +202,9 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
 }
 
 export async function fetchAcumaticaSnapshot(branch?: string): Promise<AcumaticaSnapshot> {
-  sessionCookie = null;
+  // Intentionally NOT resetting sessionCookie here — the cache (memory + disk)
+  // is what lets back-to-back FS/BLCS/USA ingests share a single seat. Stale
+  // sessions invalidate themselves via the 401/403 retry path in getOnce().
   const [customers, orders, invoices, items] = await Promise.all([
     listAll('Customer', config.ACUMATICA_MAX_ITEMS, branch),
     listAll('SalesOrder', config.ACUMATICA_MAX_ITEMS, branch),
