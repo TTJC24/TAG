@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-const KNOWN_SOURCES = [
+const FALLBACK_SOURCES = [
   'm365-calendar',
   'm365-mail',
   'm365-sharepoint',
@@ -8,6 +8,32 @@ const KNOWN_SOURCES = [
   'acumatica',
   'pipedrive',
 ];
+
+const SOURCE_LABELS: Record<string, string> = {
+  'm365-calendar': 'Calendar',
+  'm365-mail': 'Email',
+  'm365-sharepoint': 'SharePoint',
+  'm365-teams': 'Teams',
+  acumatica: 'Acumatica',
+  pipedrive: 'Pipedrive',
+};
+
+function formatSource(id: string): string {
+  if (SOURCE_LABELS[id]) return SOURCE_LABELS[id];
+  return id
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => (part.length === 0 ? part : part[0].toUpperCase() + part.slice(1)))
+    .join(' ');
+}
+
+interface ConnectorStatusBrief {
+  id: string;
+  displayName?: string;
+  liveReady?: boolean;
+  fixtureAvailable?: boolean;
+  documentCount?: number;
+}
 
 const TOKEN = (import.meta as ImportMeta & { env: Record<string, string> }).env
   .VITE_API_TOKEN ?? 'dev-local-token';
@@ -50,6 +76,28 @@ async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function apiGet<T>(path: string): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      throw new Error(
+        'Cannot reach the API. — Is `bun run api` running on port 4317?',
+      );
+    }
+    throw err instanceof Error ? err : new Error(msg);
+  }
+  if (!res.ok) {
+    throw new Error(`${res.status} ${res.statusText || 'Error'}`);
+  }
+  return (await res.json()) as T;
+}
+
 function ErrorDisplay({ message }: { message: string }) {
   const idx = message.indexOf(' — ');
   if (idx === -1) return <div className="error">{message}</div>;
@@ -74,15 +122,32 @@ interface AskAnswer {
   citations: Array<{ slug: string; source_id: string; title: string | null; source_uri: string | null }>;
 }
 
-function SourceChips({ value, onChange }: { value: Set<string>; onChange: (s: Set<string>) => void }) {
+function SourceChips({
+  value,
+  onChange,
+  sources,
+  connectors,
+}: {
+  value: Set<string>;
+  onChange: (s: Set<string>) => void;
+  sources: string[];
+  connectors: Record<string, ConnectorStatusBrief>;
+}) {
   return (
     <div className="sources">
-      {KNOWN_SOURCES.map((s) => {
+      {sources.map((s) => {
         const on = value.has(s);
+        const status = connectors[s];
+        const title = status
+          ? `${status.displayName ?? formatSource(s)}${
+              typeof status.documentCount === 'number' ? ` · ${status.documentCount} docs` : ''
+            }${status.liveReady ? ' · live' : status.fixtureAvailable ? ' · fixture' : ''}`
+          : formatSource(s);
         return (
           <span
             key={s}
             className={`chip ${on ? 'on' : ''}`}
+            title={title}
             onClick={() => {
               const next = new Set(value);
               if (on) next.delete(s);
@@ -90,7 +155,7 @@ function SourceChips({ value, onChange }: { value: Set<string>; onChange: (s: Se
               onChange(next);
             }}
           >
-            {s}
+            {formatSource(s)}
           </span>
         );
       })}
@@ -98,7 +163,13 @@ function SourceChips({ value, onChange }: { value: Set<string>; onChange: (s: Se
   );
 }
 
-function Search() {
+function Search({
+  availableSources,
+  connectors,
+}: {
+  availableSources: string[];
+  connectors: Record<string, ConnectorStatusBrief>;
+}) {
   const [query, setQuery] = useState('');
   const [sources, setSources] = useState<Set<string>>(new Set());
   const [hits, setHits] = useState<SearchHit[] | null>(null);
@@ -137,14 +208,19 @@ function Search() {
           {loading ? 'Searching...' : 'Search'}
         </button>
       </div>
-      <SourceChips value={sources} onChange={setSources} />
+      <SourceChips
+        value={sources}
+        onChange={setSources}
+        sources={availableSources}
+        connectors={connectors}
+      />
       {error && <ErrorDisplay message={error} />}
       {hits && hits.length === 0 && <div>No results.</div>}
       {hits?.map((h, i) => (
         <div key={`${h.slug}-${i}`} className="result">
           <h3>{h.title || h.slug}</h3>
           <div className="meta">
-            {h.source_id ? `${h.source_id} · ` : ''}
+            {h.source_id ? `${formatSource(h.source_id)} · ` : ''}
             {h.slug}
             {typeof h.score === 'number' ? ` · score ${h.score.toFixed(3)}` : ''}
           </div>
@@ -157,7 +233,13 @@ function Search() {
   );
 }
 
-function Ask() {
+function Ask({
+  availableSources,
+  connectors,
+}: {
+  availableSources: string[];
+  connectors: Record<string, ConnectorStatusBrief>;
+}) {
   const [question, setQuestion] = useState('');
   const [sources, setSources] = useState<Set<string>>(new Set());
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
@@ -195,7 +277,12 @@ function Ask() {
           {loading ? 'Asking...' : 'Ask'}
         </button>
       </div>
-      <SourceChips value={sources} onChange={setSources} />
+      <SourceChips
+        value={sources}
+        onChange={setSources}
+        sources={availableSources}
+        connectors={connectors}
+      />
       {error && <ErrorDisplay message={error} />}
       {answer && (
         <>
@@ -206,7 +293,7 @@ function Ask() {
               <ul>
                 {answer.citations.map((c) => (
                   <li key={c.slug} className="citation">
-                    [{c.source_id}] {c.title ?? c.slug}
+                    [{formatSource(c.source_id)}] {c.title ?? c.slug}
                   </li>
                 ))}
               </ul>
@@ -221,10 +308,30 @@ function Ask() {
 export function App() {
   const [tab, setTab] = useState<'search' | 'ask'>('search');
   const [apiOk, setApiOk] = useState<boolean | null>(null);
+  const [availableSources, setAvailableSources] = useState<string[]>(FALLBACK_SOURCES);
+  const [connectors, setConnectors] = useState<Record<string, ConnectorStatusBrief>>({});
   useEffect(() => {
     fetch('/api/health')
       .then((r) => setApiOk(r.ok))
       .catch(() => setApiOk(false));
+  }, []);
+  useEffect(() => {
+    apiGet<{ sources: string[]; connectors: ConnectorStatusBrief[] }>('/sources')
+      .then((data) => {
+        if (Array.isArray(data.sources) && data.sources.length > 0) {
+          setAvailableSources(data.sources);
+        }
+        if (Array.isArray(data.connectors)) {
+          const map: Record<string, ConnectorStatusBrief> = {};
+          for (const c of data.connectors) {
+            if (c && typeof c.id === 'string') map[c.id] = c;
+          }
+          setConnectors(map);
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load /sources; using fallback list', err);
+      });
   }, []);
   return (
     <div className="container">
@@ -239,7 +346,11 @@ export function App() {
           Ask
         </button>
       </div>
-      {tab === 'search' ? <Search /> : <Ask />}
+      {tab === 'search' ? (
+        <Search availableSources={availableSources} connectors={connectors} />
+      ) : (
+        <Ask availableSources={availableSources} connectors={connectors} />
+      )}
     </div>
   );
 }
