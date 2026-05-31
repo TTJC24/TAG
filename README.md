@@ -61,3 +61,17 @@ bun run api          # long-running; run in its own terminal
 bun run web:dev      # long-running; run in its own terminal
 bun run scheduler    # long-running; run in its own terminal
 ```
+
+## Common scripts
+
+Beyond the long-running servers above, the following one-shot scripts are the
+ones you'll reach for day-to-day:
+
+- `bun run ask "<question>"` — ask a natural-language question against the
+  ingested corpus and stream the answer (with citations) on stdout.
+- `bun run search "<query>"` — run a hybrid search and print ranked matches
+  without invoking the LLM (useful for debugging retrieval).
+- `bun run fixtures:check` — verify that every connector's stub fixtures parse
+  and round-trip through the ingestion path; run this before opening a PR.
+- `bun run typecheck` — run `tsc --noEmit` across the project; required to
+  pass before committing.
