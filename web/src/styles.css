@@ -54,3 +54,5 @@ h1 { font-size: 1.4rem; margin: 0 0 1rem; }
   border-radius: 8px; padding: 1rem; margin: 1rem 0; }
 .citation { font-size: .85rem; color: var(--muted); }
 .error { color: #dc2626; }
+.error .hint { color: var(--muted); font-size: .85rem; margin-top: .2rem; font-weight: normal; }
+.hint { color: var(--muted); font-size: .85rem; }

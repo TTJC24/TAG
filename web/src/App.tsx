@@ -13,19 +13,52 @@ const TOKEN = (import.meta as ImportMeta & { env: Record<string, string> }).env
   .VITE_API_TOKEN ?? 'dev-local-token';
 
 async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${TOKEN}`,
-    },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`/api${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    // Network/CORS failure (e.g. API not running).
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      throw new Error(
+        'Cannot reach the API. — Is `bun run api` running on port 4317?',
+      );
+    }
+    throw err instanceof Error ? err : new Error(msg);
+  }
   if (!res.ok) {
     const txt = await res.text();
-    throw new Error(`${res.status}: ${txt}`);
+    let parsed: { error?: unknown; hint?: unknown } | null = null;
+    try {
+      parsed = txt ? (JSON.parse(txt) as { error?: unknown; hint?: unknown }) : null;
+    } catch {
+      parsed = null;
+    }
+    if (parsed && typeof parsed.error === 'string' && parsed.error.length > 0) {
+      const hint = typeof parsed.hint === 'string' && parsed.hint.length > 0 ? parsed.hint : null;
+      throw new Error(hint ? `${parsed.error} — ${hint}` : parsed.error);
+    }
+    throw new Error(`${res.status} ${res.statusText || 'Error'}`);
   }
   return (await res.json()) as T;
+}
+
+function ErrorDisplay({ message }: { message: string }) {
+  const idx = message.indexOf(' — ');
+  if (idx === -1) return <div className="error">{message}</div>;
+  return (
+    <div className="error">
+      {message.slice(0, idx)}
+      <div className="hint">{message.slice(idx + 3)}</div>
+    </div>
+  );
 }
 
 interface SearchHit {
@@ -105,7 +138,7 @@ function Search() {
         </button>
       </div>
       <SourceChips value={sources} onChange={setSources} />
-      {error && <div className="error">{error}</div>}
+      {error && <ErrorDisplay message={error} />}
       {hits && hits.length === 0 && <div>No results.</div>}
       {hits?.map((h, i) => (
         <div key={`${h.slug}-${i}`} className="result">
@@ -163,7 +196,7 @@ function Ask() {
         </button>
       </div>
       <SourceChips value={sources} onChange={setSources} />
-      {error && <div className="error">{error}</div>}
+      {error && <ErrorDisplay message={error} />}
       {answer && (
         <>
           <div className="answer">{answer.text}</div>
