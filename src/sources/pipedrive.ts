@@ -34,13 +34,20 @@ export interface PipedriveSnapshot {
   notes: PipedriveEntity[];
 }
 
-function slugFor(e: PipedriveEntity): string {
-  const short = computeContentHash(`${e.kind}/${e.id}`).slice(0, 10);
-  return `pipedrive/${e.kind}/${e.id}-${short}`;
+// Slugs and source URIs are scoped by the source instance id. Pipedrive's
+// numeric ids are namespaced PER ACCOUNT — deal `12001` in pipedrive-fs is
+// a different deal from `12001` in pipedrive-blcs-usa. Without the source-id
+// prefix, both ingests produced the same `pipedrive/deal/12001-<hash>` slug,
+// and the second connector's pages either silently replaced or were skipped
+// by the page-storage layer — that's how BLCS+USA reported 0/1231 imported
+// behind FS.
+function slugFor(sourceId: string, e: PipedriveEntity): string {
+  const short = computeContentHash(`${sourceId}/${e.kind}/${e.id}`).slice(0, 10);
+  return `${sourceId}/${e.kind}/${e.id}-${short}`;
 }
 
-function sourceUri(e: PipedriveEntity): string {
-  return `pipedrive://${e.kind}/${encodeURIComponent(e.id)}`;
+function sourceUri(sourceId: string, e: PipedriveEntity): string {
+  return `${sourceId}://${e.kind}/${encodeURIComponent(e.id)}`;
 }
 
 function stripHtml(s: string): string {
@@ -76,20 +83,20 @@ function renderRelated(e: PipedriveEntity): string {
   return sections.join('\n\n');
 }
 
-function markdownFor(e: PipedriveEntity): string {
+function markdownFor(sourceId: string, e: PipedriveEntity): string {
   return `---
 type: note
 title: "${e.name.replaceAll('"', '\\"')}"
 pipedrive_id: "${e.id}"
 pipedrive_kind: "${e.kind}"
-source_uri: "${sourceUri(e)}"
+source_uri: "${sourceUri(sourceId, e)}"
 source_kind: "${SOURCE_KIND}"
 updated_at: "${e.updated_at}"
 ---
 
 # ${e.name}
 
-- Source: ${sourceUri(e)}
+- Source: ${sourceUri(sourceId, e)}
 - Kind: ${e.kind}
 - Updated: ${e.updated_at}
 
@@ -116,18 +123,18 @@ class PipedriveSource implements IngestionSource {
       ...this.snapshot.notes,
     ];
     for (const e of all) {
-      const content = markdownFor(e);
+      const content = markdownFor(this.id, e);
       ctx.emit({
         source_id: this.id,
         source_kind: this.kind,
-        source_uri: sourceUri(e),
+        source_uri: sourceUri(this.id, e),
         received_at: new Date().toISOString(),
         content_type: 'text/markdown',
         content,
         content_hash: computeContentHash(content),
         untrusted_payload: false,
         metadata: {
-          slug: slugFor(e),
+          slug: slugFor(this.id, e),
           entity_kind: e.kind,
           entity_id: e.id,
           updated_at: e.updated_at,
