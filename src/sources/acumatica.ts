@@ -119,8 +119,8 @@ async function loadSnapshot(dryRun: boolean, entity?: EntityCode): Promise<Acuma
 }
 
 export function createAcumaticaConnector(id = SOURCE_ID, displayName = 'Acumatica ERP', entity?: EntityCode): ConnectorSpec {
-  const requiredEnv = ['ACUMATICA_BASE_URL', 'ACUMATICA_USERNAME', 'ACUMATICA_PASSWORD'];
-  requiredEnv.push(...(entity ? [`ACUMATICA_TENANT_${entity}`, `ACUMATICA_BRANCH_${entity}`] : ['ACUMATICA_TENANT', 'ACUMATICA_BRANCH']));
+  const requiredEnv = ['ACUMATICA_BASE_URL', 'ACUMATICA_USERNAME', 'ACUMATICA_PASSWORD', 'ACUMATICA_TENANT'];
+  if (entity) requiredEnv.push(`ACUMATICA_BRANCH_${entity}`);
   return {
     id,
     displayName,

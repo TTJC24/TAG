@@ -1,34 +1,28 @@
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { config, entityBranch, entityTenant, requireEnv, type EntityCode } from '../../config.ts';
+import { config, entityBranch, requireEnv, type EntityCode } from '../../config.ts';
 import type { AcumaticaEntity, AcumaticaSnapshot } from '../acumatica.ts';
 
 /**
- * Disk-cached Acumatica sessions.
+ * Disk-cached Acumatica session.
  *
- * Acumatica enforces a per-user seat limit on the Contract API. Each
- * /entity/auth/login burns a seat until the session expires (or is
- * logged out). The live system has three separate companies, so session
- * cookies are cached per tenant. Lookup order is memory -> disk -> fresh
- * login. A request that returns 401/403 invalidates that tenant's cache
- * and triggers exactly one re-login + retry; a second auth failure throws.
+ * Acumatica enforces a per-user seat limit on the Contract API. Login uses
+ * the shared database/instance company value (ACUMATICA_TENANT, currently
+ * Production) plus one default branch. Each request then sets PX-CbApiBranch
+ * to select the branch-scoped data.
  */
 const SESSION_FILE = '.acumatica-session';
-const sessionCookies = new Map<string, string>();
+let sessionCookie: string | null = null;
 
 interface CachedSession {
-  cookie?: string;
-  cookies?: Record<string, string>;
+  cookie: string;
   savedAt: string;
 }
 
-function loadCachedSession(tenant: string): string | null {
+function loadCachedSession(): string | null {
   try {
     if (!existsSync(SESSION_FILE)) return null;
     const raw = readFileSync(SESSION_FILE, 'utf8');
     const parsed = JSON.parse(raw) as Partial<CachedSession>;
-    if (parsed.cookies && typeof parsed.cookies[tenant] === 'string' && parsed.cookies[tenant].length > 0) {
-      return parsed.cookies[tenant];
-    }
     return typeof parsed.cookie === 'string' && parsed.cookie.length > 0 ? parsed.cookie : null;
   } catch {
     // Corrupt cache file is non-fatal; fall through to fresh login.
@@ -36,47 +30,32 @@ function loadCachedSession(tenant: string): string | null {
   }
 }
 
-function saveCachedSession(tenant: string, cookie: string): void {
+function saveCachedSession(cookie: string): void {
   try {
-    let cookies: Record<string, string> = {};
-    if (existsSync(SESSION_FILE)) {
-      const parsed = JSON.parse(readFileSync(SESSION_FILE, 'utf8')) as Partial<CachedSession>;
-      if (parsed.cookies && typeof parsed.cookies === 'object') cookies = parsed.cookies;
-      if (parsed.cookie && typeof parsed.cookie === 'string') cookies[tenant] = parsed.cookie;
-    }
-    cookies[tenant] = cookie;
-    const payload: CachedSession = { cookies, savedAt: new Date().toISOString() };
+    const payload: CachedSession = { cookie, savedAt: new Date().toISOString() };
     writeFileSync(SESSION_FILE, JSON.stringify(payload, null, 2));
   } catch {
     // Caching is best-effort; a write failure should not block the live request.
   }
 }
 
-function clearCachedSession(tenant: string): void {
-  sessionCookies.delete(tenant);
+function clearCachedSession(): void {
+  sessionCookie = null;
   try {
-    if (!existsSync(SESSION_FILE)) return;
-    const parsed = JSON.parse(readFileSync(SESSION_FILE, 'utf8')) as Partial<CachedSession>;
-    const cookies = parsed.cookies && typeof parsed.cookies === 'object' ? parsed.cookies : {};
-    delete cookies[tenant];
-    if (Object.keys(cookies).length > 0) {
-      writeFileSync(SESSION_FILE, JSON.stringify({ cookies, savedAt: new Date().toISOString() }, null, 2));
-    } else {
-      unlinkSync(SESSION_FILE);
-    }
+    if (existsSync(SESSION_FILE)) unlinkSync(SESSION_FILE);
   } catch {
     // Stale file is non-fatal; the next login will overwrite it.
   }
 }
 
-async function ensureSession(tenant: string, branch: string): Promise<void> {
-  if (sessionCookies.has(tenant)) return;
-  const cached = loadCachedSession(tenant);
+async function ensureSession(): Promise<void> {
+  if (sessionCookie) return;
+  const cached = loadCachedSession();
   if (cached) {
-    sessionCookies.set(tenant, cached);
+    sessionCookie = cached;
     return;
   }
-  await login(tenant, branch);
+  await login();
 }
 
 function cookieHeader(raw: string | null): string {
@@ -101,13 +80,13 @@ function acumaticaLoginHint(status: number): string {
   }
 }
 
-async function login(tenant: string, branch: string): Promise<void> {
+async function login(): Promise<void> {
   const base = normalizeBaseUrl(requireEnv('ACUMATICA_BASE_URL'));
   const body: Record<string, string> = {
     name: requireEnv('ACUMATICA_USERNAME'),
     password: requireEnv('ACUMATICA_PASSWORD'),
-    company: tenant,
-    branch,
+    company: requireEnv('ACUMATICA_TENANT'),
+    branch: config.ACUMATICA_BRANCH || entityBranch('FS'),
   };
   let res: Response;
   try {
@@ -122,39 +101,37 @@ async function login(tenant: string, branch: string): Promise<void> {
     );
   }
   if (res.ok) {
-    const cookie = cookieHeader(res.headers.get('set-cookie'));
-    if (cookie) {
-      sessionCookies.set(tenant, cookie);
-      saveCachedSession(tenant, cookie);
-    }
+    sessionCookie = cookieHeader(res.headers.get('set-cookie'));
+    if (sessionCookie) saveCachedSession(sessionCookie);
     return;
   }
   const text = await res.text();
   const hint = acumaticaLoginHint(res.status);
   throw new Error(
-    `Acumatica login failed for tenant ${tenant} branch ${branch}: ${res.status} ${text.slice(0, 300)}${hint ? ` - ${hint}` : ''}`,
+    `Acumatica login failed for company ${config.ACUMATICA_TENANT}: ${res.status} ${text.slice(0, 300)}${hint ? ` - ${hint}` : ''}`,
   );
 }
 
-async function get<T>(tenant: string, branch: string, endpoint: string): Promise<T> {
-  return await getOnce<T>(tenant, branch, endpoint, /* allowReloginOnAuthFail */ true);
+async function get<T>(branch: string, endpoint: string): Promise<T> {
+  return await getOnce<T>(branch, endpoint, /* allowReloginOnAuthFail */ true);
 }
 
-async function getOnce<T>(tenant: string, branch: string, endpoint: string, allowReloginOnAuthFail: boolean): Promise<T> {
-  await ensureSession(tenant, branch);
+async function getOnce<T>(branch: string, endpoint: string, allowReloginOnAuthFail: boolean): Promise<T> {
+  await ensureSession();
   const base = normalizeBaseUrl(requireEnv('ACUMATICA_BASE_URL'));
   const res = await fetch(`${base}/entity/Default/${config.ACUMATICA_ENDPOINT_VERSION}/${endpoint}`, {
     headers: {
       Accept: 'application/json',
-      Cookie: sessionCookies.get(tenant) ?? '',
+      Cookie: sessionCookie ?? '',
+      'PX-CbApiBranch': branch,
     },
   });
-  // Expired or revoked session; clear the tenant cache, log in fresh, and retry once.
+  // Expired or revoked session; clear the cache, log in fresh, and retry once.
   // Second 401/403 falls through to the generic error below.
   if ((res.status === 401 || res.status === 403) && allowReloginOnAuthFail) {
-    clearCachedSession(tenant);
-    await login(tenant, branch);
-    return await getOnce<T>(tenant, branch, endpoint, /* allowReloginOnAuthFail */ false);
+    clearCachedSession();
+    await login();
+    return await getOnce<T>(branch, endpoint, /* allowReloginOnAuthFail */ false);
   }
   if (!res.ok) {
     const text = await res.text();
@@ -168,12 +145,12 @@ function normalizeBaseUrl(value: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-async function listAll(tenant: string, branch: string, entity: string, max = config.ACUMATICA_MAX_ITEMS): Promise<ContractRow[]> {
+async function listAll(branch: string, entity: string, max = config.ACUMATICA_MAX_ITEMS): Promise<ContractRow[]> {
   const rows: ContractRow[] = [];
   const top = Math.min(100, max);
   for (let skip = 0; rows.length < max; skip += top) {
     const sep = entity.includes('?') ? '&' : '?';
-    const page = await get<ContractRow[]>(tenant, branch, `${entity}${sep}$top=${top}&$skip=${skip}`);
+    const page = await get<ContractRow[]>(branch, `${entity}${sep}$top=${top}&$skip=${skip}`);
     rows.push(...page);
     if (page.length < top) break;
   }
@@ -232,14 +209,12 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
 }
 
 export async function fetchAcumaticaSnapshot(entity?: EntityCode): Promise<AcumaticaSnapshot> {
-  const tenant = entity ? entityTenant(entity) : requireEnv('ACUMATICA_TENANT');
-  const branch = entity ? entityBranch(entity) : requireEnv('ACUMATICA_BRANCH');
-  // Stale sessions invalidate themselves via the 401/403 retry path in getOnce().
+  const branch = entity ? entityBranch(entity) : config.ACUMATICA_BRANCH || entityBranch('FS');
   const [customers, orders, invoices, items] = await Promise.all([
-    listAll(tenant, branch, 'Customer', config.ACUMATICA_MAX_ITEMS),
-    listAll(tenant, branch, 'SalesOrder', config.ACUMATICA_MAX_ITEMS),
-    listAll(tenant, branch, 'SalesInvoice', config.ACUMATICA_MAX_ITEMS),
-    listAll(tenant, branch, 'StockItem', config.ACUMATICA_MAX_ITEMS),
+    listAll(branch, 'Customer', config.ACUMATICA_MAX_ITEMS),
+    listAll(branch, 'SalesOrder', config.ACUMATICA_MAX_ITEMS),
+    listAll(branch, 'SalesInvoice', config.ACUMATICA_MAX_ITEMS),
+    listAll(branch, 'StockItem', config.ACUMATICA_MAX_ITEMS),
   ]);
   return {
     customers: customers.map((r) => toEntity('customer', r)),

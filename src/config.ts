@@ -47,10 +47,7 @@ const schema = z.object({
   ACUMATICA_ENDPOINT_VERSION: z.string().default('24.200.001'),
   ACUMATICA_USERNAME: z.string().optional(),
   ACUMATICA_PASSWORD: z.string().optional(),
-  ACUMATICA_TENANT: z.string().optional(),
-  ACUMATICA_TENANT_FS: z.string().optional(),
-  ACUMATICA_TENANT_BLCS: z.string().optional(),
-  ACUMATICA_TENANT_USA: z.string().optional(),
+  ACUMATICA_TENANT: z.string().default('Production'),
   ACUMATICA_BRANCH: z.string().optional(),
   ACUMATICA_BRANCH_FS: z.string().optional(),
   ACUMATICA_BRANCH_BLCS: z.string().optional(),
@@ -86,11 +83,6 @@ export function requireEnv<K extends keyof Config>(key: K): NonNullable<Config[K
 }
 
 export type EntityCode = 'FS' | 'BLCS' | 'USA';
-
-export function entityTenant(entity: EntityCode): string {
-  const key = `ACUMATICA_TENANT_${entity}` as const;
-  return requireEnv(key);
-}
 
 export function entityBranch(entity: EntityCode): string {
   const key = `ACUMATICA_BRANCH_${entity}` as const;
