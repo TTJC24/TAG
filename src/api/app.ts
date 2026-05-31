@@ -30,6 +30,12 @@ export const app = new Hono();
 
 app.use('*', cors({ origin: '*' }));
 
+app.onError((err, c) => {
+  console.error('[api]', c.req.method, c.req.path, err);
+  const msg = err instanceof Error ? err.message : String(err);
+  return c.json({ error: msg, status: 500, hint: 'Run `bun run doctor` to check connectors and env.' }, 500);
+});
+
 app.use('*', async (c, next) => {
   if (c.req.path === '/health') return next();
   const auth = c.req.header('authorization') ?? '';
@@ -234,3 +240,5 @@ app.patch('/procurement/packets/:id', async (c) => {
     return c.json({ error: err instanceof Error ? err.message : String(err) }, 422);
   }
 });
+
+app.notFound((c) => c.json({ error: `route not found: ${c.req.method} ${c.req.path}`, status: 404, hint: 'See README for valid routes.' }, 404));
