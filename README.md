@@ -39,6 +39,12 @@ bun run ingest m365-mail --dry-run
 bun run ingest acumatica --dry-run
 ```
 
+## Prerequisites
+
+- [Bun](https://bun.sh) >= 1.3 (matches `bun-types` in `package.json`; this project does not run on Node)
+- Docker (for the Postgres 16 container shown below — or an existing Postgres 16 instance you can point `DATABASE_URL` at)
+- ZeroEntropy API key (embeddings) and Anthropic API key (LLM)
+
 ## Running
 
 ```bash
