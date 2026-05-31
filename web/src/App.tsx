@@ -204,6 +204,175 @@ interface AskAnswer {
   citations: Array<{ slug: string; source_id: string; title: string | null; source_uri: string | null }>;
 }
 
+interface DoctorConnector {
+  id: string;
+  status: 'live' | 'fixtures' | 'broken';
+  missingEnv: string[];
+  docCount?: number;
+}
+
+interface DoctorReport {
+  ok: boolean;
+  connectors: DoctorConnector[];
+  missingEnvByKey: Record<string, string[]>;
+  summary: { live: number; fixtures: number; broken: number };
+}
+
+type DoctorState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; report: DoctorReport }
+  | { kind: 'unsupported' } // /doctor returned 404 (older API)
+  | { kind: 'error'; message: string };
+
+async function fetchDoctorReport(): Promise<DoctorReport | 'unsupported'> {
+  let res: Response;
+  try {
+    res = await fetch('/api/doctor', {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      /failed to fetch|networkerror|load failed/i.test(msg)
+        ? 'Cannot reach the API. — Is `bun run api` running on port 4317?'
+        : msg,
+    );
+  }
+  if (res.status === 404) return 'unsupported';
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText || 'Error'}`);
+  return (await res.json()) as DoctorReport;
+}
+
+function overallHealth(report: DoctorReport): 'ok' | 'warn' | 'fail' {
+  if (report.summary.broken > 0) return 'fail';
+  if (report.summary.live === 0 || report.summary.fixtures > 0) return 'warn';
+  return 'ok';
+}
+
+function StatusDot({ kind, title }: { kind: 'ok' | 'warn' | 'fail'; title?: string }) {
+  const color = kind === 'ok' ? '#16a34a' : kind === 'warn' ? '#d97706' : '#dc2626';
+  return (
+    <span
+      role="img"
+      aria-label={kind}
+      title={title ?? kind}
+      style={{
+        display: 'inline-block',
+        width: '0.7rem',
+        height: '0.7rem',
+        borderRadius: '50%',
+        background: color,
+        marginRight: '0.4rem',
+        verticalAlign: 'middle',
+      }}
+    />
+  );
+}
+
+function connectorDotKind(status: DoctorConnector['status']): 'ok' | 'warn' | 'fail' {
+  if (status === 'live') return 'ok';
+  if (status === 'fixtures') return 'warn';
+  return 'fail';
+}
+
+function Health({ state, onRefresh }: { state: DoctorState; onRefresh: () => void }) {
+  const loading = state.kind === 'loading';
+  return (
+    <div>
+      <div className="row" style={{ alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: '.9rem', color: 'var(--muted)' }}>
+          Connector and environment health, mirroring <code>bun run doctor</code>.
+        </div>
+        <button type="button" className="button" onClick={onRefresh} disabled={loading}>
+          {loading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
+      {state.kind === 'loading' && (
+        <div className="skeleton" aria-live="polite" aria-busy="true">
+          Checking connector health...
+        </div>
+      )}
+      {state.kind === 'error' && <ErrorDisplay message={state.message} />}
+      {state.kind === 'ready' && (() => {
+        const r = state.report;
+        const overall = overallHealth(r);
+        const overallLabel =
+          overall === 'ok'
+            ? 'All connectors live'
+            : overall === 'warn'
+              ? 'Some connectors in fixtures mode'
+              : 'One or more connectors broken';
+        return (
+          <div style={{ marginTop: '1rem' }}>
+            <div
+              className="result"
+              style={{ display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}
+            >
+              <span style={{ fontWeight: 600 }}>
+                <StatusDot kind={overall} title={overallLabel} />
+                {overallLabel}
+              </span>
+              <span style={{ color: 'var(--muted)', fontSize: '.85rem' }}>
+                {r.summary.live} live · {r.summary.fixtures} fixtures · {r.summary.broken} broken
+              </span>
+            </div>
+            {r.connectors.length === 0 && (
+              <div className="empty">No connectors registered.</div>
+            )}
+            {r.connectors.map((c) => {
+              const isFixtures = c.status === 'fixtures';
+              return (
+                <div
+                  key={c.id}
+                  className="result"
+                  style={{
+                    borderStyle: isFixtures ? 'dashed' : 'solid',
+                    opacity: c.status === 'broken' ? 0.92 : 1,
+                  }}
+                >
+                  <h3 style={{ display: 'flex', alignItems: 'center' }}>
+                    <StatusDot kind={connectorDotKind(c.status)} title={c.status} />
+                    {formatSource(c.id)}
+                    <span
+                      className="chip"
+                      style={{ marginLeft: '.5rem', cursor: 'default', textTransform: 'uppercase', fontSize: '.65rem' }}
+                    >
+                      {c.status}
+                    </span>
+                  </h3>
+                  <div className="meta">
+                    {c.id}
+                    {typeof c.docCount === 'number' ? ` · ${c.docCount} docs` : ''}
+                  </div>
+                  {c.missingEnv.length > 0 && (
+                    <div className="snippet">
+                      <span style={{ color: 'var(--muted)' }}>Missing env: </span>
+                      {c.missingEnv.map((k, i) => (
+                        <code
+                          key={k}
+                          style={{
+                            background: 'rgba(0,0,0,.08)',
+                            padding: '0 .3rem',
+                            borderRadius: 4,
+                            marginRight: i === c.missingEnv.length - 1 ? 0 : '.25rem',
+                          }}
+                        >
+                          {k}
+                        </code>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 function SourceChips({
   value,
   onChange,
@@ -530,11 +699,34 @@ function Ask({
 }
 
 export function App() {
-  const [tab, setTab] = useState<'search' | 'ask'>('search');
+  const [tab, setTab] = useState<'search' | 'ask' | 'health'>('search');
   const [apiOk, setApiOk] = useState<boolean | null>(null);
   const [healthChecking, setHealthChecking] = useState(false);
   const [availableSources, setAvailableSources] = useState<string[]>(FALLBACK_SOURCES);
   const [connectors, setConnectors] = useState<Record<string, ConnectorStatusBrief>>({});
+  const [doctor, setDoctor] = useState<DoctorState>({ kind: 'idle' });
+  const doctorUnsupportedWarned = useRef(false);
+
+  async function loadDoctor() {
+    setDoctor({ kind: 'loading' });
+    try {
+      const result = await fetchDoctorReport();
+      if (result === 'unsupported') {
+        if (!doctorUnsupportedWarned.current) {
+          doctorUnsupportedWarned.current = true;
+          console.warn('/api/doctor not available; hiding Health tab. Update the API to enable it.');
+        }
+        setDoctor({ kind: 'unsupported' });
+      } else {
+        setDoctor({ kind: 'ready', report: result });
+      }
+    } catch (err) {
+      setDoctor({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 
   async function checkHealth() {
     setHealthChecking(true);
@@ -550,10 +742,18 @@ export function App() {
 
   useEffect(() => {
     void checkHealth();
+    void loadDoctor();
   }, []);
+
+  const healthAvailable = doctor.kind !== 'unsupported';
+
+  useEffect(() => {
+    if (!healthAvailable && tab === 'health') setTab('search');
+  }, [healthAvailable, tab]);
 
   useEffect(() => {
     function focusCurrentInput(): void {
+      if (tab === 'health') return;
       const id = tab === 'search' ? 'q-search' : 'q-ask';
       const el = document.getElementById(id);
       if (el instanceof HTMLInputElement) {
@@ -584,7 +784,14 @@ export function App() {
           (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
         if (isTypingTarget(e.target)) return;
         e.preventDefault();
-        setTab(e.key === 'ArrowLeft' ? 'search' : 'ask');
+        const order: Array<'search' | 'ask' | 'health'> = healthAvailable
+          ? ['search', 'ask', 'health']
+          : ['search', 'ask'];
+        const idx = order.indexOf(tab);
+        const safeIdx = idx === -1 ? 0 : idx;
+        const delta = e.key === 'ArrowLeft' ? -1 : 1;
+        const next = order[(safeIdx + delta + order.length) % order.length]!;
+        setTab(next);
         return;
       }
 
@@ -598,7 +805,7 @@ export function App() {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [tab]);
+  }, [tab, healthAvailable]);
   useEffect(() => {
     apiGet<{ sources: string[]; connectors: ConnectorStatusBrief[] }>('/sources')
       .then((data) => {
@@ -643,11 +850,29 @@ export function App() {
         <button className={`tab ${tab === 'ask' ? 'active' : ''}`} onClick={() => setTab('ask')}>
           Ask
         </button>
+        {healthAvailable && (
+          <button
+            className={`tab ${tab === 'health' ? 'active' : ''}`}
+            onClick={() => setTab('health')}
+            title="Connector health"
+          >
+            Health
+            {doctor.kind === 'ready' && (
+              <span style={{ marginLeft: '.4rem' }}>
+                <StatusDot kind={overallHealth(doctor.report)} />
+              </span>
+            )}
+          </button>
+        )}
       </div>
-      {tab === 'search' ? (
+      {tab === 'search' && (
         <Search availableSources={availableSources} connectors={connectors} />
-      ) : (
+      )}
+      {tab === 'ask' && (
         <Ask availableSources={availableSources} connectors={connectors} />
+      )}
+      {tab === 'health' && healthAvailable && (
+        <Health state={doctor} onRefresh={() => void loadDoctor()} />
       )}
     </div>
   );
