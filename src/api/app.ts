@@ -8,7 +8,7 @@ import { agentChat, createAgentProcurementWorkflow } from '../agent/chat.ts';
 import { getBrainStatus } from '../brainStatus.ts';
 import { hybridSearch } from '../gbrainCompat.ts';
 import { listConnectorIds } from '../sources/registry.ts';
-import { getConnectorStatuses } from '../sources/status.ts';
+import { getConnectorStatuses, type ConnectorStatus } from '../sources/status.ts';
 import { structureProcurementRequest } from '../procurement/structure.ts';
 import {
   createProcurementPacket,
@@ -78,6 +78,49 @@ app.get('/sources', async (c) => c.json({
 app.get('/status', async (c) => c.json(await getBrainStatus()));
 
 app.get('/connectors/status', async (c) => c.json({ connectors: await getConnectorStatuses() }));
+
+// Mirrors the CLI `bun run doctor` JSON output and adds aggregate summary +
+// reverse-lookup of missing env keys -> connector ids that need them.
+async function buildDoctorReport(): Promise<{
+  ok: boolean;
+  connectors: Array<{ id: string; status: 'live' | 'fixtures' | 'broken'; missingEnv: string[]; docCount?: number }>;
+  missingEnvByKey: Record<string, string[]>;
+  summary: { live: number; fixtures: number; broken: number };
+}> {
+  const statuses: ConnectorStatus[] = await getConnectorStatuses();
+  const connectorsOut = statuses.map((s) => {
+    const status: 'live' | 'fixtures' | 'broken' = s.liveReady
+      ? 'live'
+      : s.fixtureAvailable
+        ? 'fixtures'
+        : 'broken';
+    return {
+      id: s.id,
+      status,
+      missingEnv: s.missingEnv,
+      docCount: s.documentCount,
+    };
+  });
+  const missingEnvByKey: Record<string, string[]> = {};
+  for (const s of statuses) {
+    for (const key of s.missingEnv) {
+      const existing = missingEnvByKey[key];
+      if (existing) existing.push(s.id);
+      else missingEnvByKey[key] = [s.id];
+    }
+  }
+  const live = connectorsOut.filter((c) => c.status === 'live').length;
+  const fixtures = connectorsOut.filter((c) => c.status === 'fixtures').length;
+  const broken = connectorsOut.filter((c) => c.status === 'broken').length;
+  return {
+    ok: statuses.every((s) => s.fixtureAvailable),
+    connectors: connectorsOut,
+    missingEnvByKey,
+    summary: { live, fixtures, broken },
+  };
+}
+
+app.get('/doctor', async (c) => c.json(await buildDoctorReport()));
 
 app.post('/search', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
