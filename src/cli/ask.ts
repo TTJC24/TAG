@@ -1,11 +1,13 @@
 #!/usr/bin/env bun
 import { askBrain } from '../ask.ts';
 import type { MemoryScope } from '../memory.ts';
+import { listConnectorIds } from '../sources/registry.ts';
 
 function parseArgs(argv: string[]): { question: string; sources: string[]; entity?: MemoryScope; json: boolean } {
   const args = argv.slice(2);
   if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
     console.error(`usage: bun run src/cli/ask.ts <question> [--source <id>...] [--entity fs|blcs|usa|shared] [--json]`);
+    console.error(`known sources: ${listConnectorIds().join(', ')}`);
     process.exit(args.length === 0 ? 2 : 0);
   }
   const sources: string[] = [];
