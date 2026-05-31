@@ -86,7 +86,7 @@ async function login(): Promise<void> {
     name: requireEnv('ACUMATICA_USERNAME'),
     password: requireEnv('ACUMATICA_PASSWORD'),
     company: requireEnv('ACUMATICA_TENANT'),
-    branch: config.ACUMATICA_BRANCH || entityBranch('FS'),
+    branch: entityBranch('FS'),
   };
   let res: Response;
   try {
@@ -209,7 +209,7 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
 }
 
 export async function fetchAcumaticaSnapshot(entity?: EntityCode): Promise<AcumaticaSnapshot> {
-  const branch = entity ? entityBranch(entity) : config.ACUMATICA_BRANCH || entityBranch('FS');
+  const branch = entity ? entityBranch(entity) : entityBranch('FS');
   const [customers, orders, invoices, items] = await Promise.all([
     listAll(branch, 'Customer', config.ACUMATICA_MAX_ITEMS),
     listAll(branch, 'SalesOrder', config.ACUMATICA_MAX_ITEMS),
