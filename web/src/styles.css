@@ -40,9 +40,15 @@ h1 { font-size: 1.4rem; margin: 0 0 1rem; }
 .sources { margin: .75rem 0; display: flex; gap: .5rem; flex-wrap: wrap; }
 .chip {
   font-size: .8rem; padding: .2rem .55rem; border: 1px solid var(--border);
-  border-radius: 999px; cursor: pointer; user-select: none; background: var(--card);
+  border-radius: 999px; cursor: pointer; background: var(--card); color: var(--fg);
+  font-family: inherit;
 }
 .chip.on { background: var(--accent); color: white; border-color: var(--accent); }
+.chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
 .result {
   background: var(--card); border: 1px solid var(--border);
   border-radius: 8px; padding: .75rem 1rem; margin: .5rem 0;

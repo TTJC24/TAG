@@ -134,7 +134,7 @@ function SourceChips({
   connectors: Record<string, ConnectorStatusBrief>;
 }) {
   return (
-    <div className="sources">
+    <div className="sources" role="group" aria-label="Filter by source">
       {sources.map((s) => {
         const on = value.has(s);
         const status = connectors[s];
@@ -144,10 +144,12 @@ function SourceChips({
             }${status.liveReady ? ' · live' : status.fixtureAvailable ? ' · fixture' : ''}`
           : formatSource(s);
         return (
-          <span
+          <button
             key={s}
+            type="button"
             className={`chip ${on ? 'on' : ''}`}
             title={title}
+            aria-pressed={on}
             onClick={() => {
               const next = new Set(value);
               if (on) next.delete(s);
@@ -156,7 +158,7 @@ function SourceChips({
             }}
           >
             {formatSource(s)}
-          </span>
+          </button>
         );
       })}
     </div>
@@ -196,18 +198,27 @@ function Search({
 
   return (
     <div>
-      <div className="row">
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run();
+        }}
+      >
+        <label htmlFor="q-search" className="sr-only">
+          Search query
+        </label>
         <input
+          id="q-search"
           className="input"
           placeholder="Search the company brain..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && run()}
         />
-        <button className="button" onClick={run} disabled={loading}>
+        <button className="button" type="submit" disabled={loading}>
           {loading ? 'Searching...' : 'Search'}
         </button>
-      </div>
+      </form>
       <SourceChips
         value={sources}
         onChange={setSources}
@@ -265,18 +276,27 @@ function Ask({
 
   return (
     <div>
-      <div className="row">
+      <form
+        className="row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run();
+        }}
+      >
+        <label htmlFor="q-ask" className="sr-only">
+          Question
+        </label>
         <input
+          id="q-ask"
           className="input"
           placeholder="Ask a question..."
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && run()}
         />
-        <button className="button" onClick={run} disabled={loading}>
+        <button className="button" type="submit" disabled={loading}>
           {loading ? 'Asking...' : 'Ask'}
         </button>
-      </div>
+      </form>
       <SourceChips
         value={sources}
         onChange={setSources}
