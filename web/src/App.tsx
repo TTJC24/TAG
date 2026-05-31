@@ -226,6 +226,17 @@ function Search({
         connectors={connectors}
       />
       {error && <ErrorDisplay message={error} />}
+      {loading && (
+        <div className="skeleton" aria-live="polite" aria-busy="true">
+          Searching the index...
+        </div>
+      )}
+      {!loading && hits === null && !error && (
+        <div className="empty">
+          Try <em>"vendor onboarding"</em> or pick a source above. Examples:{' '}
+          <em>"Acme pump terms"</em>, <em>"last week's calendar"</em>.
+        </div>
+      )}
       {hits && hits.length === 0 && <div>No results.</div>}
       {hits?.map((h, i) => (
         <div key={`${h.slug}-${i}`} className="result">
@@ -304,6 +315,19 @@ function Ask({
         connectors={connectors}
       />
       {error && <ErrorDisplay message={error} />}
+      {loading && (
+        <div className="skeleton" aria-live="polite" aria-busy="true">
+          Thinking... this can take 10-30 seconds on a cold cache.
+        </div>
+      )}
+      {!loading && answer === null && !error && (
+        <div className="empty">
+          Ask a natural-language question grounded in your sources. Cold queries
+          can take 10-30 seconds; subsequent asks are faster. Examples:{' '}
+          <em>"What did we agree with Acme on payment terms?"</em>,{' '}
+          <em>"Summarize this week's customer calls."</em>
+        </div>
+      )}
       {answer && (
         <>
           <div className="answer">{answer.text}</div>
@@ -328,12 +352,24 @@ function Ask({
 export function App() {
   const [tab, setTab] = useState<'search' | 'ask'>('search');
   const [apiOk, setApiOk] = useState<boolean | null>(null);
+  const [healthChecking, setHealthChecking] = useState(false);
   const [availableSources, setAvailableSources] = useState<string[]>(FALLBACK_SOURCES);
   const [connectors, setConnectors] = useState<Record<string, ConnectorStatusBrief>>({});
+
+  async function checkHealth() {
+    setHealthChecking(true);
+    try {
+      const r = await fetch('/api/health');
+      setApiOk(r.ok);
+    } catch {
+      setApiOk(false);
+    } finally {
+      setHealthChecking(false);
+    }
+  }
+
   useEffect(() => {
-    fetch('/api/health')
-      .then((r) => setApiOk(r.ok))
-      .catch(() => setApiOk(false));
+    void checkHealth();
   }, []);
   useEffect(() => {
     apiGet<{ sources: string[]; connectors: ConnectorStatusBrief[] }>('/sources')
@@ -355,9 +391,23 @@ export function App() {
   }, []);
   return (
     <div className="container">
-      <h1>
-        company-brain {apiOk === false && <span className="error">(API offline)</span>}
-      </h1>
+      <h1>company-brain</h1>
+      {apiOk === false && (
+        <div className="banner-error" role="alert">
+          <span>
+            API unreachable at <code>/api</code>. Make sure{' '}
+            <code>bun run api</code> is running on port 4317.
+          </span>
+          <button
+            type="button"
+            className="button"
+            onClick={() => void checkHealth()}
+            disabled={healthChecking}
+          >
+            {healthChecking ? 'Checking...' : 'Retry'}
+          </button>
+        </div>
+      )}
       <div className="tabs">
         <button className={`tab ${tab === 'search' ? 'active' : ''}`} onClick={() => setTab('search')}>
           Search

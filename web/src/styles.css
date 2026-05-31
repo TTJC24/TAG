@@ -62,3 +62,29 @@ h1 { font-size: 1.4rem; margin: 0 0 1rem; }
 .error { color: #dc2626; }
 .error .hint { color: var(--muted); font-size: .85rem; margin-top: .2rem; font-weight: normal; }
 .hint { color: var(--muted); font-size: .85rem; }
+.empty {
+  margin: 1rem 0; padding: 1rem; border: 1px dashed var(--border);
+  border-radius: 8px; color: var(--muted); font-size: .9rem; line-height: 1.5;
+}
+.empty em { color: var(--fg); font-style: normal; font-weight: 500; }
+.skeleton {
+  margin: 1rem 0; padding: 1rem; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--card); color: var(--muted);
+  font-size: .9rem; animation: pulse 1.4s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .55; }
+}
+.banner-error {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  margin: 0 0 1rem; padding: .75rem 1rem;
+  border: 1px solid #dc2626; border-radius: 8px;
+  background: rgba(220, 38, 38, .08); color: #dc2626;
+  font-size: .9rem;
+}
+.banner-error code {
+  background: rgba(0, 0, 0, .08); padding: .05rem .3rem; border-radius: 4px;
+  font-size: .85em;
+}
+.banner-error .button { flex-shrink: 0; }
