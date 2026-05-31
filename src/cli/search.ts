@@ -10,6 +10,8 @@ function parseArgs(argv: string[]): { query: string; sources: string[]; limit: n
     console.error(`known sources: ${listConnectorIds().join(', ')}`);
     process.exit(args.length === 0 ? 2 : 0);
   }
+  const validSources = listConnectorIds();
+  const validSourceSet = new Set(validSources);
   const sources: string[] = [];
   let limit = 10;
   let json = process.env.npm_config_json === 'true';
@@ -18,19 +20,35 @@ function parseArgs(argv: string[]): { query: string; sources: string[]; limit: n
     const a = args[i];
     if (a === '--source') {
       const v = args[i + 1];
-      if (!v) throw new Error('--source requires a value');
+      if (!v || v.startsWith('--')) {
+        throw new Error(`--source requires a value (saw: ${v ?? '<end of args>'})`);
+      }
+      if (!validSourceSet.has(v)) {
+        throw new Error(`unknown --source '${v}'. valid: ${validSources.join(', ')}`);
+      }
       sources.push(v);
       i += 1;
     } else if (a === '--limit') {
       const v = args[i + 1];
-      if (!v) throw new Error('--limit requires a value');
-      limit = Number.parseInt(v, 10);
+      if (!v || v.startsWith('--')) {
+        throw new Error(`--limit requires a value (saw: ${v ?? '<end of args>'})`);
+      }
+      const n = Number(v);
+      if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1 || n > 1000) {
+        throw new Error(`--limit must be a positive integer 1-1000, got '${v}'`);
+      }
+      limit = n;
       i += 1;
     } else if (a === '--json') {
       json = true;
+    } else if (a.startsWith('--')) {
+      throw new Error("unknown flag '" + a + "'. valid flags: --source, --limit, --json");
     } else {
       queryParts.push(a);
     }
+  }
+  if (queryParts.length === 0) {
+    throw new Error('missing <query>. usage: bun run search <query> [--source <id>] [--limit N] [--json]');
   }
   return { query: queryParts.join(' '), sources, limit, json };
 }
