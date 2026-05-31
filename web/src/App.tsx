@@ -305,6 +305,9 @@ function Search({
           {loading ? 'Searching...' : 'Search'}
         </button>
       </form>
+      <div className="kbd-hint" aria-hidden="true">
+        Press <kbd>/</kbd> to focus search · <kbd>Ctrl</kbd>+<kbd>K</kbd> also works · <kbd>Ctrl</kbd>+<kbd>{'←'}</kbd>/<kbd>{'→'}</kbd> switch tabs
+      </div>
       <RecentRow history={history} onPick={setQuery} onClear={clearHistory} />
       <SourceChips
         value={sources}
@@ -423,6 +426,9 @@ function Ask({
           {loading ? 'Asking...' : 'Ask'}
         </button>
       </form>
+      <div className="kbd-hint" aria-hidden="true">
+        Press <kbd>/</kbd> to focus · <kbd>Ctrl</kbd>+<kbd>K</kbd> also works · <kbd>Ctrl</kbd>+<kbd>{'←'}</kbd>/<kbd>{'→'}</kbd> switch tabs
+      </div>
       <RecentRow history={history} onPick={setQuestion} onClear={clearHistory} />
       <SourceChips
         value={sources}
@@ -501,6 +507,54 @@ export function App() {
   useEffect(() => {
     void checkHealth();
   }, []);
+
+  useEffect(() => {
+    function focusCurrentInput(): void {
+      const id = tab === 'search' ? 'q-search' : 'q-ask';
+      const el = document.getElementById(id);
+      if (el instanceof HTMLInputElement) {
+        el.focus();
+        el.select();
+      }
+    }
+
+    function isTypingTarget(target: EventTarget | null): boolean {
+      if (!(target instanceof HTMLElement)) return false;
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+      if (target.isContentEditable) return true;
+      return false;
+    }
+
+    function onKeyDown(e: KeyboardEvent): void {
+      // Cmd/Ctrl+K — focus current input (works even while typing).
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        focusCurrentInput();
+        return;
+      }
+
+      // Cmd/Ctrl+ArrowLeft / ArrowRight — switch tabs.
+      // Only fire when NOT typing in an input — typing users expect word-jump behavior.
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey &&
+          (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        if (isTypingTarget(e.target)) return;
+        e.preventDefault();
+        setTab(e.key === 'ArrowLeft' ? 'search' : 'ask');
+        return;
+      }
+
+      // "/" — focus current input, but only when not already typing & no modifiers.
+      if (e.key === '/' && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (isTypingTarget(e.target)) return;
+        e.preventDefault();
+        focusCurrentInput();
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [tab]);
   useEffect(() => {
     apiGet<{ sources: string[]; connectors: ConnectorStatusBrief[] }>('/sources')
       .then((data) => {

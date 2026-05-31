@@ -104,3 +104,13 @@ a:hover { text-decoration: underline; }
   font-size: .85em;
 }
 .banner-error .button { flex-shrink: 0; }
+.kbd-hint {
+  margin: .4rem 0 0; color: var(--muted); font-size: .75rem; line-height: 1.4;
+}
+.kbd-hint kbd {
+  display: inline-block; padding: 0 .3rem; min-width: 1.1em;
+  border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px;
+  background: var(--card); color: var(--fg);
+  font: inherit; font-size: .72rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-align: center;
+}
