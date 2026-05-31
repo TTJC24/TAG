@@ -98,6 +98,88 @@ async function apiGet<T>(path: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+const HISTORY_LIMIT = 10;
+const RECENT_DISPLAY = 5;
+
+function loadHistory(key: string): string[] {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((v): v is string => typeof v === 'string').slice(0, HISTORY_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(key: string, items: string[]): void {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(items));
+  } catch {
+    // ignore — storage may be unavailable (private mode, quota, etc.)
+  }
+}
+
+function useQueryHistory(key: string): {
+  history: string[];
+  push: (entry: string) => void;
+  clear: () => void;
+} {
+  const [history, setHistory] = useState<string[]>(() => loadHistory(key));
+
+  useEffect(() => {
+    saveHistory(key, history);
+  }, [key, history]);
+
+  function push(entry: string): void {
+    const trimmed = entry.trim();
+    if (!trimmed) return;
+    setHistory((prev) => {
+      const deduped = prev.filter((q) => q !== trimmed);
+      return [trimmed, ...deduped].slice(0, HISTORY_LIMIT);
+    });
+  }
+
+  function clear(): void {
+    setHistory([]);
+  }
+
+  return { history, push, clear };
+}
+
+function RecentRow({
+  history,
+  onPick,
+  onClear,
+}: {
+  history: string[];
+  onPick: (entry: string) => void;
+  onClear: () => void;
+}) {
+  if (history.length === 0) return null;
+  const visible = history.slice(0, RECENT_DISPLAY);
+  return (
+    <div className="recent" role="group" aria-label="Recent queries">
+      <span className="recent-label">Recent:</span>
+      {visible.map((entry) => (
+        <button
+          key={entry}
+          type="button"
+          className="chip"
+          title={entry}
+          onClick={() => onPick(entry)}
+        >
+          {entry.length > 40 ? `${entry.slice(0, 40)}...` : entry}
+        </button>
+      ))}
+      <button type="button" className="link-button" onClick={onClear}>
+        Clear
+      </button>
+    </div>
+  );
+}
+
 function ErrorDisplay({ message }: { message: string }) {
   const idx = message.indexOf(' — ');
   if (idx === -1) return <div className="error">{message}</div>;
@@ -177,11 +259,15 @@ function Search({
   const [hits, setHits] = useState<SearchHit[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { history, push: pushHistory, clear: clearHistory } = useQueryHistory(
+    'company-brain.history.search',
+  );
 
   async function run() {
     if (!query.trim()) return;
     setLoading(true);
     setError(null);
+    pushHistory(query);
     try {
       const data = await apiPost<{ hits: SearchHit[] }>('/search', {
         query,
@@ -219,6 +305,7 @@ function Search({
           {loading ? 'Searching...' : 'Search'}
         </button>
       </form>
+      <RecentRow history={history} onPick={setQuery} onClear={clearHistory} />
       <SourceChips
         value={sources}
         onChange={setSources}
@@ -280,6 +367,9 @@ function Ask({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const { history, push: pushHistory, clear: clearHistory } = useQueryHistory(
+    'company-brain.history.ask',
+  );
 
   async function handleCopy() {
     if (!answer) return;
@@ -296,6 +386,7 @@ function Ask({
     if (!question.trim()) return;
     setLoading(true);
     setError(null);
+    pushHistory(question);
     try {
       const data = await apiPost<AskAnswer>('/ask', {
         question,
@@ -332,6 +423,7 @@ function Ask({
           {loading ? 'Asking...' : 'Ask'}
         </button>
       </form>
+      <RecentRow history={history} onPick={setQuestion} onClear={clearHistory} />
       <SourceChips
         value={sources}
         onChange={setSources}

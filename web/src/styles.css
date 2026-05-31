@@ -38,6 +38,10 @@ h1 { font-size: 1.4rem; margin: 0 0 1rem; }
 }
 .button[disabled] { opacity: .5; cursor: progress; }
 .sources { margin: .75rem 0; display: flex; gap: .5rem; flex-wrap: wrap; }
+.recent {
+  margin: .5rem 0 0; display: flex; gap: .4rem; flex-wrap: wrap; align-items: center;
+}
+.recent-label { font-size: .8rem; color: var(--muted); }
 .chip {
   font-size: .8rem; padding: .2rem .55rem; border: 1px solid var(--border);
   border-radius: 999px; cursor: pointer; background: var(--card); color: var(--fg);
