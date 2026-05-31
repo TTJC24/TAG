@@ -6,7 +6,8 @@ import { listConnectorIds } from '../sources/registry.ts';
 function parseArgs(argv: string[]): { question: string; sources: string[]; entity?: MemoryScope; json: boolean } {
   const args = argv.slice(2);
   if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
-    console.error(`usage: bun run src/cli/ask.ts <question> [--source <id>...] [--entity fs|blcs|usa|shared] [--json]`);
+    console.error(`usage: bun run ask -- <question> [--source <id>...] [--entity <scope>] [--json]`);
+    console.error(`--entity <scope>   scope answers to one entity's memory (fs|blcs|usa|shared)`);
     console.error(`known sources: ${listConnectorIds().join(', ')}`);
     process.exit(args.length === 0 ? 2 : 0);
   }
