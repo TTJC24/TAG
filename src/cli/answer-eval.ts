@@ -3,6 +3,7 @@ import { existsSync, unlinkSync } from 'node:fs';
 import { agentChat } from '../agent/chat.ts';
 import { askBrain, type BrainAnswer } from '../ask.ts';
 import type { PlannedAction } from '../procurement/actionPlan.ts';
+import { runFixtureCheck } from './fixture-check.ts';
 import { runIngestion } from '../ingest/run.ts';
 import { connectors } from '../sources/registry.ts';
 import { openEngine } from '../engine.ts';
@@ -238,6 +239,18 @@ const askCases: AskExpectation[] = [
       if (answer.confidence === 'low') {
         assertText(answer, /could not find a solid order match/i, 'missing SO shorthand ask should refuse cleanly');
       }
+    },
+  },
+  {
+    name: 'open SO count answers count not order detail spray',
+    question: 'how many open SOs does ACME have',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'order_lookup', `expected order_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /I found 1 open order/i, 'open SO count did not answer with a count');
+      assertText(answer, /SO-100231/i, 'open SO count did not name the matching order');
+      assertNotText(answer, /Order total:|Requested on:|Customer ID:/i, 'open SO count leaked order detail fields');
     },
   },
   {
@@ -543,6 +556,19 @@ const askCases: AskExpectation[] = [
     },
   },
   {
+    name: 'list open deals returns pipeline list not miss',
+    question: 'list open deals for ACME',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'pipeline_lookup', `expected pipeline_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /I found 1 open deal/i, 'open deal list did not render as a list result');
+      assertText(answer, /ACME Barricades LC - Wedge anchor supply FY26/i, 'open deal list did not include the ACME deal');
+      assertNotText(answer, /could not find a solid deal\/pipeline match|Terms:|Credit limit:/i, 'open deal list missed or fell back to account fields');
+      assert(answer.citations.every((citation) => citation.source_id === 'pipedrive'), 'open deal list should cite only Pipedrive pipeline evidence');
+    },
+  },
+  {
     name: 'phone ask does not answer with generic account summary when phone is missing',
     question: 'phone number for acme',
     assert(answer) {
@@ -578,6 +604,19 @@ const askCases: AskExpectation[] = [
         answer.citations.every((citation) => ['acumatica', 'pipedrive'].includes(citation.source_id)),
         'credit ask should stay inside revenue system-of-record sources',
       );
+    },
+  },
+  {
+    name: 'terms and credit comparison stays on resolved customer only',
+    question: 'compare ACME terms and credit limit',
+    assert(answer) {
+      assertCleanAnswer(answer);
+      assert(answer.intent === 'customer_lookup', `expected customer_lookup, got ${answer.intent}`);
+      assert(answer.scope === 'revenue_ops', `expected revenue_ops scope, got ${answer.scope}`);
+      assertText(answer, /Terms:\s*N30/i, 'terms and credit comparison did not answer terms');
+      assertText(answer, /Credit limit:\s*20000/i, 'terms and credit comparison did not answer credit limit');
+      assertNoCitation(answer, /Globotech|Sanford Hardware|Toole/i, 'terms and credit comparison leaked unrelated customer citation');
+      assertNotText(answer, /Status:\s*Active|Contact email:/i, 'terms and credit comparison leaked unrequested account fields');
     },
   },
   {
@@ -1169,6 +1208,28 @@ async function runAgentCase(): Promise<{ name: string; ok: true }> {
 }
 
 async function main(): Promise<void> {
+  // Regression preflight: validate fixtures before any setup or case runs.
+  // Lives outside the `cases` array so the pass/skipped/total tally is
+  // unchanged when fixtures are clean. Any fixture issue fails the eval
+  // with a non-zero exit before ensureFixtureBrain ingests anything —
+  // guaranteeing downstream cases never see (and never silently work
+  // around) a malformed fixture.
+  const fixtureCheck = runFixtureCheck();
+  if (!fixtureCheck.ok) {
+    console.error(JSON.stringify({
+      ok: false,
+      preflight: {
+        'fixtures:check': {
+          ok: false,
+          fixturesChecked: fixtureCheck.summary.fixturesChecked,
+          itemsChecked: fixtureCheck.summary.itemsChecked,
+          issues: fixtureCheck.issues,
+        },
+      },
+    }, null, 2));
+    process.exit(1);
+  }
+
   await ensureFixtureBrain();
   const askResults = await runAskCases();
   const agentResult = await runAgentCase();
@@ -1177,6 +1238,13 @@ async function main(): Promise<void> {
   const passed = cases.length - skipped;
   console.log(JSON.stringify({
     ok: true,
+    preflight: {
+      'fixtures:check': {
+        ok: true,
+        fixturesChecked: fixtureCheck.summary.fixturesChecked,
+        itemsChecked: fixtureCheck.summary.itemsChecked,
+      },
+    },
     summary: { passed, skipped, total: cases.length },
     cases,
   }, null, 2));

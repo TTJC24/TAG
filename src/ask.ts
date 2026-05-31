@@ -442,6 +442,7 @@ function usefulHits(
   return ranked
     .filter((hit) => Number(hit.score ?? 0) >= threshold || titleMatches(hit, terms))
     .filter((hit) => recordKindMatchesIntent(hit, profile))
+    .filter((hit) => statusRecordMatches(question, hit))
     .filter((hit) => salesActivityRecordMatches(question, profile, hit))
     .filter((hit) => receivablesRecordMatches(question, profile, hit))
     .filter((hit) => matchingTerms.length === 0 || textMatchesAny(hit, matchingTerms))
@@ -476,6 +477,20 @@ function renderAnswer(
         `I could not find a solid ${profile.label} match for that ask.`,
         noMatchHint(profile),
       ]),
+    };
+  }
+
+  if (isCountQuestion(question)) {
+    return {
+      confidence: filtered.length === 1 ? 'medium' : 'high',
+      text: withDeliveryTrackingNote(question, profile, [renderCountAnswer(question, profile, filtered)]),
+    };
+  }
+
+  if (isListQuestion(question)) {
+    return {
+      confidence: filtered.length === 1 ? 'medium' : 'high',
+      text: withDeliveryTrackingNote(question, profile, renderListAnswer(question, profile, filtered)),
     };
   }
 
@@ -533,6 +548,44 @@ function withDeliveryTrackingNote(question: string, profile: IntentProfile, line
 
 function needsDeliveryTrackingNote(question: string): boolean {
   return /\b(tracking|delivered|pod|proof of delivery|route)\b/i.test(question);
+}
+
+function isCountQuestion(question: string): boolean {
+  return /\b(how many|count|number of|total number)\b/i.test(question);
+}
+
+function isListQuestion(question: string): boolean {
+  return /\b(list|show all|all open|open\s+(?:deals?|orders?|sos|invoices?)|which\s+(?:deals?|orders?|sos|invoices?))\b/i.test(question);
+}
+
+function renderCountAnswer(question: string, profile: IntentProfile, hits: SearchResult[]): string {
+  const noun = recordNoun(profile, hits.length);
+  const status = /\bopen\b/i.test(question) ? ' open' : /\bclosed\b/i.test(question) ? ' closed' : '';
+  const names = hits.map((hit) => displayTitle(hit, extractFields(hit.chunk_text ?? ''))).slice(0, 5);
+  return `I found ${hits.length}${status} ${noun}${names.length ? `: ${names.join('; ')}` : ''}.`;
+}
+
+function renderListAnswer(question: string, profile: IntentProfile, hits: SearchResult[]): string[] {
+  const noun = recordNoun(profile, hits.length);
+  const status = /\bopen\b/i.test(question) ? ' open' : /\bclosed\b/i.test(question) ? ' closed' : '';
+  const lines = [`I found ${hits.length}${status} ${noun}:`];
+  for (const hit of hits.slice(0, 5)) {
+    const fields = extractFields(hit.chunk_text ?? '');
+    const fieldLines = renderFields(fields, prioritizedFields(profile, fields)).slice(0, 4);
+    lines.push(`- ${displayTitle(hit, fields)}${fieldLines.length ? `: ${fieldLines.join('; ')}` : ''}`);
+  }
+  return lines;
+}
+
+function recordNoun(profile: IntentProfile, count: number): string {
+  const singular = profile.intent === 'pipeline_lookup'
+    ? 'deal'
+    : profile.intent === 'order_lookup'
+    ? 'order'
+    : profile.intent === 'invoice_lookup'
+    ? 'invoice'
+    : profile.label;
+  return count === 1 ? singular : `${singular}s`;
 }
 
 export async function askBrain(opts: AskOptions): Promise<BrainAnswer> {
@@ -668,6 +721,7 @@ function explicitEntityMention(question: string): string | null {
     'meeting',
     'terms',
     'credit',
+    'limit',
     'hold',
     'status',
   ]);
@@ -839,6 +893,8 @@ function entityResolutionQuestion(question: string, profile: IntentProfile): str
   }
   const forMatch = /\bfor\s+([a-z0-9@._-]+(?:\s+[a-z0-9@._-]+){0,3})/i.exec(question);
   if (forMatch?.[1]) return stripEntityScopePhrases(forMatch[1]);
+  const entities = entityTerms(question, profile);
+  if (entities.length > 0) return entities.join(' ');
   const accountMatch = /\b(?:customer|account|rep|owner|terms?|credit|contact|email)\s+([a-z0-9@._-]+(?:\s+[a-z0-9@._-]+){0,3})/i.exec(question);
   if (accountMatch?.[1]) return stripEntityScopePhrases(accountMatch[1]);
   return stripEntityScopePhrases(question);
@@ -1085,7 +1141,7 @@ function requestedFields(questionLower: string): string[] {
   if (/\b(messages?|teams|chat)\b/.test(questionLower)) fields.push('Author', 'Created');
   if (/\b(meetings?|calendar|events?|appointments?)\b/.test(questionLower)) fields.push('Start', 'End', 'Organizer', 'Location');
   if (/\b(sharepoint|drive|documents?|files?)\b/.test(questionLower)) fields.push('Site', 'Drive', 'Last modified');
-  if (/\b(price|cost|list)\b/.test(questionLower)) fields.push('CurySpecificPrice', 'DefaultPrice', 'ListPrice', 'Amount', 'OrderTotal');
+  if (/\b(price|cost)\b/.test(questionLower)) fields.push('CurySpecificPrice', 'DefaultPrice', 'ListPrice', 'Amount', 'OrderTotal');
   if (/\b(balance|owe|owes|owed|receivable|receivables|ar|a\/r)\b/.test(questionLower)) fields.push('Balance', 'Amount');
   if (/\b(credit memo|credit note|unapplied credit|customer credit|has a credit|have a credit|rma|return|returned|refund)\b/.test(questionLower)) {
     fields.push('ReferenceNbr', 'Type', 'DocType', 'DocTypeLabel', 'Status', 'Amount', 'Balance');
@@ -1146,6 +1202,8 @@ function suppressGenericDetailsForAnsweredRequest(profile: IntentProfile): boole
     'ResaleCertificate',
     'CreditHold',
     'CreditHoldStatus',
+    'Terms',
+    'CreditLimit',
   ]);
   if (profile.intent === 'contact_lookup' && profile.requestedFields.length > 0) return true;
   return profile.intent === 'customer_lookup'
@@ -1192,6 +1250,15 @@ function pricingContextNotes(
   const hasCustomerSpecificPrice = Boolean(fields.CustomerPrice || fields.ContractPrice || fields.SpecialPrice);
   if (hasCustomerSpecificPrice) return [];
   return ['I found item/base pricing, but I did not find customer-specific contract or special pricing on that record.'];
+}
+
+function statusRecordMatches(question: string, hit: SearchResult): boolean {
+  const fields = extractFields(hit.chunk_text ?? '');
+  const status = fields.Status?.toLowerCase();
+  if (!status) return true;
+  if (/\bopen\b/i.test(question)) return status.includes('open');
+  if (/\bclosed\b/i.test(question)) return status.includes('closed');
+  return true;
 }
 
 function receivablesRecordMatches(question: string, profile: IntentProfile, hit: SearchResult): boolean {
@@ -1264,6 +1331,18 @@ function entityTerms(question: string, profile: IntentProfile): string[] {
   const fieldWords = new Set([
     'term',
     'terms',
+    'list',
+    'all',
+    'many',
+    'count',
+    'number',
+    'total',
+    'compare',
+    'do',
+    'does',
+    'did',
+    'have',
+    'has',
     'price',
     'pricing',
     'class',
@@ -1297,6 +1376,7 @@ function entityTerms(question: string, profile: IntentProfile): string[] {
     'returned',
     'refund',
     'orders',
+    'sos',
     'so',
     'sales',
     'tracking',
@@ -1414,8 +1494,8 @@ function entityAliasTerms(resolution: EntityResolution): string[] {
 function recordKind(hit: SearchResult): string {
   const text = `${hit.source_id ?? ''} ${hit.slug ?? ''} ${hit.title ?? ''}`.toLowerCase();
   if (text.includes('activity')) return 'activity';
-  if (text.includes('deal')) return 'deal';
   if (text.includes('note')) return 'note';
+  if (text.includes('deal')) return 'deal';
   if (text.includes('customer')) return 'customer';
   if (text.includes('organization')) return 'organization';
   if (text.includes('person')) return 'person';
@@ -1484,6 +1564,18 @@ const STOP_TERMS = new Set([
   'tell',
   'show',
   'find',
+  'list',
+  'all',
+  'many',
+  'count',
+  'number',
+  'total',
+  'compare',
+  'do',
+  'does',
+  'did',
+  'have',
+  'has',
   'came',
   'details',
   'email',
