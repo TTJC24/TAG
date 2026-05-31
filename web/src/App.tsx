@@ -255,6 +255,18 @@ function Search({
   );
 }
 
+function formatAnswerForCopy(answer: AskAnswer): string {
+  const lines = [answer.text.trimEnd()];
+  if (answer.citations.length > 0) {
+    lines.push('', 'Sources:');
+    for (const c of answer.citations) {
+      const label = `[${formatSource(c.source_id)}] ${c.title ?? c.slug}`;
+      lines.push(c.source_uri ? `- ${label} (${c.source_uri})` : `- ${label}`);
+    }
+  }
+  return lines.join('\n');
+}
+
 function Ask({
   availableSources,
   connectors,
@@ -267,6 +279,18 @@ function Ask({
   const [answer, setAnswer] = useState<AskAnswer | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    if (!answer) return;
+    try {
+      await navigator.clipboard.writeText(formatAnswerForCopy(answer));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // ignore — clipboard may be unavailable (e.g. insecure context)
+    }
+  }
 
   async function run() {
     if (!question.trim()) return;
@@ -330,16 +354,30 @@ function Ask({
       )}
       {answer && (
         <>
+          <div className="answer-toolbar">
+            <button type="button" className="link-button" onClick={() => void handleCopy()}>
+              {copied ? 'Copied' : 'Copy answer'}
+            </button>
+          </div>
           <div className="answer">{answer.text}</div>
           {answer.citations.length > 0 && (
             <div>
               <strong>Citations</strong>
               <ul>
-                {answer.citations.map((c) => (
-                  <li key={c.slug} className="citation">
-                    [{formatSource(c.source_id)}] {c.title ?? c.slug}
-                  </li>
-                ))}
+                {answer.citations.map((c) => {
+                  const label = `[${formatSource(c.source_id)}] ${c.title ?? c.slug}`;
+                  return (
+                    <li key={c.slug} className="citation">
+                      {c.source_uri ? (
+                        <a href={c.source_uri} target="_blank" rel="noopener noreferrer">
+                          {label}
+                        </a>
+                      ) : (
+                        <span>{label}</span>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
