@@ -1,6 +1,24 @@
 #!/usr/bin/env node
 import { getConnectorStatuses, type ConnectorStatus } from '../sources/status.ts';
 
+function parseArgs(argv: string[]): { json: boolean } {
+  const args = argv.slice(2);
+  let json = process.env.npm_config_json === 'true';
+  for (const a of args) {
+    if (a === '-h' || a === '--help') {
+      console.error('usage: bun run doctor [--json]');
+      console.error('  --json   suppress human-readable stderr summary; emit only JSON on stdout');
+      process.exit(0);
+    } else if (a === '--json') {
+      json = true;
+    } else {
+      console.error("unknown flag '" + a + "'. valid flags: --json");
+      process.exit(2);
+    }
+  }
+  return { json };
+}
+
 function printSummary(statuses: ConnectorStatus[]): void {
   const total = statuses.length;
   const live = statuses.filter((s) => s.liveReady).length;
@@ -40,8 +58,11 @@ function printSummary(statuses: ConnectorStatus[]): void {
 }
 
 async function main(): Promise<void> {
+  const { json } = parseArgs(process.argv);
   const statuses = await getConnectorStatuses();
-  printSummary(statuses);
+  if (!json) {
+    printSummary(statuses);
+  }
   console.log(JSON.stringify({
     ok: statuses.every((status) => status.fixtureAvailable),
     connectors: statuses,
