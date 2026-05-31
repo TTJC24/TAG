@@ -69,9 +69,27 @@ async function main(): Promise<void> {
       console.log('(no results)');
       return;
     }
-    for (const r of results) {
-      const score = r.score.toFixed(3);
-      console.log(`${score}\t${r.source_id ?? 'default'}\t${r.slug}\t${(r.title ?? '').slice(0, 80)}`);
+    const pretty = Boolean(process.stdout.isTTY);
+    if (pretty) {
+      const rows = results.map((r) => ({
+        score: r.score.toFixed(3),
+        source: r.source_id ?? 'default',
+        slug: (r.slug ?? '').length > 40 ? (r.slug ?? '').slice(0, 39) + '…' : (r.slug ?? ''),
+        title: (r.title ?? '').slice(0, 80),
+      }));
+      const scoreW = Math.max(...rows.map((r) => r.score.length));
+      const sourceW = Math.max(...rows.map((r) => r.source.length));
+      const slugW = Math.max(...rows.map((r) => r.slug.length));
+      for (const r of rows) {
+        console.log(
+          `${r.score.padStart(scoreW)}  ${r.source.padEnd(sourceW)}  ${r.slug.padEnd(slugW)}  ${r.title}`,
+        );
+      }
+    } else {
+      for (const r of results) {
+        const score = r.score.toFixed(3);
+        console.log(`${score}\t${r.source_id ?? 'default'}\t${r.slug}\t${(r.title ?? '').slice(0, 80)}`);
+      }
     }
   } finally {
     await engine.disconnect();
