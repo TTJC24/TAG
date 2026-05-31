@@ -26,22 +26,44 @@ import {
 } from '../procurement/actions.ts';
 import { enrichProcurementRequest } from '../procurement/enrichment.ts';
 
+type ErrStatus = 400 | 401 | 404 | 422 | 500;
+
+// Consistent error shape across all API responses: { error, status, hint? }
+// Always use this helper instead of c.json({ error: ... }, code) directly.
+const err = (c: any, status: ErrStatus, message: string, hint?: string) =>
+  c.json({ error: message, status, ...(hint ? { hint } : {}) }, status);
+
 export const app = new Hono();
 
 app.use('*', cors({ origin: '*' }));
 
-app.onError((err, c) => {
-  console.error('[api]', c.req.method, c.req.path, err);
-  const msg = err instanceof Error ? err.message : String(err);
-  return c.json({ error: msg, status: 500, hint: 'Run `bun run doctor` to check connectors and env.' }, 500);
+app.onError((e, c) => {
+  console.error('[api]', c.req.method, c.req.path, e);
+  const msg = e instanceof Error ? e.message : String(e);
+  return err(c, 500, msg, 'Run `bun run doctor` to check connectors and env.');
 });
 
 app.use('*', async (c, next) => {
   if (c.req.path === '/health') return next();
   const auth = c.req.header('authorization') ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice('Bearer '.length) : '';
+  if (!auth.startsWith('Bearer ')) {
+    c.header('WWW-Authenticate', 'Bearer realm="company-brain"');
+    return err(
+      c,
+      401,
+      'unauthorized',
+      'Send Authorization: Bearer <token>; token comes from COMPANY_BRAIN_API_TOKEN in .env (default for local dev is `dev-local-token`).',
+    );
+  }
+  const token = auth.slice('Bearer '.length);
   if (token !== config.COMPANY_BRAIN_API_TOKEN) {
-    return c.json({ error: 'unauthorized' }, 401);
+    c.header('WWW-Authenticate', 'Bearer realm="company-brain", error="invalid_token"');
+    return err(
+      c,
+      401,
+      'unauthorized',
+      'Token does not match COMPANY_BRAIN_API_TOKEN — check .env or restart the API after editing.',
+    );
   }
   return next();
 });
@@ -63,7 +85,7 @@ app.post('/search', async (c) => {
     sources?: string[];
     limit?: number;
   };
-  if (!body.query) return c.json({ error: 'query required' }, 400);
+  if (!body.query) return err(c, 400, 'query required', 'POST JSON body must include `query`');
   const engine = await openEngine();
   try {
     const hits = await hybridSearch(engine, body.query, {
@@ -83,7 +105,7 @@ app.post('/ask', async (c) => {
     entity?: MemoryScope;
     limit?: number;
   };
-  if (!body.question) return c.json({ error: 'question required' }, 400);
+  if (!body.question) return err(c, 400, 'question required', 'POST JSON body must include `question`');
   const answer = await askBrain({
     question: body.question,
     sources: body.sources,
@@ -97,7 +119,7 @@ app.post('/agent/chat', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     message?: string;
   };
-  if (!body.message?.trim()) return c.json({ error: 'message required' }, 400);
+  if (!body.message?.trim()) return err(c, 400, 'message required', 'POST JSON body must include `message`');
   return c.json(await agentChat(body.message));
 });
 
@@ -106,14 +128,14 @@ app.post('/agent/procurement-workflow', async (c) => {
     message?: string;
     submittedBy?: string;
   };
-  if (!body.message?.trim()) return c.json({ error: 'message required' }, 400);
+  if (!body.message?.trim()) return err(c, 400, 'message required', 'POST JSON body must include `message`');
   try {
     return c.json(await createAgentProcurementWorkflow({
       message: body.message,
       submittedBy: body.submittedBy,
     }), 201);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 422);
+  } catch (e) {
+    return err(c, 422, e instanceof Error ? e.message : String(e));
   }
 });
 
@@ -121,7 +143,7 @@ app.post('/procurement/structure', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     rawText?: string;
   };
-  if (!body.rawText?.trim()) return c.json({ error: 'rawText required' }, 400);
+  if (!body.rawText?.trim()) return err(c, 400, 'rawText required', 'POST JSON body must include `rawText`');
   return c.json(await structureProcurementRequest(body.rawText));
 });
 
@@ -129,7 +151,7 @@ app.post('/procurement/action-plan', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     rawText?: string;
   };
-  if (!body.rawText?.trim()) return c.json({ error: 'rawText required' }, 400);
+  if (!body.rawText?.trim()) return err(c, 400, 'rawText required', 'POST JSON body must include `rawText`');
   return c.json(await createProcurementActionPlan(body.rawText));
 });
 
@@ -137,7 +159,7 @@ app.post('/procurement/enrich', async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     rawText?: string;
   };
-  if (!body.rawText?.trim()) return c.json({ error: 'rawText required' }, 400);
+  if (!body.rawText?.trim()) return err(c, 400, 'rawText required', 'POST JSON body must include `rawText`');
   return c.json(await enrichProcurementRequest(body.rawText));
 });
 
@@ -153,7 +175,7 @@ app.post('/procurement/actions/prepare', async (c) => {
     preparedBy?: string;
   };
   if (!body.rawText?.trim() && !body.packetId?.trim()) {
-    return c.json({ error: 'rawText or packetId required' }, 400);
+    return err(c, 400, 'rawText or packetId required', 'POST JSON body must include `rawText` or `packetId`');
   }
   try {
     return c.json(await prepareProcurementActions({
@@ -161,8 +183,8 @@ app.post('/procurement/actions/prepare', async (c) => {
       packetId: body.packetId,
       preparedBy: body.preparedBy,
     }), 201);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 422);
+  } catch (e) {
+    return err(c, 422, e instanceof Error ? e.message : String(e));
   }
 });
 
@@ -173,10 +195,10 @@ app.patch('/procurement/actions/:id/approve', async (c) => {
   };
   try {
     const action = approvePreparedProcurementAction(c.req.param('id'), body);
-    if (!action) return c.json({ error: 'prepared action not found' }, 404);
+    if (!action) return err(c, 404, 'prepared action not found', 'Check id with GET /procurement/actions');
     return c.json(action);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 422);
+  } catch (e) {
+    return err(c, 422, e instanceof Error ? e.message : String(e));
   }
 });
 
@@ -187,10 +209,10 @@ app.patch('/procurement/actions/:id/reject', async (c) => {
   };
   try {
     const action = rejectPreparedProcurementAction(c.req.param('id'), body);
-    if (!action) return c.json({ error: 'prepared action not found' }, 404);
+    if (!action) return err(c, 404, 'prepared action not found', 'Check id with GET /procurement/actions');
     return c.json(action);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 422);
+  } catch (e) {
+    return err(c, 422, e instanceof Error ? e.message : String(e));
   }
 });
 
@@ -200,10 +222,10 @@ app.post('/procurement/actions/:id/execute', async (c) => {
   };
   try {
     const action = requestProcurementActionExecution(c.req.param('id'), body);
-    if (!action) return c.json({ error: 'prepared action not found' }, 404);
+    if (!action) return err(c, 404, 'prepared action not found', 'Check id with GET /procurement/actions');
     return c.json(action);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 422);
+  } catch (e) {
+    return err(c, 422, e instanceof Error ? e.message : String(e));
   }
 });
 
@@ -214,7 +236,7 @@ app.post('/procurement/packets', async (c) => {
     rawText?: string;
     submittedBy?: string;
   };
-  if (!body.rawText?.trim()) return c.json({ error: 'rawText required' }, 400);
+  if (!body.rawText?.trim()) return err(c, 400, 'rawText required', 'POST JSON body must include `rawText`');
   return c.json(await createProcurementPacket({
     rawText: body.rawText,
     submittedBy: body.submittedBy,
@@ -223,7 +245,7 @@ app.post('/procurement/packets', async (c) => {
 
 app.get('/procurement/packets/:id', (c) => {
   const packet = getProcurementPacket(c.req.param('id'));
-  if (!packet) return c.json({ error: 'packet not found' }, 404);
+  if (!packet) return err(c, 404, 'packet not found', 'Check id with GET /procurement/packets');
   return c.json(packet);
 });
 
@@ -234,11 +256,11 @@ app.patch('/procurement/packets/:id', async (c) => {
   };
   try {
     const packet = updateProcurementPacket(c.req.param('id'), body);
-    if (!packet) return c.json({ error: 'packet not found' }, 404);
+    if (!packet) return err(c, 404, 'packet not found', 'Check id with GET /procurement/packets');
     return c.json(packet);
-  } catch (err) {
-    return c.json({ error: err instanceof Error ? err.message : String(err) }, 422);
+  } catch (e) {
+    return err(c, 422, e instanceof Error ? e.message : String(e));
   }
 });
 
-app.notFound((c) => c.json({ error: `route not found: ${c.req.method} ${c.req.path}`, status: 404, hint: 'See README for valid routes.' }, 404));
+app.notFound((c) => err(c, 404, `route not found: ${c.req.method} ${c.req.path}`, 'See README for valid routes.'));
