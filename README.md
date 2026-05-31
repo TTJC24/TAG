@@ -9,6 +9,39 @@ bounded evaluation in `gbrain-eval`.
 v1 in-progress. Direct-write ingestion using the Play B workaround for
 upstream issue [#1522](https://github.com/garrytan/gbrain/issues/1522).
 
+New here? Jump to [Quickstart](#quickstart-fixture-only-60-seconds).
+
+## Quickstart (fixture-only, ~60 seconds)
+
+This path takes you from a fresh clone to a cited answer using only stub
+fixtures — no M365, Acumatica, or Pipedrive credentials needed.
+
+```bash
+# 1) Env: fill DATABASE_URL, ZEROENTROPY_API_KEY, ANTHROPIC_API_KEY only.
+cp .env.example .env
+
+# 2) Install deps.
+bun install
+
+# 3) Start Postgres 16 (skip if you already have one on :5432).
+docker run -d --name company-brain-pg \
+  -e POSTGRES_PASSWORD=company_brain \
+  -e POSTGRES_USER=company_brain \
+  -e POSTGRES_DB=company_brain \
+  -p 5432:5432 postgres:16
+
+# 4) Load every connector's stub fixtures in one shot.
+bun run ingest:fixtures
+
+# 5) Ask a question backed by the fixtures.
+bun run ask "Acme pump terms"
+
+# 6) End-to-end sanity check.
+bun run smoke
+```
+
+If anything misbehaves, run `bun run doctor` first.
+
 ## Architecture
 
 - **Engine**: Postgres via the `gbrain` engine factory. ZeroEntropy embeddings.
@@ -62,15 +95,34 @@ bun run web:dev      # long-running; run in its own terminal
 bun run scheduler    # long-running; run in its own terminal
 ```
 
+### Web UI
+
+`bun run web:dev` starts the Vite dev server at
+<http://localhost:5173>. It requires `bun run api` running in a second
+terminal — Vite proxies `/api` to `:4317`. The UI authenticates with
+`VITE_API_TOKEN`, which defaults to `dev-local-token` to match
+`COMPANY_BRAIN_API_TOKEN` in `.env.example`. If you change one, change
+the other.
+
 ## Common scripts
 
 Beyond the long-running servers above, the following one-shot scripts are the
 ones you'll reach for day-to-day:
 
-- `bun run ask "<question>"` — ask a natural-language question against the
-  ingested corpus and stream the answer (with citations) on stdout.
+- `bun run ingest:fixtures` — load every connector's stub fixtures in one
+  shot. The fastest way to populate a fresh database.
+- `bun run ask "Acme pump terms"` — ask a natural-language question against
+  the ingested corpus and stream the answer (with citations) on stdout.
 - `bun run search "<query>"` — run a hybrid search and print ranked matches
   without invoking the LLM (useful for debugging retrieval).
+- `bun run doctor` — env + DB + embedding checks; run this first if anything
+  misbehaves.
+- `bun run status` — per-connector document counts and last-ingest timestamps.
+- `bun run smoke` — end-to-end check (ingest fixtures → ask → assert cited
+  answer).
+- `bun run smoke:api` — same end-to-end check, but via the HTTP API.
+- `bun run eval:answers` — answer-quality regression suite; run before merging
+  retrieval or prompt changes.
 - `bun run fixtures:check` — verify that every connector's stub fixtures parse
   and round-trip through the ingestion path; run this before opening a PR.
 - `bun run typecheck` — run `tsc --noEmit` across the project; required to

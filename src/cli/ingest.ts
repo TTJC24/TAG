@@ -27,7 +27,7 @@ function parseArgs(argv: string[]): {
 } {
   const args = argv.slice(2);
   if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
-    console.error(`usage: npm run ingest -- <source-id> [--dry-run] [--live] [--fixtures] [--no-embed] [--summary] [--quiet]\n`);
+    console.error(`usage: bun run ingest <source-id> [--dry-run] [--no-embed]\n`);
     console.error(`known sources: ${listConnectorIds().join(', ')}`);
     process.exit(args.length === 0 ? 2 : 0);
   }
