@@ -4,6 +4,7 @@ import {
   type IngestionSource,
   type IngestionSourceContext,
 } from 'gbrain/ingestion';
+import type { EntityCode } from '../config.ts';
 import type { ConnectorSpec } from './types.ts';
 import { fetchAcumaticaSnapshot } from './acumatica/client.ts';
 
@@ -110,22 +111,24 @@ class AcumaticaSource implements IngestionSource {
   async stop(): Promise<void> {}
 }
 
-async function loadSnapshot(dryRun: boolean, branch?: string): Promise<AcumaticaSnapshot> {
+async function loadSnapshot(dryRun: boolean, entity?: EntityCode): Promise<AcumaticaSnapshot> {
   if (dryRun) {
     return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as AcumaticaSnapshot;
   }
-  return await fetchAcumaticaSnapshot(branch);
+  return await fetchAcumaticaSnapshot(entity);
 }
 
-export function createAcumaticaConnector(id = SOURCE_ID, displayName = 'Acumatica ERP', branch?: () => string): ConnectorSpec {
+export function createAcumaticaConnector(id = SOURCE_ID, displayName = 'Acumatica ERP', entity?: EntityCode): ConnectorSpec {
+  const requiredEnv = ['ACUMATICA_BASE_URL', 'ACUMATICA_USERNAME', 'ACUMATICA_PASSWORD'];
+  requiredEnv.push(...(entity ? [`ACUMATICA_TENANT_${entity}`, `ACUMATICA_BRANCH_${entity}`] : ['ACUMATICA_TENANT', 'ACUMATICA_BRANCH']));
   return {
     id,
     displayName,
     kind: SOURCE_KIND,
     fixturePath: FIXTURE_PATH,
-    requiredEnv: ['ACUMATICA_BASE_URL', 'ACUMATICA_USERNAME', 'ACUMATICA_PASSWORD', 'ACUMATICA_TENANT'],
+    requiredEnv,
     async build({ dryRun }) {
-      const snapshot = await loadSnapshot(dryRun, branch?.());
+      const snapshot = await loadSnapshot(dryRun, entity);
       return new AcumaticaSource(id, snapshot);
     },
   };
