@@ -31,17 +31,23 @@ export function MeetingModeToggle({ className }: { className?: string }) {
     <Link
       href={href}
       title={on ? "exit meeting mode" : "enter meeting mode"}
+      aria-pressed={on}
       className={cn(
-        "flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition",
+        "focus-ring flex items-center gap-1.5 rounded-[2px] border px-2 py-1 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
         on
-          ? "border-amber-500/50 bg-amber-500/10 text-amber-100"
-          : "border-border bg-card text-muted-foreground hover:border-foreground/40 hover:text-foreground",
+          ? "border-foreground bg-foreground text-background"
+          : "border-border bg-surface-2 text-muted-foreground hover:border-border-strong hover:text-foreground",
         className,
       )}
     >
       <span
         aria-hidden
-        className={cn("h-1.5 w-1.5 rounded-full", on ? "bg-amber-400" : "bg-muted-foreground/50")}
+        className={cn(
+          "h-1.5 w-1.5 rounded-full",
+          on
+            ? "bg-background animate-[pulse-status_2s_ease-in-out_infinite]"
+            : "bg-muted-foreground/50",
+        )}
       />
       meeting mode
     </Link>

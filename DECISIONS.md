@@ -157,3 +157,79 @@ Each ADR is dated and numbered. Format: context → decision → consequences. D
 **Decision.** `computeStatus(entry, measurable, history): { status, intensity, reason }` is a pure function in `lib/shading/`. Minimum 20 test scenarios are written **before** the implementation. The function depends only on its inputs — no DB, no `Date.now()` (history is passed in).
 
 **Consequences.** TDD on this module is non-negotiable. Note classification is async (an LLM call), so its result is cached on the entry and consumed synchronously by the function — keeps the function pure.
+
+---
+
+## ADR-0011 — Scorecard is manual-input-only; the automated nudge layer is removed
+
+**Date:** 2026-05-29
+**Status:** Accepted (supersedes the pre-meeting reminder/nudge workflow in `KICKOFF.md` and `docs/meeting-flow.md`; removes the nudges slice landed in commit `9e867bd`. Does **not** affect ADR-0005 — Postgres remains the source of truth.)
+
+**Context.** The admin nudge-preview endpoint failed because `DATABASE_URL` was unset, which forced the question of how the scorecard should be populated and chased. The decision: **accountability requires human intention.** If numbers populate automatically — or if the platform chases people to enter them — no one truly owns the result. This is a decision about *behavior*, not *persistence*: the database is not what makes numbers "auto-appear", so removing the nudge/automation layer (not Postgres) is the correct fix.
+
+**Decision.**
+
+- The scorecard is **manual human input only**. No path auto-populates a measurable's actual; owners enter their own numbers before the meeting.
+- The automated nudge/reminder layer is **removed entirely**: `lib/nudges/` (`dispatch`, `compose-nudge`, `types`, and the `in-app` / `teams` / `resend` channels) and the `/api/admin/nudges/preview` endpoint are deleted. No scheduler will be built — the previously-planned `app/api/cron/nudges/route.ts` is cancelled.
+- `getOrgReadiness()` — the obligation-only wrapper consumed only by the dispatcher — is removed from `lib/queries/org-readiness.ts`. `getOrgTeamView()` is retained.
+- `/admin/readiness` **stays** as a **passive, read-only** visibility view: it shows who has and hasn't entered their numbers but sends nothing and pokes no one. Human-initiated visibility is accountability; automated outreach is not.
+- Postgres, Drizzle, and `DATABASE_URL` are **untouched** (ADR-0005 unaffected). Manually-entered numbers persist normally, every write still hits the audit log.
+- The Microsoft Graph and Resend wrappers remain for meeting recaps and transcript pulls — not reminders. The `NUDGES_TEAMS_ENABLED` / `NUDGES_RESEND_ENABLED` env flags are gone.
+
+**Consequences.**
+
+- Owners are responsible for entering their own numbers; the platform will not chase them. Social accountability — the readiness view plus the meeting itself — replaces automated nudging.
+- The original `DATABASE_URL` error disappears because the endpoint that threw is deleted, not because the env var was provisioned.
+- Reversible by intent: re-introducing reminders later would be a new ADR. Nothing in the data model blocks it; the wrappers and audit-log `source` taxonomy still exist.
+
+---
+
+## ADR-0012 — Weeks are lazily generated; only the current week is editable
+
+**Date:** 2026-05-29
+**Status:** Accepted (extends ADR-0011 — manual entry — with *when* and *which week*. Builds on ADR-0005: Postgres stays the source of truth.)
+
+**Context.** Manual entry (ADR-0011) needs two guarantees to feel intentional rather than chaotic: (1) a slot for "this week" must always be ready — nobody should hit a "create week" button or find a missing week; and (2) entry must target an unambiguous *this week*, not an open-ended historical editor where someone can quietly rewrite a number from three weeks ago. Intentional human accountability requires a clear, single "this week."
+
+**Decision.**
+
+- **Lazy week generation.** Loading the scorecard calls `ensureCurrentWeek()`, which inserts the current week's row if it doesn't exist and returns it. The *act of loading the page* is the trigger — no cron, no external scheduler, no manual "create week" button.
+- **Idempotent + concurrency-safe.** The insert is `onConflictDoNothing` against the `weeks.week_ending_date` unique index, so two simultaneous loads can't create duplicate weeks.
+- **Monday-anchored slot.** A week's key is the Monday of the current week (`currentWeekEndingDate()`), matching the imported workbook convention (its `weekEndingDate`s — 2026-04-27 / 05-04 / 05-11 — are all Mondays on a 7-day cadence). Quarter/fiscal year/ISO week are derived to match. *(The original ask floated "Sunday"; the existing data is Monday, and "match it exactly" wins.)*
+- **Current week only is editable.** The scorecard anchors its editable hero on the current week; prior weeks appear only inside the display-only wave/sparkline. The editable hero shows a subtle affordance (cursor + faint hover); locked values are plain ink — no cursor, no hover, no click target.
+- **Unambiguous "this week."** The scorecard shows an explicit "Entering for week ending {date}" banner, and the masthead dateline is computed from the same `currentWeekEndingDate()` so the two never disagree.
+
+**Consequences.**
+
+- The scorecard intentionally anchors on the *calendar* current week, not merely the most-recent row — so future-dated rows (e.g. seed data ahead of the server clock) don't capture the editable hero. History shown is the weeks ≤ the current week.
+- The lock is enforced in the UI (the only editable target is the current-week hero). The `updateActual` server action is unchanged; if a hard server-side guard becomes warranted (e.g. once transcript ingestion can target arbitrary weeks), that's a follow-up.
+- Backfilling skipped weeks is out of scope: lazy generation creates only the *current* week, so a gap can appear in the wave if the app wasn't loaded during an intervening week. Acceptable — the snapshot/import paths own historical rows.
+
+---
+
+## ADR-0013 — Weeks are entity-local; entities have independent cadences; CULTIVUS+ has no weekly cadence
+
+**Date:** 2026-05-29
+**Status:** Accepted (supersedes ADR-0012's "weeks are global / Monday-anchored" specifics; keeps its lazy-generation and current-week-only-entry principles. Refines ADR-0009 — the per-org isolation now extends to the week itself.)
+
+**Context.** The three operating companies don't close their books on the same day, and one (CULTIVUS+) doesn't run on a weekly rhythm at all. The original model had a single **global** `weeks` table (one row per date, shared by all orgs) — which cannot represent "week ending Thursday for BLCS" and "week ending Sunday for FS" simultaneously, and which forces a weekly cadence on entities that don't have one. Forcing one global cadence misrepresents how the businesses actually operate.
+
+**Decision.**
+
+- **The week is entity-local, not global.** `weeks` gains `orgId`; its uniqueness moves from `(weekEndingDate)` to `(orgId, weekEndingDate)`. Each entity has its own week rows.
+- **Per-entity cadence config lives on `organizations`** (columns, not Clerk metadata): `weekEndsOn`, `meetingDay`, `entryCutoffDay`, `entryCutoffTime` — all nullable. `entryCutoff*` is a **visual indicator only — no enforcement yet**.
+- **Week generation is config-aware.** `ensureCurrentWeek(orgId, weekEndsOn)` creates the slot for the **upcoming occurrence** of the entity's `weekEndsOn`. A **null `weekEndsOn` generates no week** — the scorecard renders a manual log, never a forced weekly grid.
+- **The dateline reflects the active entity's week.** It's computed from `ctx.weekEndsOn`; switching the Clerk org switches the dateline. Null cadence shows "no weekly cadence".
+- **CULTIVUS+ has no enforced weekly cadence** (`weekEndsOn`/`meetingDay` null) and is configurable later.
+- **Initial config:** FS — ends Sunday, meets Monday, cutoff Monday morning. BLCS — ends Thursday, meets Friday, cutoff Thursday EOD. USA — ends Thursday, meets Friday, cutoff Thursday EOD. CULTIVUS+ — null.
+
+**Migration (chosen: preserve history, new convention forward).**
+
+- The existing global weeks were **cloned per-org on their original dates** and each org's `entries` + `weekSnapshots` were repointed to its clone; the orphaned global rows were then deleted (`scripts/migrate-entity-weeks.ts`). Result: 3 global weeks → 9 per-org weeks, all 75 entries repointed, zero loss.
+- **History keeps the exact dates it was reported on** (the imported Mondays); only weeks generated from now on adopt each entity's `weekEndsOn`. We explicitly rejected re-dating historical entries onto the new cutoff days as semantically lossy.
+
+**Consequences.**
+
+- A deliberate mixed history: pre-migration weeks sit on Mondays, new weeks on each entity's cutoff day. This is honest (it reflects when numbers were actually reported) and self-corrects as new weeks accrue.
+- `scripts/import-workbook.ts` still writes orgless weeks (it predates this change). It must be updated to write per-org weeks, or the clone migration re-run after any future import — flagged as a follow-up.
+- `entryCutoff` enforcement is intentionally deferred; today it only drives visual "expected by" indicators.

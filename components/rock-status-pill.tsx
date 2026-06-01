@@ -16,13 +16,26 @@ const NEXT: Record<RockStatus, RockStatus> = {
 function colorFor(status: RockStatus): string {
   switch (status) {
     case "on_track":
-      return "bg-status-green/15 text-status-green";
+      return "border-status-green/30 bg-status-green/12 text-status-green";
     case "off_track":
-      return "bg-status-red/15 text-status-red";
+      return "border-status-red/30 bg-status-red/12 text-status-red";
     case "still_going":
-      return "bg-status-yellow/15 text-status-yellow";
+      return "border-status-yellow/30 bg-status-yellow/12 text-status-yellow";
     case "completed":
-      return "bg-muted text-muted-foreground";
+      return "border-border bg-surface-3 text-muted-foreground";
+  }
+}
+
+function dotFor(status: RockStatus): string {
+  switch (status) {
+    case "on_track":
+      return "bg-status-green";
+    case "off_track":
+      return "bg-status-red";
+    case "still_going":
+      return "bg-status-yellow";
+    case "completed":
+      return "bg-muted-foreground/50";
   }
 }
 
@@ -42,8 +55,9 @@ export function RockStatusPill({ rockId, status, readOnly }: RockStatusPillProps
   if (readOnly) {
     return (
       <span
-        className={`rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${colorFor(status)}`}
+        className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest ${colorFor(status)}`}
       >
+        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dotFor(status)}`} />
         {status.replace("_", " ")}
       </span>
     );
@@ -52,7 +66,7 @@ export function RockStatusPill({ rockId, status, readOnly }: RockStatusPillProps
   return (
     <span className="inline-flex items-center gap-1">
       {error && (
-        <span className="font-mono text-[10px] text-red-500">{error}</span>
+        <span className="font-mono text-[10px] text-status-red">{error}</span>
       )}
       <button
         type="button"
@@ -68,9 +82,10 @@ export function RockStatusPill({ rockId, status, readOnly }: RockStatusPillProps
           });
         }}
         disabled={pending}
-        className={`rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest transition disabled:opacity-50 ${colorFor(status)}`}
+        className={`focus-ring inline-flex items-center gap-1.5 rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest transition hover:brightness-110 disabled:opacity-50 ${colorFor(status)}`}
         title="click to cycle status"
       >
+        <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${dotFor(status)}`} />
         {pending ? "…" : status.replace("_", " ")}
       </button>
     </span>

@@ -11,8 +11,36 @@
 
 import { NextResponse } from "next/server";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
+import {
+  brainHitToCitation,
+  brainSearch,
+  isBrainConfigured,
+} from "@/lib/brain/client";
 import { askJerry, JerryNotConfiguredError, JerryRequestError } from "@/lib/jerry/client";
 import { buildJerryContext } from "@/lib/jerry/context";
+import type { JerryResponse } from "@/lib/jerry/types";
+
+// Best-effort enrichment: query the company brain with the same prompt and
+// fold its hits into Jerry's citations so vault + operational-system
+// provenance surface together. NEVER fail the Jerry path for this — if the
+// brain is unconfigured or errors, Jerry's response is returned unchanged.
+async function withBrainCitations(
+  prompt: string,
+  response: JerryResponse,
+): Promise<JerryResponse> {
+  if (!isBrainConfigured()) return response;
+  try {
+    const { hits } = await brainSearch({ query: prompt, limit: 8 });
+    if (hits.length === 0) return response;
+    const brainCitations = hits.map(brainHitToCitation);
+    return {
+      ...response,
+      citations: [...(response.citations ?? []), ...brainCitations],
+    };
+  } catch {
+    return response;
+  }
+}
 
 export async function POST(request: Request): Promise<Response> {
   let ctx;
@@ -42,7 +70,8 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const payload = await buildJerryContext(ctx, prompt);
     const response = await askJerry(payload);
-    return NextResponse.json(response);
+    const enriched = await withBrainCitations(prompt, response);
+    return NextResponse.json(enriched);
   } catch (err) {
     if (err instanceof JerryNotConfiguredError) {
       return NextResponse.json({ error: err.message, code: "not_configured" }, { status: 503 });

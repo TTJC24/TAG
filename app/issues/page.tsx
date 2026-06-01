@@ -2,17 +2,9 @@ import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
 import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgIssues } from "@/lib/queries/org-lists";
-import { IssueActionButtons } from "@/components/issue-action-buttons";
-import { AddIssueButton, IssueRowControls } from "@/components/issue-dialogs";
-import { IssueNotesEditor } from "@/components/issue-notes-editor";
-import {
-  Eyebrow,
-  OwnerChip,
-  Panel,
-  PanelHeader,
-  StatusChip,
-} from "@/components/ui/primitives";
-import { cn } from "@/lib/utils";
+import { AddIssueButton } from "@/components/issue-dialogs";
+import { SurfaceHeader, StatNumber } from "@/components/ui/surface-header";
+import { IssueQueue } from "./issue-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -33,147 +25,58 @@ export default async function IssuesPage() {
   ]);
   const canCreate = ctx.role !== "viewer";
   const isAdmin = ctx.role === "admin";
+
+  // Surface metrics — derived only, no reordering of server-sorted rows.
   const counts = rows.reduce(
     (acc, r) => {
-      acc[r.issue.status as "open" | "ids_in_progress"] += 1;
+      acc.open += 1;
+      acc[r.issue.priority] += 1;
       return acc;
     },
-    { open: 0, ids_in_progress: 0 },
+    { open: 0, critical: 0, high: 0, medium: 0, low: 0 },
   );
 
-  return (
-    <main className="container space-y-5 py-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · Issues</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">IDS queue</h1>
-        </div>
-        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          <Pill tone="amber" label={`${counts.ids_in_progress} worked`} />
-          <Pill tone="muted" label={`${counts.open} push next week`} />
-          {canCreate && (
-            <AddIssueButton members={members} defaultOwnerId={ctx.personId} />
-          )}
-        </div>
-      </header>
+  // Per-row access flags are resolved here so the client list stays presentational.
+  const now = Date.now();
+  const items = rows.map(({ issue, owner }) => {
+    const isOwner = issue.ownerId === ctx.personId;
+    const readOnly =
+      ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
+    return {
+      id: issue.id,
+      title: issue.title,
+      status: issue.status as "open" | "ids_in_progress",
+      priority: issue.priority,
+      rootCause: issue.rootCause,
+      ownerId: issue.ownerId,
+      ownerName: owner?.name ?? null,
+      ageDays: Math.max(
+        0,
+        Math.floor((now - issue.createdAt.getTime()) / 86_400_000),
+      ),
+      readOnly,
+    };
+  });
 
-      {rows.length === 0 ? (
-        <Panel>
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No open issues for this org.
-          </p>
-        </Panel>
-      ) : (
-        <Panel>
-          <PanelHeader title="Issue" count={rows.length} hint="critical first" />
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left">
-                  <Th className="pl-4">Issue</Th>
-                  <Th>Owner</Th>
-                  <Th>Priority</Th>
-                  <Th>Notes</Th>
-                  <Th>Status</Th>
-                  <Th className="pr-4"> </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(({ issue, owner }) => {
-                  const isOwner = issue.ownerId === ctx.personId;
-                  const readOnly =
-                    ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
-                  return (
-                    <tr
-                      key={issue.id}
-                      className="border-t border-border/70 align-top"
-                    >
-                      <Td className="pl-4 font-medium">{issue.title}</Td>
-                      <Td>
-                        <OwnerChip name={owner?.name ?? null} />
-                      </Td>
-                      <Td>
-                        <PriorityChip priority={issue.priority} />
-                      </Td>
-                      <Td className="min-w-[18rem]">
-                        <IssueNotesEditor
-                          issueId={issue.id}
-                          value={issue.rootCause}
-                          readOnly={readOnly}
-                        />
-                      </Td>
-                      <Td className="min-w-[16rem]">
-                        <IssueActionButtons
-                          issueId={issue.id}
-                          status={issue.status as "open" | "ids_in_progress"}
-                          readOnly={readOnly}
-                        />
-                      </Td>
-                      <Td className="pr-4 text-right">
-                        <IssueRowControls
-                          issueId={issue.id}
-                          members={members}
-                          current={{
-                            title: issue.title,
-                            ownerId: issue.ownerId,
-                            priority: issue.priority,
-                            rootCause: issue.rootCause ?? "",
-                          }}
-                          readOnly={readOnly}
-                          canDelete={isAdmin}
-                        />
-                      </Td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+  return (
+    <main className="container space-y-7 py-7">
+      <SurfaceHeader eyebrow={`${ctx.orgName} · identify · discuss · solve`} title="IDS Queue">
+        <StatNumber value={counts.critical} label="critical" tone="red" hero />
+        <StatNumber value={counts.high} label="high" tone="yellow" />
+        <StatNumber value={counts.open} label="open" tone="muted" />
+        {canCreate && (
+          <div className="self-center pl-1">
+            <AddIssueButton members={members} defaultOwnerId={ctx.personId} />
           </div>
-        </Panel>
-      )}
+        )}
+      </SurfaceHeader>
+
+      <IssueQueue
+        items={items}
+        members={members}
+        counts={counts}
+        canDelete={isAdmin}
+      />
     </main>
   );
-}
-
-function Th({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <th
-      className={cn(
-        "border-b border-border/70 bg-card/40 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground",
-        className,
-      )}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <td className={cn("px-3 py-2 text-sm", className)}>{children}</td>;
-}
-
-function Pill({
-  tone,
-  label,
-}: {
-  tone: "amber" | "muted";
-  label: string;
-}) {
-  const dot = tone === "amber" ? "bg-amber-400" : "bg-muted-foreground/40";
-  return (
-    <span className="flex items-center gap-2">
-      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
-      {label}
-    </span>
-  );
-}
-
-function PriorityChip({
-  priority,
-}: {
-  priority: "critical" | "high" | "medium" | "low";
-}) {
-  const tone =
-    priority === "critical" ? "red" : priority === "high" ? "yellow" : "muted";
-  return <StatusChip tone={tone}>{priority}</StatusChip>;
 }

@@ -3,69 +3,99 @@
 @tailwind utilities;
 
 /* ─────────────────────────────────────────────────────────────────────────
-   TractionOS — operational palette.
-   Dark-mode is the only mode. Color is reserved for risk / blocked /
-   trend / completion / urgency. No decorative color anywhere.
+   TractionOS — editorial palette (Hallmark redesign, ADR-pending).
+   Black / white / grey + ONE accent: Signal Red (--signal). Red is the
+   only hue in chrome and means action / live / critical. Status green &
+   amber survive ONLY as data-ink (scorecard cells, spines, chips, the
+   health verdict) — never on chrome. Both modes are fully designed.
    ─────────────────────────────────────────────────────────────────────── */
 
 @layer base {
+  /* Light = paper. Ink on bright white, neutral greys, hairline rules. */
   :root {
-    /* The light palette is left intact for the Clerk sign-in surface
-       where a short flash of light is acceptable. The app is dark by
-       default (forced via app/layout.tsx <ThemeProvider defaultTheme>). */
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
-    --radius: 0.25rem;
+    color-scheme: light;
 
-    --status-green: 142 50% 42%;
-    --status-yellow: 38 85% 50%;
-    --status-red: 0 65% 48%;
+    --background: 0 0% 100%;             /* paper */
+    --foreground: 0 0% 8%;               /* ink */
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 8%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 8%;
+    --primary: 0 0% 8%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 8%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 40%;        /* captions / labels only */
+    --accent: 0 0% 96%;                  /* neutral hover wash — NOT brand red */
+    --accent-foreground: 0 0% 8%;
+    --destructive: 4 80% 48%;            /* aligned to --signal */
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 88%;                  /* hairline rule */
+    --input: 0 0% 88%;
+    --ring: 0 0% 8%;                     /* focus is ink, never red */
+    --radius: 0.125rem;                  /* crisp, near-square (newspaper) */
+
+    /* Surface ramp — four tiers of paper elevation. */
+    --surface-0: 0 0% 100%;
+    --surface-1: 0 0% 98%;
+    --surface-2: 0 0% 96%;
+    --surface-3: 0 0% 93%;
+    --border-strong: 0 0% 78%;
+
+    /* The one accent. Carries across both modes. */
+    --signal: 4 80% 48%;
+    --signal-foreground: 0 0% 100%;
+    /* Brain provenance is marked with a mono tag + dotted rule, no hue. */
+    --brain: 0 0% 40%;
+
+    /* Status — DATA-INK ONLY. Variable NAMES are pinned (the shading engine
+       + StatusCell depend on them); only the values change. Red == signal.
+       Green/amber deepened so they read on white. */
+    --status-green: 150 44% 36%;
+    --status-yellow: 38 82% 44%;
+    --status-red: 4 80% 48%;
   }
 
-  /* Dark = the operational mode. Matte graphite. Sharp separators. */
+  /* Dark = near-black. Paper-white ink, neutral charcoal greys, the accent
+     burns hotter so it pops off the black. */
   .dark {
-    --background: 220 15% 7%;            /* deep charcoal */
-    --foreground: 210 15% 92%;           /* paper */
-    --card: 220 14% 9%;                  /* one tier above bg */
-    --card-foreground: 210 15% 92%;
-    --popover: 220 16% 6%;
-    --popover-foreground: 210 15% 92%;
-    --primary: 210 15% 92%;
-    --primary-foreground: 220 15% 7%;
-    --secondary: 220 12% 14%;
-    --secondary-foreground: 210 15% 92%;
-    --muted: 220 12% 14%;
-    --muted-foreground: 215 10% 58%;     /* dim caption */
-    --accent: 220 12% 14%;
-    --accent-foreground: 210 15% 92%;
-    --destructive: 0 70% 55%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 220 10% 18%;               /* crisp separator */
-    --input: 220 10% 18%;
-    --ring: 210 15% 78%;                 /* focus is paper-bright */
+    color-scheme: dark;
 
-    /* Status — high-saturation but never decorative. Used only for
-       risk / blocked / trend / completion / urgency. */
-    --status-green: 145 55% 50%;
-    --status-yellow: 40 92% 58%;
-    --status-red: 0 75% 60%;
+    --background: 0 0% 6%;               /* near-black ground */
+    --foreground: 0 0% 95%;              /* paper white */
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 95%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 95%;
+    --primary: 0 0% 95%;
+    --primary-foreground: 0 0% 6%;
+    --secondary: 0 0% 14%;
+    --secondary-foreground: 0 0% 95%;
+    --muted: 0 0% 14%;
+    --muted-foreground: 0 0% 60%;
+    --accent: 0 0% 14%;                  /* neutral hover wash — NOT brand red */
+    --accent-foreground: 0 0% 95%;
+    --destructive: 6 90% 60%;            /* aligned to --signal */
+    --destructive-foreground: 0 0% 100%;
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 0 0% 95%;                    /* focus is paper, never red */
+
+    --surface-0: 0 0% 6%;
+    --surface-1: 0 0% 9%;
+    --surface-2: 0 0% 12%;
+    --surface-3: 0 0% 16%;
+    --border-strong: 0 0% 28%;
+
+    --signal: 6 90% 60%;
+    --signal-foreground: 0 0% 100%;
+    --brain: 0 0% 62%;
+
+    /* Status — data-ink only; red == signal. */
+    --status-green: 145 52% 50%;
+    --status-yellow: 40 90% 56%;
+    --status-red: 6 90% 60%;
   }
 }
 
@@ -73,9 +103,7 @@
   * {
     @apply border-border;
   }
-  html {
-    color-scheme: dark;
-  }
+  /* color-scheme is set per-mode on :root / .dark above. */
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
@@ -91,6 +119,31 @@
   /* Hairline rule used between dense rows; thinner than border-border. */
   .rule {
     box-shadow: inset 0 -1px 0 0 hsl(var(--border) / 0.7);
+  }
+  /* Shared focus treatment — paper-bright ring, no layout shift. */
+  .focus-ring {
+    @apply outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0;
+  }
+  /* Row status spine — inset shadow only, never a layout border (no shift).
+     Applied to dense <tr>/<li> rows in rocks/todos/issues/me/readiness. */
+  .spine-green {
+    box-shadow: inset 2px 0 0 0 hsl(var(--status-green) / 0.4);
+  }
+  .spine-yellow {
+    box-shadow: inset 2px 0 0 0 hsl(var(--status-yellow) / 0.4);
+  }
+  .spine-red {
+    box-shadow: inset 2px 0 0 0 hsl(var(--status-red) / 0.4);
+  }
+  /* Status pulse — for live/urgent dots. */
+  @keyframes pulse-status {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.55;
+    }
   }
   /* Subtle grain on the background — adds the "matte" feel without noise. */
   body::before {
@@ -110,10 +163,13 @@
 @layer components {
   /* Block of operational data — replaces card padding sprawl. */
   .panel {
-    @apply rounded border border-border bg-card;
+    @apply rounded border border-border bg-surface-1;
+    box-shadow:
+      0 1px 0 0 hsl(var(--surface-0) / 0.6),
+      0 0 0 1px hsl(var(--border) / 0.4);
   }
   .panel-tight {
-    @apply rounded border border-border bg-card/60;
+    @apply rounded border border-border bg-surface-1/60;
   }
 
   /* Section header rule above a dense table or list. */
@@ -180,6 +236,10 @@
     letter-spacing: -0.01em;
   }
   body[data-meeting="1"] .panel {
-    border-color: hsl(var(--border) / 0.8);
+    border-color: hsl(var(--border-strong) / 0.7);
+  }
+  /* Meeting mode raises dense table rows for conference-room legibility. */
+  body[data-meeting="1"] .data-row {
+    height: 2.75rem;
   }
 }

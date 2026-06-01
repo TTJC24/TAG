@@ -9,7 +9,12 @@ import { auth } from "@clerk/nextjs/server";
 import { and, eq } from "drizzle-orm";
 import { cache } from "react";
 import { db } from "@/lib/db/client";
-import { orgMemberships, organizations, people } from "@/lib/db/schema";
+import {
+  orgMemberships,
+  organizations,
+  people,
+  type WeekDay,
+} from "@/lib/db/schema";
 
 export interface AuthContext {
   /** Clerk user id (`user_…`). */
@@ -30,6 +35,11 @@ export interface AuthContext {
   orgName: string;
   /** Display name for the actor. */
   personName: string;
+  /** The entity's reporting week-cutoff day, or null for no weekly cadence
+   *  (e.g. CULTIVUS+). Drives week generation + the dateline. See ADR-0013. */
+  weekEndsOn: WeekDay | null;
+  /** The entity's L10 day, or null for no weekly meeting. */
+  meetingDay: WeekDay | null;
 }
 
 export class AuthContextError extends Error {
@@ -102,6 +112,8 @@ export const getAuthContext = cache(async (): Promise<AuthContext> => {
     orgSlug: orgSlug ?? org.code.toLowerCase(),
     orgName: org.name,
     personName: person.name,
+    weekEndsOn: org.weekEndsOn,
+    meetingDay: org.meetingDay,
   };
 });
 

@@ -13,10 +13,10 @@ const OPTIONS: { value: RockStatus; label: string }[] = [
 ];
 
 const STYLES: Record<RockStatus, string> = {
-  on_track: "border-emerald-500/30 bg-emerald-500/10 text-emerald-100",
-  off_track: "border-rose-500/30 bg-rose-500/10 text-rose-100",
-  still_going: "border-amber-500/30 bg-amber-500/10 text-amber-100",
-  completed: "border-border bg-muted/30 text-muted-foreground",
+  on_track: "border-status-green/30 bg-status-green/12 text-status-green",
+  off_track: "border-status-red/30 bg-status-red/12 text-status-red",
+  still_going: "border-status-yellow/30 bg-status-yellow/12 text-status-yellow",
+  completed: "border-border bg-surface-3 text-muted-foreground",
 };
 
 type RockStatus = "on_track" | "off_track" | "still_going" | "completed";
@@ -66,18 +66,18 @@ export function RockStatusSelect({
           });
         }}
         className={cn(
-          "rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest focus:outline-none focus:ring-2 focus:ring-ring",
+          "rounded border px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest outline-none focus-visible:ring-1 focus-visible:ring-ring",
           STYLES[status],
         )}
       >
         {OPTIONS.map((o) => (
-          <option key={o.value} value={o.value} className="bg-background text-foreground">
+          <option key={o.value} value={o.value} className="bg-surface-2 text-foreground">
             {o.label}
           </option>
         ))}
       </select>
       {pending && <span className="font-mono text-[10px] text-muted-foreground">…</span>}
-      {error && <span className="font-mono text-[10px] text-rose-300">{error}</span>}
+      {error && <span className="font-mono text-[10px] text-status-red">{error}</span>}
     </div>
   );
 }

@@ -82,7 +82,7 @@ export function NotesEditor({
         type="button"
         onClick={() => setEditing(true)}
         className={cn(
-          "block w-full rounded px-1 py-0.5 text-left font-mono text-xs transition hover:bg-muted/40",
+          "focus-ring block w-full rounded px-1 py-0.5 text-left font-mono text-xs transition hover:bg-surface-2",
           value ? "text-muted-foreground" : "text-muted-foreground/50 italic",
         )}
       >
@@ -92,7 +92,7 @@ export function NotesEditor({
   }
 
   return (
-    <div className="space-y-1 rounded border border-ring bg-background p-2">
+    <div className="space-y-1 rounded border border-border-strong bg-surface-2 p-2">
       <textarea
         autoFocus
         value={draft}
@@ -101,19 +101,23 @@ export function NotesEditor({
         disabled={pending}
         placeholder={placeholder}
         rows={2}
-        className="w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs focus:border-ring focus:outline-none"
+        className="w-full rounded border border-border bg-surface-3 px-2 py-1 font-mono text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       <div className="flex items-center justify-end gap-2">
-        {error && (
-          <span className="mr-auto font-mono text-[10px] text-rose-300">
+        {error ? (
+          <span className="mr-auto font-mono text-[10px] text-status-red">
             {error}
+          </span>
+        ) : (
+          <span className="mr-auto font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground/60">
+            ⌘⏎ save · esc cancel
           </span>
         )}
         <button
           type="button"
           onClick={cancel}
           disabled={pending}
-          className="rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-muted"
+          className="focus-ring rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-surface-3"
         >
           esc
         </button>
@@ -121,7 +125,7 @@ export function NotesEditor({
           type="button"
           onClick={commit}
           disabled={pending}
-          className="rounded bg-primary px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-primary-foreground disabled:opacity-50"
+          className="focus-ring rounded bg-primary px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-primary-foreground disabled:opacity-50"
         >
           {pending ? "…" : "save"}
         </button>

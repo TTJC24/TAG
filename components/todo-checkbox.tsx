@@ -19,8 +19,10 @@ export function TodoCheckbox({ todoId, done, readOnly }: TodoCheckboxProps) {
     return (
       <span
         aria-hidden
-        className={`inline-block h-4 w-4 shrink-0 rounded border border-border ${done ? "bg-status-green/40" : "bg-card"}`}
-      />
+        className={`inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold ${done ? "border-status-green/50 bg-status-green/25 text-status-green" : "border-border bg-surface-2"}`}
+      >
+        {done ? "✓" : ""}
+      </span>
     );
   }
 
@@ -41,15 +43,17 @@ export function TodoCheckbox({ todoId, done, readOnly }: TodoCheckboxProps) {
         }}
         disabled={pending}
         aria-pressed={done}
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border border-border text-[10px] font-bold transition disabled:opacity-50 ${
-          done ? "bg-status-green/40 text-status-green" : "bg-background hover:bg-muted"
+        className={`focus-ring flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] font-bold transition disabled:opacity-50 ${
+          done
+            ? "border-status-green/50 bg-status-green/25 text-status-green hover:bg-status-green/35"
+            : "border-border bg-surface-2 hover:border-border-strong hover:bg-surface-3"
         }`}
         title={done ? "mark not done" : "mark done"}
       >
         {pending ? "…" : done ? "✓" : ""}
       </button>
       {error && (
-        <span className="font-mono text-[10px] text-red-500">{error}</span>
+        <span className="font-mono text-[10px] text-status-red">{error}</span>
       )}
     </span>
   );

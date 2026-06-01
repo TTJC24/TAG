@@ -153,7 +153,7 @@ export function AddIssueButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded border border-border bg-card px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:bg-muted"
+        className="focus-ring rounded border border-border bg-surface-2 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/30 hover:bg-surface-3"
       >
         + add issue
       </button>
@@ -212,11 +212,11 @@ export function IssueRowControls({
   }
 
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="rounded border border-border bg-card px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/40 hover:bg-muted"
+        className="focus-ring rounded border border-border bg-surface-2 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/30 hover:bg-surface-3"
         title="edit issue"
       >
         edit
@@ -225,7 +225,7 @@ export function IssueRowControls({
         <button
           type="button"
           onClick={() => setRemoving(true)}
-          className="rounded border border-border bg-card px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-100"
+          className="focus-ring rounded border border-border bg-surface-2 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-100"
           title="remove issue"
         >
           remove
@@ -265,7 +265,7 @@ export function IssueRowControls({
             type="button"
             onClick={remove}
             disabled={pending}
-            className="rounded bg-rose-500/80 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white transition disabled:opacity-50"
+            className="focus-ring rounded bg-rose-500/80 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white transition hover:bg-rose-500 disabled:opacity-50"
           >
             {pending ? "…" : "delete"}
           </button>

@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useTransition, type KeyboardEvent } from "react";
+import { useState, useTransition, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { updateActual } from "@/lib/server-actions/measurables";
 import { StatusCell } from "@/components/status-cell";
+import { KeyHint } from "@/components/ui/primitives";
+import { cn } from "@/lib/utils";
 import type { ShadingResult } from "@/lib/shading/types";
 
 export interface EditableEntryCellProps {
@@ -22,6 +24,10 @@ export interface EditableEntryCellProps {
   /** Optional override for the "raw value" shown in the edit input.
    *  Defaults to the numeric value as a string. */
   rawValueForEdit?: string;
+  /** Optional custom render for the resting (non-editing) display. When set,
+   *  it replaces the default <StatusCell> trigger — e.g. the metric block's
+   *  hero number. The edit/commit logic and server action are unchanged. */
+  displayNode?: ReactNode;
 }
 
 export function EditableEntryCell({
@@ -33,6 +39,7 @@ export function EditableEntryCell({
   result,
   readOnly,
   rawValueForEdit,
+  displayNode,
 }: EditableEntryCellProps) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState(
@@ -44,6 +51,7 @@ export function EditableEntryCell({
   const router = useRouter();
 
   if (readOnly) {
+    if (displayNode) return <>{displayNode}</>;
     return (
       <StatusCell
         display={display}
@@ -93,14 +101,20 @@ export function EditableEntryCell({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="group inline-flex flex-col items-stretch gap-1 rounded outline-offset-2 transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring"
+        className={cn(
+          "focus-ring group relative rounded transition-colors",
+          displayNode
+            ? "-mx-1 block w-full cursor-pointer px-1 text-left hover:bg-surface-3/50"
+            : "inline-flex items-center",
+        )}
         title={currentNote ?? result?.reason}
       >
-        <StatusCell display={display} result={result} />
+        {displayNode ?? <StatusCell display={display} result={result} />}
         {currentNote && (
           <span
             aria-hidden
-            className="pointer-events-none mx-auto h-1 w-1 rounded-full bg-muted-foreground/70"
+            title={currentNote}
+            className="pointer-events-none absolute right-1 top-1 h-1 w-1 rounded-full bg-muted-foreground/70"
           />
         )}
       </button>
@@ -108,15 +122,16 @@ export function EditableEntryCell({
   }
 
   return (
-    <div className="space-y-1 rounded border border-ring bg-background p-2">
+    <div className="w-44 space-y-1.5 rounded-md border border-ring bg-surface-2 p-2 shadow-lg shadow-black/40">
       <input
         autoFocus
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={onKeyDown}
         disabled={pending}
+        inputMode="decimal"
         placeholder="actual"
-        className="w-full rounded border border-border bg-background px-2 py-1 text-right font-mono text-sm tabular focus:border-ring focus:outline-none"
+        className="w-full rounded border border-border bg-surface-3 px-2 py-1 text-right font-mono text-sm tabular focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
       <input
         value={note}
@@ -124,30 +139,34 @@ export function EditableEntryCell({
         onKeyDown={onKeyDown}
         disabled={pending}
         placeholder="note (optional)"
-        className="w-full rounded border border-border bg-background px-2 py-1 font-mono text-xs focus:border-ring focus:outline-none"
+        className="w-full rounded border border-border bg-surface-3 px-2 py-1 font-mono text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       />
-      <div className="flex items-center justify-end gap-2">
-        {error && (
-          <span className="mr-auto font-mono text-[10px] text-red-500">
-            {error}
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={cancel}
-          disabled={pending}
-          className="rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground hover:bg-muted"
-        >
-          esc
-        </button>
-        <button
-          type="button"
-          onClick={commit}
-          disabled={pending}
-          className="rounded bg-primary px-2 py-0.5 font-mono text-[10px] uppercase tracking-widest text-primary-foreground disabled:opacity-50"
-        >
-          {pending ? "…" : "save"}
-        </button>
+      {error && (
+        <p className="font-mono text-[10px] text-status-red">{error}</p>
+      )}
+      <div className="flex items-center justify-between gap-2">
+        <span className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.16em] text-muted-foreground/70">
+          <KeyHint>↵</KeyHint>save
+          <KeyHint className="ml-1">esc</KeyHint>cancel
+        </span>
+        <span className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={pending}
+            className="focus-ring rounded px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:bg-surface-3 hover:text-foreground"
+          >
+            cancel
+          </button>
+          <button
+            type="button"
+            onClick={commit}
+            disabled={pending}
+            className="focus-ring rounded bg-primary px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.16em] text-primary-foreground transition disabled:opacity-50"
+          >
+            {pending ? "…" : "save"}
+          </button>
+        </span>
       </div>
     </div>
   );

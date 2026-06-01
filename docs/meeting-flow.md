@@ -47,12 +47,12 @@ A meeting in `live` state writes to a Liveblocks room scoped per meeting. On `co
 
 ## Pre-meeting workflow (sequence)
 
+The scorecard is **manual human input only** — owners enter their own numbers; nothing is auto-populated, and there is no automated reminder/nudge cadence (ADR-0011). Accountability is human-owned: if a number is on the board, a person put it there.
+
 | When | Trigger | Channel | What happens |
 |---|---|---|---|
-| Sunday 6pm | cron | Teams chat + Resend email | "L10 prep — your scorecard awaits" deep-linked to `/me`. Per attendee. |
-| Monday 9am | cron, only fires for unsubmitted | Teams chat | "Reminder — your prep is due before tomorrow's L10." |
-| Continuous | server-side readiness calc | Tim's `/admin/readiness` | Green check per person who's submitted; red dot for missing; click-to-poke fires another Teams nudge. |
-| Tuesday 5min before meeting | cron | Teams chat | "Joining now? Link." |
+| Any time before the meeting | owner opens the app | — | Owners enter their own measurables, rocks, and to-dos on `/me`. Human-entered; never auto-filled. |
+| On load | server-side readiness calc | Tim's `/admin/readiness` | Passive admin view: green check per person who's submitted, red dot for missing. Read-only visibility — it does not send anything. |
 | Meeting start | facilitator clicks "Start Meeting" | Liveblocks | Room state machine flips to `live`. Pre-meeting submissions are locked (an attempt to edit is gated by "meeting is live — use the meeting runner"). |
 
 ---
@@ -64,8 +64,6 @@ A meeting in `live` state writes to a Liveblocks room scoped per meeting. On `co
 | On "End & Send Recap" | UI button | Snapshot the week's scorecard entries; freeze `meetings.notes` and `cascadingMessages`; compute `rating` average; send recap email + Teams cascade. |
 | When Fireflies webhook fires | external | Match to meeting (calendar event ID or title); fetch + normalize; queue LLM pass; notify Tim in Teams with "N proposed updates — review here". |
 | Diff review accepted | Tim | Updates write via the same server actions as manual edits; `source` set on every audit row. |
-| Monday 9am | cron | "Open To-Dos older than 3 days" nudge to owners. |
-| Friday 5pm | cron | "Heads up for L10" + last-week recap link. |
 
 ---
 

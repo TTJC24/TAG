@@ -237,7 +237,7 @@ export function AddKPIButton({ members }: { members: OrgMemberOption[] }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded border border-border bg-card px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:bg-muted"
+        className="focus-ring rounded border border-border bg-surface-2 px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/40 hover:bg-surface-3"
       >
         + add KPI
       </button>
@@ -308,7 +308,7 @@ export function KPIRowControls({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="rounded border border-border bg-card px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/40 hover:bg-muted"
+        className="focus-ring rounded border border-border bg-surface-2 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-foreground transition hover:border-foreground/40 hover:bg-surface-3"
         title="edit KPI (name, owner, goal, format, cadence, formula)"
       >
         edit
@@ -317,7 +317,7 @@ export function KPIRowControls({
         <button
           type="button"
           onClick={() => setArchiving(true)}
-          className="rounded border border-border bg-card px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:border-rose-500/50 hover:bg-rose-500/10 hover:text-rose-100"
+          className="focus-ring rounded border border-border bg-surface-2 px-2 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground transition hover:border-status-red/50 hover:bg-status-red/10 hover:text-status-red"
           title="archive KPI (preserves history)"
         >
           archive
@@ -367,7 +367,7 @@ export function KPIRowControls({
             type="button"
             onClick={archive}
             disabled={pending}
-            className="rounded bg-rose-500/80 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white transition disabled:opacity-50"
+            className="focus-ring rounded bg-status-red/80 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.16em] text-white transition hover:bg-status-red disabled:opacity-50"
           >
             {pending ? "…" : "archive"}
           </button>

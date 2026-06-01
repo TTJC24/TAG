@@ -42,7 +42,7 @@ export async function buildJerryContext(
 ): Promise<JerryRequest> {
   const today = new Date().toISOString().slice(0, 10);
 
-  const weeks = await getRecentWeeks(4);
+  const weeks = await getRecentWeeks(ctx.orgId, 4);
   const weekIds = weeks.map((w) => w.id);
   const currentWeek = weeks[weeks.length - 1] ?? null;
 

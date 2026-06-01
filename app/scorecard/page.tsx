@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { AuthContextError, getAuthContext } from "@/lib/auth/context";
-import { getRecentWeeks } from "@/lib/queries/me";
+import { ensureCurrentWeek, getRecentWeeks } from "@/lib/queries/me";
 import { getOrgMembers } from "@/lib/queries/org-members";
 import { getOrgScorecard, type ScorecardRow } from "@/lib/queries/scorecard";
 import { computeStatus } from "@/lib/shading/compute-status";
@@ -13,22 +13,20 @@ import type {
   StatusColor,
 } from "@/lib/shading/types";
 import { formatActual } from "@/lib/format";
-import { EditableEntryCell } from "@/components/editable-entry-cell";
-import { EditableGoalCell } from "@/components/editable-goal-cell";
 import { LiveSync } from "@/components/live-sync";
 import { AddKPIButton, KPIRowControls } from "@/components/kpi-dialogs";
-import {
-  Eyebrow,
-  MissingMarker,
-  OwnerChip,
-  Panel,
-  PanelHeader,
-  TrendStrip,
-  type TrendPoint,
-} from "@/components/ui/primitives";
-import { cn } from "@/lib/utils";
+import { MetricBlock } from "@/components/metric-block";
+import { SurfaceHeader, StatNumber } from "@/components/ui/surface-header";
 
 export const dynamic = "force-dynamic";
+
+// Problems-first ordering — fires surface to the top of the grid.
+const STATUS_ORDER: Record<StatusColor | "missing", number> = {
+  red: 0,
+  yellow: 1,
+  green: 2,
+  missing: 3,
+};
 
 export default async function ScorecardPage() {
   let ctx;
@@ -41,293 +39,161 @@ export default async function ScorecardPage() {
     throw err;
   }
 
-  const weeks = await getRecentWeeks(4);
-  const weekIds = weeks.map((w) => w.id);
+  // Lazy generation: loading the scorecard guarantees the current week exists
+  // for entities with a weekly cadence. A null weekEndsOn (e.g. CULTIVUS+)
+  // returns no week — the surface renders as a manual log. See ADR-0013.
+  const currentWeek = await ensureCurrentWeek(ctx.orgId, ctx.weekEndsOn);
+
+  // History window = the weeks up to and including the current week. Anchoring
+  // on the current week (not merely the latest row) keeps the editable hero on
+  // "this week" even if future-dated weeks exist in the data.
+  const recent = currentWeek ? await getRecentWeeks(ctx.orgId, 16) : [];
+  const weeks = currentWeek
+    ? (() => {
+        const upTo = recent.filter(
+          (w) => w.weekEndingDate <= currentWeek.weekEndingDate,
+        );
+        const all = upTo.some((w) => w.id === currentWeek.id)
+          ? upTo
+          : [...upTo, currentWeek];
+        return all
+          .slice()
+          .sort((a, b) => a.weekEndingDate.localeCompare(b.weekEndingDate))
+          .slice(-12);
+      })()
+    : [];
+  const lastIndex = weeks.length - 1; // currentWeek sits last (when present)
+  const weekId = currentWeek?.id ?? null;
+
   const [rows, members] = await Promise.all([
-    getOrgScorecard(ctx.orgId, weekIds),
+    getOrgScorecard(
+      ctx.orgId,
+      weeks.map((w) => w.id),
+    ),
     getOrgMembers(ctx.orgId),
   ]);
-  const mostRecentWeek = weeks[weeks.length - 1] ?? null;
-  const priorWeeks = weeks.slice(0, -1);
   const isAdmin = ctx.role === "admin";
 
-  // Operational summary — counts that matter at the meeting.
-  const summary = rows.reduce(
-    (acc, r) => {
-      const e = mostRecentWeek ? r.entriesByWeek[mostRecentWeek.id] : undefined;
-      const actual = parseNumeric(e?.actual);
-      if (actual === null) acc.missing += 1;
-      else {
-        const m = shadingMeasurableFor(r);
-        const result = computeStatus(
-          { actual, noteClassification: e?.noteClassification as NoteClassification | null, statusOverride: e?.statusOverride as StatusColor | null },
-          m,
-          [],
-        );
-        if (result.status === "red") acc.red += 1;
-        else if (result.status === "yellow") acc.yellow += 1;
-        else acc.green += 1;
-      }
+  const blocks = rows.map((row) => {
+    const series = weeks.map((w) => parseNumeric(row.entriesByWeek[w.id]?.actual));
+    const currentEntry = currentWeek
+      ? row.entriesByWeek[currentWeek.id]
+      : undefined;
+    const currentActual = parseNumeric(currentEntry?.actual);
+    const result = currentWeek ? cellResult(weeks, lastIndex, row) : null;
+    const status: StatusColor | null =
+      currentActual === null ? null : (result?.status ?? null);
+    return { row, series, currentEntry, currentActual, result, status };
+  });
+
+  const summary = blocks.reduce(
+    (acc, b) => {
+      if (b.status === null) acc.missing += 1;
+      else acc[b.status] += 1;
       return acc;
     },
     { red: 0, yellow: 0, green: 0, missing: 0 },
   );
+  const total = blocks.length;
+
+  const sorted = blocks
+    .slice()
+    .sort(
+      (a, b) =>
+        STATUS_ORDER[a.status ?? "missing"] - STATUS_ORDER[b.status ?? "missing"],
+    );
 
   return (
-    <main className="container space-y-5 py-6">
+    <main className="container space-y-6 py-7">
       <LiveSync clerkOrgId={ctx.clerkOrgId} />
 
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <Eyebrow>{ctx.orgName} · Scorecard</Eyebrow>
-          <h1 className="text-xl font-semibold tracking-tight">
-            Weekly measurables
-          </h1>
-        </div>
-        <div className="flex items-center gap-4 font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
-          <Pill tone="red" label={`${summary.red} red`} />
-          <Pill tone="yellow" label={`${summary.yellow} yellow`} />
-          <Pill tone="green" label={`${summary.green} green`} />
-          <Pill tone="missing" label={`${summary.missing} missing`} />
-          {isAdmin && <AddKPIButton members={members} />}
-        </div>
-      </header>
-
-      {rows.length === 0 ? (
-        <Panel>
-          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-            No measurables in this org yet.
-          </p>
-        </Panel>
-      ) : (
-        <Panel>
-          <PanelHeader
-            title="KPI"
-            count={rows.length}
-            hint={
-              mostRecentWeek
-                ? `current: week ending ${mostRecentWeek.weekEndingDate}`
-                : "no week"
-            }
-          />
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="text-left">
-                  <Th className="pl-4">KPI</Th>
-                  <Th>Owner</Th>
-                  <Th>Goal</Th>
-                  <Th className="text-right">This week</Th>
-                  <Th>Trend (3w)</Th>
-                  {priorWeeks.map((w) => (
-                    <Th key={w.id} className="text-right tabular">
-                      {weekHeader(w.weekEndingDate)}
-                    </Th>
-                  ))}
-                  <Th className="text-right">Updated</Th>
-                  <Th className="pr-4 text-right"> </Th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <ScorecardRowView
-                    key={row.measurable.id}
-                    row={row}
-                    weeks={weeks}
-                    priorWeeks={priorWeeks}
-                    mostRecentWeekId={mostRecentWeek?.id ?? null}
-                    actorRole={ctx.role}
-                    actorPersonId={ctx.personId}
-                    members={members}
-                  />
-                ))}
-              </tbody>
-            </table>
+      <SurfaceHeader
+        eyebrow={`${ctx.orgName} · weekly scorecard`}
+        title={ctx.orgName}
+      >
+        <StatNumber value={`${summary.green}/${total}`} label="on track" tone="green" hero />
+        <StatNumber value={summary.red} label="critical" tone="red" />
+        <StatNumber value={summary.yellow} label="watch" tone="yellow" />
+        <StatNumber value={summary.missing} label="missing" tone="muted" />
+        {isAdmin && (
+          <div className="self-center pl-1">
+            <AddKPIButton members={members} />
           </div>
-        </Panel>
+        )}
+      </SurfaceHeader>
+
+      {/* Unmistakable: which week these numbers go into, and that the rest is locked. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-[2px] border border-border bg-surface-1 px-4 py-2.5 font-mono text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-foreground/60" />
+        {currentWeek ? (
+          <>
+            Entering for week ending
+            <span className="text-foreground">{currentWeek.weekEndingDate}</span>
+            <span aria-hidden className="text-border">·</span>
+            prior weeks are locked
+          </>
+        ) : (
+          <>No weekly cadence — numbers are a manual log</>
+        )}
+      </div>
+
+      {total === 0 ? (
+        <p className="rounded-[2px] border border-dashed border-border px-4 py-12 text-center text-sm text-muted-foreground">
+          No measurables in this org yet.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {sorted.map(({ row, series, currentEntry, currentActual, result, status }) => {
+            const isOwner = row.measurable.ownerId === ctx.personId;
+            const readOnly =
+              ctx.role === "viewer" || (ctx.role === "member" && !isOwner);
+            return (
+              <MetricBlock
+                key={row.measurable.id}
+                measurableId={row.measurable.id}
+                weekId={weekId}
+                name={row.measurable.name}
+                ownerName={row.owner?.name ?? null}
+                currentActual={currentActual}
+                currentNote={currentEntry?.note ?? null}
+                display={
+                  currentActual === null
+                    ? ""
+                    : formatActual(currentActual, row.measurable.formatHint)
+                }
+                status={status}
+                result={result}
+                series={series}
+                goalDirection={row.measurable.goalDirection as GoalDirection}
+                goalValue={parseNumeric(row.measurable.goalValue)}
+                goalSecondary={parseNumeric(row.measurable.goalSecondary)}
+                formatHint={row.measurable.formatHint}
+                readOnly={readOnly}
+              >
+                <KPIRowControls
+                  measurableId={row.measurable.id}
+                  members={members}
+                  current={{
+                    measurableId: row.measurable.id,
+                    name: row.measurable.name,
+                    ownerId: row.measurable.ownerId,
+                    unit: row.measurable.unit ?? "",
+                    formatHint: row.measurable.formatHint ?? "currency_usd",
+                    goalDirection: row.measurable.goalDirection,
+                    goalValue: row.measurable.goalValue ?? "",
+                    goalSecondary: row.measurable.goalSecondary ?? "",
+                    cadence: row.measurable.cadence,
+                    formula: row.measurable.formula ?? "",
+                  }}
+                  readOnly={readOnly}
+                  canArchive={ctx.role === "admin"}
+                />
+              </MetricBlock>
+            );
+          })}
+        </div>
       )}
     </main>
-  );
-}
-
-function ScorecardRowView({
-  row,
-  weeks,
-  priorWeeks,
-  mostRecentWeekId,
-  actorRole,
-  actorPersonId,
-  members,
-}: {
-  row: ScorecardRow;
-  weeks: { id: string; weekEndingDate: string }[];
-  priorWeeks: { id: string; weekEndingDate: string }[];
-  mostRecentWeekId: string | null;
-  actorRole: "admin" | "member" | "viewer";
-  actorPersonId: string;
-  members: { id: string; name: string }[];
-}) {
-  const m = shadingMeasurableFor(row);
-  const currentWeek = mostRecentWeekId
-    ? weeks.find((w) => w.id === mostRecentWeekId)
-    : null;
-  const currentEntry = currentWeek ? row.entriesByWeek[currentWeek.id] : undefined;
-  const currentActual = parseNumeric(currentEntry?.actual);
-  const isOwner = row.measurable.ownerId === actorPersonId;
-  const readOnly =
-    actorRole === "viewer" || (actorRole === "member" && !isOwner);
-
-  const currentResult = currentWeek
-    ? cellResult(weeks, weeks.length - 1, row)
-    : null;
-
-  const trendPoints: TrendPoint[] = weeks.map((w) => {
-    const e = row.entriesByWeek[w.id];
-    const actual = parseNumeric(e?.actual);
-    const r = cellResult(weeks, weeks.indexOf(w), row);
-    const sign: -1 | 0 | 1 | null =
-      actual === null ? null : r?.status === "red" ? -1 : r?.status === "yellow" ? 0 : 1;
-    return { weekEndingDate: w.weekEndingDate, actual, toneSign: sign };
-  });
-
-  const updated = currentEntry?.enteredAt
-    ? formatRelative(new Date(currentEntry.enteredAt))
-    : null;
-
-  return (
-    <tr className="border-t border-border/70 align-middle">
-      <Td className="pl-4 font-medium">{row.measurable.name}</Td>
-      <Td>
-        <OwnerChip name={row.owner?.name ?? null} />
-      </Td>
-      <Td>
-        <EditableGoalCell
-          measurableId={row.measurable.id}
-          goalDirection={row.measurable.goalDirection as
-            | "gte" | "lte" | "eq" | "between" | "trend_down" | "trend_up"}
-          goalValue={parseNumeric(row.measurable.goalValue)}
-          goalSecondary={parseNumeric(row.measurable.goalSecondary)}
-          formatHint={row.measurable.formatHint}
-          readOnly={readOnly}
-        />
-      </Td>
-      <Td className="text-right">
-        {currentWeek ? (
-          <div className="flex items-center justify-end">
-            <EditableEntryCell
-              measurableId={row.measurable.id}
-              weekId={currentWeek.id}
-              currentActual={currentActual}
-              currentNote={currentEntry?.note ?? null}
-              display={
-                currentActual === null
-                  ? ""
-                  : formatActual(currentActual, row.measurable.formatHint)
-              }
-              result={currentResult}
-              readOnly={readOnly}
-            />
-          </div>
-        ) : (
-          <MissingMarker label="no week" />
-        )}
-      </Td>
-      <Td>
-        <TrendStrip points={trendPoints} />
-      </Td>
-      {priorWeeks.map((w, i) => {
-        const e = row.entriesByWeek[w.id];
-        const actual = parseNumeric(e?.actual);
-        const r = cellResult(weeks, i, row);
-        return (
-          <Td key={w.id} className="text-right tabular">
-            {actual === null ? (
-              <MissingMarker label="—" className="text-muted-foreground/50" />
-            ) : (
-              <span
-                className={cn(
-                  "font-mono text-xs",
-                  r?.status === "red"
-                    ? "text-rose-300"
-                    : r?.status === "yellow"
-                      ? "text-amber-200"
-                      : "text-foreground/80",
-                )}
-                title={e?.note ?? r?.reason}
-              >
-                {formatActual(actual, row.measurable.formatHint)}
-              </span>
-            )}
-          </Td>
-        );
-      })}
-      <Td className="text-right font-mono text-[10px] text-muted-foreground/70">
-        {updated ?? <MissingMarker label="not entered" />}
-      </Td>
-      <Td className="pr-4 text-right">
-        <KPIRowControls
-          measurableId={row.measurable.id}
-          members={members}
-          current={{
-            measurableId: row.measurable.id,
-            name: row.measurable.name,
-            ownerId: row.measurable.ownerId,
-            unit: row.measurable.unit ?? "",
-            formatHint: row.measurable.formatHint ?? "currency_usd",
-            goalDirection: row.measurable.goalDirection,
-            goalValue: row.measurable.goalValue ?? "",
-            goalSecondary: row.measurable.goalSecondary ?? "",
-            cadence: row.measurable.cadence,
-            formula: row.measurable.formula ?? "",
-          }}
-          readOnly={readOnly}
-          canArchive={actorRole === "admin"}
-        />
-      </Td>
-    </tr>
-  );
-  void m; // shading is computed inside cellResult; m kept for parity
-}
-
-// ── Subcomponents ────────────────────────────────────────────────────────────
-
-function Th({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <th
-      className={cn(
-        "border-b border-border/70 bg-card/40 px-3 py-2 text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground",
-        className,
-      )}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <td className={cn("px-3 py-2 text-sm", className)}>{children}</td>;
-}
-
-function Pill({
-  tone,
-  label,
-}: {
-  tone: "red" | "yellow" | "green" | "missing";
-  label: string;
-}) {
-  const dot =
-    tone === "red"
-      ? "bg-rose-400"
-      : tone === "yellow"
-        ? "bg-amber-400"
-        : tone === "green"
-          ? "bg-emerald-400"
-          : "bg-muted-foreground/40";
-  return (
-    <span className="flex items-center gap-2">
-      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", dot)} />
-      {label}
-    </span>
   );
 }
 
@@ -337,11 +203,6 @@ function parseNumeric(v: string | number | null | undefined): number | null {
   if (v === null || v === undefined) return null;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
-}
-
-function weekHeader(d: string): string {
-  const [, m, day] = d.split("-");
-  return `${m}/${day}`;
 }
 
 function shadingMeasurableFor(row: ScorecardRow): ShadingMeasurable {
@@ -363,7 +224,8 @@ function cellResult(
   const priors: ShadingEntry[] = weeks.slice(0, weekIndex).map((w) => ({
     actual: parseNumeric(row.entriesByWeek[w.id]?.actual),
     noteClassification:
-      (row.entriesByWeek[w.id]?.noteClassification as NoteClassification | null) ?? null,
+      (row.entriesByWeek[w.id]?.noteClassification as NoteClassification | null) ??
+      null,
     statusOverride:
       (row.entriesByWeek[w.id]?.statusOverride as StatusColor | null) ?? null,
   }));
@@ -375,18 +237,4 @@ function cellResult(
       }
     : { actual: null };
   return computeStatus(shadingEntry, shadingMeasurableFor(row), priors);
-}
-
-function formatRelative(d: Date): string {
-  const diff = Date.now() - d.getTime();
-  const min = Math.round(diff / 60_000);
-  if (min < 1) return "just now";
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const days = Math.round(hr / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.round(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
-  return d.toISOString().slice(0, 10);
 }

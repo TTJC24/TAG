@@ -93,11 +93,9 @@ export function EditableGoalCell({
         onClick={() => setEditing(true)}
         title="click to edit goal"
         className={cn(
-          "group inline-flex items-center gap-1 rounded border border-transparent px-1.5 py-0.5 font-mono text-xs tabular transition",
-          "hover:border-border hover:bg-muted/50 hover:text-foreground",
-          goalValue === null
-            ? "text-rose-300/90"
-            : "text-muted-foreground",
+          "focus-ring group inline-flex items-center gap-1 rounded border border-transparent px-1.5 py-0.5 font-mono text-xs tabular transition",
+          "hover:border-border hover:bg-surface-3 hover:text-foreground",
+          goalValue === null ? "text-status-red" : "text-muted-foreground",
         )}
       >
         <span>{display}</span>
@@ -123,12 +121,16 @@ export function EditableGoalCell({
         inputMode="decimal"
         placeholder="goal"
         className={cn(
-          "w-20 rounded border border-ring bg-background px-1.5 py-0.5 text-right font-mono text-xs tabular",
-          "focus:outline-none",
+          "w-20 rounded border border-ring bg-surface-3 px-1.5 py-0.5 text-right font-mono text-xs tabular",
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         )}
       />
-      {pending && <span className="font-mono text-[10px] text-muted-foreground">…</span>}
-      {error && <span className="font-mono text-[10px] text-rose-300">{error}</span>}
+      {pending && (
+        <span className="font-mono text-[10px] text-muted-foreground">…</span>
+      )}
+      {error && (
+        <span className="font-mono text-[10px] text-status-red">{error}</span>
+      )}
     </span>
   );
 }
