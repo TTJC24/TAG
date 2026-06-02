@@ -83,6 +83,37 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
 REVOKE CREATE ON SCHEMA public FROM company_brain_reader;
 
 -- =========================================================================
+-- query_log table — operational usage log for the SQL endpoint
+-- =========================================================================
+-- Distinct from any ERP audit log. Tracks every /query call: who, what,
+-- how long, success/failure. Owned by company_brain_admin; only the
+-- query service inserts (using company_brain_ingest creds on a separate
+-- pool); company_brain_reader can SELECT it (so admins can self-serve via
+-- the query endpoint itself).
+CREATE TABLE IF NOT EXISTS query_log (
+  id BIGSERIAL PRIMARY KEY,
+  ts TIMESTAMPTZ NOT NULL DEFAULT now(),
+  cf_access_user_email TEXT,
+  query_text TEXT NOT NULL,
+  query_text_truncated BOOLEAN NOT NULL DEFAULT FALSE,
+  duration_ms INTEGER,
+  row_count INTEGER,
+  ok BOOLEAN NOT NULL,
+  error_class TEXT,
+  error_message TEXT,
+  client_addr TEXT
+);
+
+CREATE INDEX IF NOT EXISTS query_log_ts_idx
+  ON query_log (ts DESC);
+CREATE INDEX IF NOT EXISTS query_log_user_ts_idx
+  ON query_log (cf_access_user_email, ts DESC);
+
+-- The reader role inherits SELECT via the ALL TABLES grant above; explicitly
+-- DENY everything else just in case the default privileges shift. No write
+-- through the reader -- writes happen via the ingest pool from the service.
+
+-- =========================================================================
 -- Verification (visible in `docker logs company-brain-postgres`)
 -- =========================================================================
 DO $$

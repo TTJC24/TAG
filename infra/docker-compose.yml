@@ -114,6 +114,11 @@ services:
       # READ-ONLY pool, separate from the ingest pool. The reader role has
       # SELECT only on public.*; it cannot INSERT/UPDATE/DELETE/DDL.
       QUERY_DATABASE_URL: postgres://company_brain_reader:${POSTGRES_READER_PASSWORD}@company-brain-postgres:5432/company_brain
+      # SECOND pool used ONLY by the query service's query_log writer. Uses
+      # the ingest creds (which have INSERT) so the reader role stays purely
+      # SELECT-only. The service never accepts user SQL on this connection;
+      # it's hard-coded for "INSERT INTO query_log (...)".
+      QUERY_LOG_DATABASE_URL: postgres://company_brain_ingest:${POSTGRES_INGEST_PASSWORD}@company-brain-postgres:5432/company_brain
       QUERY_PORT: "4317"
       # Cloudflare Access injects CF-Access-Authenticated-User-Email on every
       # forwarded request. The query service captures it into the query log.
@@ -121,9 +126,19 @@ services:
       - /opt/company-brain/logs:/app/logs
     networks:
       - company-brain-net
-    # No host port. cloudflared routes brain.<domain> → company-brain-query:4317
+    # No host port. cloudflared routes brain.<domain> -> company-brain-query:4317
     # over the docker network.
     command: ["bun", "run", "src/query/server.ts"]
+    healthcheck:
+      # /health performs a `SELECT 1` against the reader pool. On boot, the
+      # service runs a preflight READ ONLY transaction against the same pool
+      # before binding the listener, so a healthy /health implies the
+      # company_brain_reader role is provisioned and reachable.
+      test: ["CMD-SHELL", "wget -qO- --tries=1 --timeout=3 http://127.0.0.1:4317/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
 
   company-brain-cloudflared:
     image: cloudflare/cloudflared:latest
