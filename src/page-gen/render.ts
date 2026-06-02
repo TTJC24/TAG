@@ -103,6 +103,15 @@ const TYPE_LABELS: Record<string, { single: string; plural: string }> = {
 
 const NAV_TYPES = ['customer', 'deal', 'contact', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep'] as const;
 
+export interface BuildMeta {
+  generatedAt: string;
+  gitCommitShort: string | null;
+  totalSearchEntries: number;
+  countsByType: Record<string, number>;
+  countsBySource: Record<string, number>;
+  pagegenDurationMs: number | null;
+}
+
 export function entityHref(type: string, id: string): string {
   return `/${encodeURIComponent(type)}/${encodeURIComponent(safeSlug(id))}.html`;
 }
@@ -114,6 +123,7 @@ interface LayoutOpts {
   title: string;
   generatedAt: Date;
   active?: string; // which nav item to mark current
+  buildMeta?: BuildMeta;
 }
 
 function layout(opts: LayoutOpts, contentHtml: string): string {
@@ -126,6 +136,7 @@ function layout(opts: LayoutOpts, contentHtml: string): string {
     })
     .join('\n      ');
 
+  const footerStamp = opts.buildMeta?.generatedAt ?? formatTimestamp(opts.generatedAt);
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -147,7 +158,10 @@ function layout(opts: LayoutOpts, contentHtml: string): string {
 ${contentHtml}
   </main>
   <footer class="generated-at">
-    Snapshot generated ${formatTimestamp(opts.generatedAt)}. Static, read-only, access controlled.
+    <strong>Company Brain v3</strong>
+    <span>Last refreshed ${escapeHtml(footerStamp)}</span>
+    ${opts.buildMeta?.gitCommitShort ? `<span>Build ${escapeHtml(opts.buildMeta.gitCommitShort)}</span>` : ''}
+    <span>Static, read-only, access controlled.</span>
   </footer>
 </body>
 </html>
@@ -161,6 +175,7 @@ export function renderHome(
   buckets: ClassifiedBuckets,
   generatedAt: Date,
   totalPages: number,
+  buildMeta?: BuildMeta,
 ): string {
   const sections = NAV_TYPES.map(
     (type) => {
@@ -198,6 +213,8 @@ export function renderHome(
       ${sections.join('\n      ')}
     </div>
 
+    ${buildMeta ? renderStatusPanel(buildMeta) : ''}
+
     ${
       totalPages === 0
         ? `<div class="empty-state">
@@ -211,7 +228,29 @@ docker compose logs company-brain-ingest</code></pre>
     }
   `;
 
-  return layout({ title: 'Home', generatedAt, active: 'index' }, body);
+  return layout({ title: 'Home', generatedAt, active: 'index', buildMeta }, body);
+}
+
+function renderStatusPanel(meta: BuildMeta): string {
+  const sectionCounts = NAV_TYPES.map((type) => {
+    const label = TYPE_LABELS[type]?.plural ?? type;
+    return `<span>${escapeHtml(label)}: ${Number(meta.countsByType[type] ?? 0).toLocaleString()}</span>`;
+  }).join('\n        ');
+  return `<section class="status-panel">
+      <div>
+        <p class="eyebrow">Build status</p>
+        <h2>Current snapshot</h2>
+      </div>
+      <dl>
+        <div><dt>Last refreshed</dt><dd>${escapeHtml(meta.generatedAt)}</dd></div>
+        <div><dt>Search entries</dt><dd>${meta.totalSearchEntries.toLocaleString()}</dd></div>
+        <div><dt>Build commit</dt><dd>${escapeHtml(meta.gitCommitShort ?? 'unknown')}</dd></div>
+        <div><dt>Pagegen duration</dt><dd>${meta.pagegenDurationMs === null ? 'unknown' : `${meta.pagegenDurationMs.toLocaleString()} ms`}</dd></div>
+      </dl>
+      <div class="status-counts">
+        ${sectionCounts}
+      </div>
+    </section>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +260,7 @@ export function renderTypeListing(
   type: string,
   entities: ClassifiedEntity[],
   generatedAt: Date,
+  buildMeta?: BuildMeta,
 ): string {
   const label = TYPE_LABELS[type]?.plural ?? type;
   if (entities.length === 0) {
@@ -239,7 +279,7 @@ export function renderTypeListing(
         }
       </div>
     `;
-    return layout({ title: label, generatedAt, active: type }, body);
+    return layout({ title: label, generatedAt, active: type, buildMeta }, body);
   }
 
   const rows = entities
@@ -269,7 +309,7 @@ export function renderTypeListing(
       </tbody>
     </table>
   `;
-  return layout({ title: label, generatedAt, active: type }, body);
+  return layout({ title: label, generatedAt, active: type, buildMeta }, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -280,6 +320,7 @@ export function renderEntityDetail(
   entity: ClassifiedEntity,
   relations: RelationshipIndex,
   generatedAt: Date,
+  buildMeta?: BuildMeta,
 ): string {
   const single = TYPE_LABELS[type]?.single ?? type;
   const freshness = classifyFreshness(entity.upstreamUpdatedAt, entity.pageUpdatedAt, generatedAt);
@@ -344,7 +385,7 @@ export function renderEntityDetail(
     </details>
   `;
 
-  return layout({ title: visible(entity.title, 'Untitled record'), generatedAt, active: type }, content);
+  return layout({ title: visible(entity.title, 'Untitled record'), generatedAt, active: type, buildMeta }, content);
 }
 
 function badge(value: string): string {
@@ -630,7 +671,7 @@ function renderRelatedLists(
 // ---------------------------------------------------------------------------
 // Search page (shell + client-side Lunr)
 // ---------------------------------------------------------------------------
-export function renderSearchPage(generatedAt: Date): string {
+export function renderSearchPage(generatedAt: Date, buildMeta?: BuildMeta): string {
   const body = `
     <section class="page-heading">
       <p class="breadcrumbs"><a href="/">Home</a> &rsaquo; <span>Search</span></p>
@@ -644,7 +685,7 @@ export function renderSearchPage(generatedAt: Date): string {
     <script src="https://cdn.jsdelivr.net/npm/lunr@2.3.9/lunr.min.js" integrity="sha384-vRQ9bDyE0Wnu+lMfm57BlYLO0/XauFuKpVsZPs7KEDwYKktWi5+Kw3FFv7Lbwqzc" crossorigin="anonymous"></script>
     <script src="/search.js"></script>
   `;
-  return layout({ title: 'Search', generatedAt }, body);
+  return layout({ title: 'Search', generatedAt, buildMeta }, body);
 }
 
 // ---------------------------------------------------------------------------
@@ -1040,6 +1081,49 @@ h2 { font-size: 1.15rem; line-height: 1.25; margin-top: 1.75rem; }
 .stat-label { color: var(--muted); font-weight: 700; }
 .stat-sub { color: var(--muted); font-size: 0.86rem; }
 
+.status-panel {
+  margin-top: 1rem;
+  padding: 1.1rem 1.25rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.status-panel h2 { margin: 0; }
+.status-panel dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.status-panel dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.status-panel dd {
+  margin: 0.2rem 0 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.status-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.status-counts span {
+  display: inline-flex;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card-soft);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
 .entity-list, .entity-fields, .meta-card, .source-body, .empty-state, .search-results li {
   border-radius: 8px;
   box-shadow: var(--shadow);
@@ -1124,7 +1208,13 @@ h2 { font-size: 1.15rem; line-height: 1.25; margin-top: 1.75rem; }
 }
 .source-badge { text-transform: none; letter-spacing: 0; }
 
-.generated-at { max-width: 1180px; }
+.generated-at {
+  max-width: 1180px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  align-items: center;
+}
 
 @media (max-width: 760px) {
   .topbar { align-items: flex-start; flex-direction: column; }
@@ -1167,6 +1257,7 @@ h2 { font-size: 1.15rem; line-height: 1.25; margin-top: 1.75rem; }
   .entity-fields th, .entity-fields td { display: block; width: 100%; }
   .entity-fields th { border-bottom: 0; padding-bottom: 0.1rem; }
   .entity-fields td { padding-top: 0.1rem; }
+  .generated-at { align-items: flex-start; flex-direction: column; }
 }
 `;
 }

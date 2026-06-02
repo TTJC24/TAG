@@ -21,6 +21,7 @@
  *   1 — DB unreachable / unrecoverable error
  */
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { loadAllPages, openReaderPool, type RawPage } from './db.ts';
 import {
@@ -40,6 +41,7 @@ import {
   safeSlug,
   searchClientSource,
   styleSheetSource,
+  type BuildMeta,
 } from './render.ts';
 
 const OUT_DIR = process.env.PAGEGEN_OUT_DIR ?? 'dist';
@@ -131,6 +133,37 @@ function buildSearchIndex(buckets: ClassifiedBuckets, generatedAt: Date): Search
   return entries;
 }
 
+function gitCommitShort(): string | null {
+  const envCommit = process.env.COMPANY_BRAIN_GIT_COMMIT?.trim();
+  if (envCommit) return envCommit;
+
+  const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  const value = result.stdout?.trim();
+  return result.status === 0 && value ? value : null;
+}
+
+function countsByType(buckets: ClassifiedBuckets): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const type of TYPES) counts[type] = bucketFor(buckets, type).length;
+  return counts;
+}
+
+function countsBySource(buckets: ClassifiedBuckets): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const type of TYPES) {
+    for (const entity of bucketFor(buckets, type)) {
+      const key = entity.sourceInstance
+        ? `${entity.sourceSystem} (${entity.sourceInstance})`
+        : entity.sourceSystem;
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+  }
+  return Object.fromEntries(Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)));
+}
+
 async function writeStaticAssets(outDir: string): Promise<void> {
   await writeFile(path.join(outDir, 'styles.css'), styleSheetSource(), 'utf8');
   await writeFile(path.join(outDir, 'search.js'), searchClientSource(), 'utf8');
@@ -142,6 +175,7 @@ async function writeEntityPages(
   entities: ClassifiedEntity[],
   buckets: ClassifiedBuckets,
   generatedAt: Date,
+  buildMeta: BuildMeta,
 ): Promise<{ pagesWritten: number; idCollisions: number }> {
   const typeDir = path.join(outDir, type);
   await ensureDir(typeDir);
@@ -149,7 +183,7 @@ async function writeEntityPages(
   // Listing page (also handles empty state via renderTypeListing)
   await writeFile(
     path.join(typeDir, 'index.html'),
-    renderTypeListing(type, entities, generatedAt),
+    renderTypeListing(type, entities, generatedAt, buildMeta),
     'utf8',
   );
 
@@ -171,7 +205,7 @@ async function writeEntityPages(
       slug = `${slug}-${safeSlug(e.pageSlug).slice(-12)}`;
     }
     usedSlugs.add(slug);
-    const html = renderEntityDetail(type, e, relations, generatedAt);
+    const html = renderEntityDetail(type, e, relations, generatedAt, buildMeta);
     await writeFile(path.join(typeDir, `${slug}.html`), html, 'utf8');
     pagesWritten += 1;
   }
@@ -213,16 +247,26 @@ async function main(): Promise<void> {
   await writeStaticAssets(absOutDir);
   log('wrote styles.css + search.js');
 
+  const searchEntries = buildSearchIndex(buckets, generatedAt);
+  const buildMeta: BuildMeta = {
+    generatedAt: generatedAt.toISOString(),
+    gitCommitShort: gitCommitShort(),
+    totalSearchEntries: searchEntries.length,
+    countsByType: countsByType(buckets),
+    countsBySource: countsBySource(buckets),
+    pagegenDurationMs: null,
+  };
+
   // Home
   await writeFile(
     path.join(absOutDir, 'index.html'),
-    renderHome(buckets, generatedAt, pages.length),
+    renderHome(buckets, generatedAt, pages.length, buildMeta),
     'utf8',
   );
   // Search shell
   await writeFile(
     path.join(absOutDir, 'search.html'),
-    renderSearchPage(generatedAt),
+    renderSearchPage(generatedAt, buildMeta),
     'utf8',
   );
   log('wrote index.html + search.html');
@@ -238,6 +282,7 @@ async function main(): Promise<void> {
       list,
       buckets,
       generatedAt,
+      buildMeta,
     );
     totalPagesWritten += pagesWritten;
     totalCollisions += idCollisions;
@@ -248,8 +293,23 @@ async function main(): Promise<void> {
     );
   }
 
-  // Search index
-  const searchEntries = buildSearchIndex(buckets, generatedAt);
+  const elapsedMs = Date.now() - startMs;
+  buildMeta.pagegenDurationMs = elapsedMs;
+
+  // Re-render the top-level pages after duration is known, so the homepage
+  // status panel and footer reflect the final snapshot metadata.
+  await writeFile(
+    path.join(absOutDir, 'index.html'),
+    renderHome(buckets, generatedAt, pages.length, buildMeta),
+    'utf8',
+  );
+  await writeFile(
+    path.join(absOutDir, 'search.html'),
+    renderSearchPage(generatedAt, buildMeta),
+    'utf8',
+  );
+
+  // Search index + build metadata
   await writeFile(
     path.join(absOutDir, 'search-index.json'),
     JSON.stringify(
@@ -264,9 +324,15 @@ async function main(): Promise<void> {
   );
   log(`wrote search-index.json (${searchEntries.length} entries)`);
 
+  await writeFile(
+    path.join(absOutDir, 'build-meta.json'),
+    JSON.stringify(buildMeta, null, 2),
+    'utf8',
+  );
+  log('wrote build-meta.json');
+
   await pool.end();
 
-  const elapsedMs = Date.now() - startMs;
   log(
     `done in ${elapsedMs}ms — ${totalPagesWritten} detail pages + ${TYPES.length} listings + home + search.`,
   );

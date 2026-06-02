@@ -11,6 +11,73 @@ upstream issue [#1522](https://github.com/garrytan/gbrain/issues/1522).
 
 New here? Jump to [Quickstart](#quickstart-fixture-only-60-seconds).
 
+## Production v3 static site
+
+Company Brain v3 is served as a static, read-only internal directory behind
+Cloudflare Access. The query service and Postgres stay private on the Docker
+network; the public surface is the generated `dist/` site only.
+
+### Scheduled Pipedrive refresh
+
+On the production droplet, Pipedrive refresh is installed as cron:
+
+```bash
+cat /etc/cron.d/company-brain-pipedrive-refresh
+```
+
+Current schedule: every 4 hours at minute 17. Logs are written under:
+
+```bash
+/opt/company-brain/logs/
+```
+
+Typical log inspection:
+
+```bash
+ls -lah /opt/company-brain/logs
+tail -n 120 /opt/company-brain/logs/pipedrive-refresh-$(date +%Y%m%d).log
+```
+
+Manual refresh command:
+
+```bash
+cd /opt/company-brain/repo/infra
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run ingest pipedrive-fs --no-embed
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run ingest pipedrive-blcs-usa --no-embed
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run pagegen
+docker compose --env-file /opt/company-brain/infra/.env restart company-brain-static
+```
+
+The refresh script is failure-safe: if ingest fails, it exits before pagegen so
+the existing static snapshot is not wiped.
+
+After code changes, rebuild the Bun image with the current commit stamped into
+pagegen:
+
+```bash
+cd /opt/company-brain/repo/infra
+docker compose --env-file /opt/company-brain/infra/.env build \
+  --build-arg COMPANY_BRAIN_GIT_COMMIT=$(git -C /opt/company-brain/repo rev-parse --short HEAD) \
+  company-brain-ingest
+```
+
+### Build metadata
+
+Every pagegen run writes:
+
+```bash
+/opt/company-brain/dist/build-meta.json
+```
+
+Inspect it from the droplet:
+
+```bash
+python3 -m json.tool /opt/company-brain/dist/build-meta.json
+```
+
+It includes the generated timestamp, build commit, search entry count, section
+counts, source counts, and pagegen duration.
+
 ## Quickstart (fixture-only, ~60 seconds)
 
 This path takes you from a fresh clone to a cited answer using only stub
