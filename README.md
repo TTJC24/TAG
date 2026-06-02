@@ -135,6 +135,60 @@ sessions/seats. Do not retry-loop. Ask the Acumatica admin/support to clear
 stale API sessions, confirm the integration user has Contract API access, and
 provision a dedicated read-only API user/session capacity for Company Brain.
 
+## Capped Acumatica read-only ingest
+
+After readiness passes, Acumatica validation starts with capped, branch-scoped,
+read-only ingest. This path uses only Contract API `GET` requests with
+`PX-CbApiBranch`; it does not create, update, delete, or write back to ERP.
+
+Initial entity set:
+
+- Customers
+- Inventory/items
+- Vendors
+- Sales Orders
+- Invoices
+- Salespersons/Reps when the endpoint is available
+
+Default live cap is 100 records per entity per branch. For beta validation,
+start at 10:
+
+```bash
+cd /opt/company-brain/repo/infra
+
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run ingest acumatica-fs --live --no-embed --cap=10
+
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run ingest acumatica-blcs --live --no-embed --cap=10
+
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run ingest acumatica-usa --live --no-embed --cap=10
+
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run pagegen
+docker compose --env-file /opt/company-brain/infra/.env restart company-brain-static
+```
+
+The same cap can be supplied as an environment variable:
+
+```bash
+ACUMATICA_INGEST_CAP=10 docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run ingest acumatica-fs --live --no-embed
+```
+
+Full Acumatica ingest is intentionally deferred. Do not remove caps or schedule
+Acumatica refresh until the capped data validates in the static site.
+
+Rollback/cleanup notes:
+
+- The static site is regenerated from `public.pages`; rerunning pagegen restores
+  whatever records are currently present.
+- If capped validation records need removal, delete only the affected
+  `source_id` rows for `acumatica-fs`, `acumatica-blcs`, or `acumatica-usa`
+  after taking a database backup.
+- Do not delete or modify Pipedrive rows when cleaning Acumatica validation
+  data.
+
 ## Quickstart (fixture-only, ~60 seconds)
 
 This path takes you from a fresh clone to a cited answer using only stub

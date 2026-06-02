@@ -14,7 +14,7 @@ export const connectors: Record<string, ConnectorSpec> = {
   [m365TeamsConnector.id]: m365TeamsConnector,
   [acumaticaConnector.id]: acumaticaConnector,
   'acumatica-fs': createAcumaticaConnector('acumatica-fs', 'Acumatica ERP - FS', 'FS'),
-  'acumatica-blcs': createAcumaticaConnector('acumatica-blcs', 'Acumatica ERP - BLCS', 'BLCS'),
+  'acumatica-blcs': createAcumaticaConnector('acumatica-blcs', 'Acumatica ERP - BLC', 'BLCS'),
   'acumatica-usa': createAcumaticaConnector('acumatica-usa', 'Acumatica ERP - USA', 'USA'),
   [pipedriveConnector.id]: pipedriveConnector,
   'pipedrive-fs': createPipedriveConnector('pipedrive-fs', 'Pipedrive CRM - FS', 'PIPEDRIVE_API_TOKEN_FS', 'PIPEDRIVE_COMPANY_DOMAIN_FS'),

@@ -16,6 +16,23 @@ const KNOWN_INGEST_FLAGS = new Set([
   '--quiet',
 ]);
 
+function parseCap(args: string[]): number | undefined {
+  const envCap = process.env.ACUMATICA_INGEST_CAP ?? process.env.npm_config_cap;
+  let raw = envCap;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--cap') raw = args[i + 1];
+    if (arg?.startsWith('--cap=')) raw = arg.slice('--cap='.length);
+  }
+  if (raw === undefined || raw === '') return undefined;
+  const cap = Number(raw);
+  if (!Number.isInteger(cap) || cap <= 0) {
+    console.error(`invalid --cap value '${raw}'. Expected a positive integer.`);
+    process.exit(2);
+  }
+  return cap;
+}
+
 function parseArgs(argv: string[]): {
   sourceId: string;
   dryRun: boolean;
@@ -24,6 +41,7 @@ function parseArgs(argv: string[]): {
   live: boolean;
   summaryOnly: boolean;
   quiet: boolean;
+  cap?: number;
 } {
   const args = argv.slice(2);
   if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
@@ -36,7 +54,12 @@ function parseArgs(argv: string[]): {
     console.error(`known sources: ${listConnectorIds().join(', ')}`);
     process.exit(2);
   }
-  const unknown = args.slice(1).filter((a) => a.startsWith('--') && !KNOWN_INGEST_FLAGS.has(a));
+  const unknown = args.slice(1).filter((a) => (
+    a.startsWith('--') &&
+    !KNOWN_INGEST_FLAGS.has(a) &&
+    a !== '--cap' &&
+    !a.startsWith('--cap=')
+  ));
   if (unknown.length > 0) {
     console.error(
       `unknown flag(s): ${unknown.join(', ')}. valid: ${Array.from(KNOWN_INGEST_FLAGS).join(', ')}`,
@@ -57,14 +80,15 @@ function parseArgs(argv: string[]): {
     live: args.includes('--live') || npmFlag('live'),
     summaryOnly,
     quiet,
+    cap: parseCap(args),
   };
 }
 
 async function main(): Promise<void> {
-  const { sourceId, dryRun, noEmbed, fixtures, live, summaryOnly, quiet } = parseArgs(process.argv);
+  const { sourceId, dryRun, noEmbed, fixtures, live, summaryOnly, quiet, cap } = parseArgs(process.argv);
   const spec = getConnector(sourceId);
   const useFixtures = fixtures || (dryRun && !live);
-  const source = await spec.build({ dryRun: useFixtures });
+  const source = await spec.build({ dryRun: useFixtures, cap });
   const result = await runIngestion(spec.id, spec.displayName, source, {
     dryRun,
     noEmbed,

@@ -7,10 +7,10 @@ import type { AcumaticaEntity, AcumaticaSnapshot } from '../acumatica.ts';
  *
  * Acumatica enforces a per-user seat limit on the Contract API. Login uses
  * the shared database/instance company value (ACUMATICA_TENANT, currently
- * Production) plus one default branch. Each request then sets PX-CbApiBranch
- * to select the branch-scoped data.
+ * Production). Each read request sets PX-CbApiBranch to select the
+ * branch-scoped data.
  */
-const SESSION_FILE = '.acumatica-session';
+const SESSION_FILE = process.env.ACUMATICA_SESSION_FILE ?? 'state/.acumatica-session';
 let sessionCookie: string | null = null;
 
 interface CachedSession {
@@ -86,7 +86,6 @@ async function login(): Promise<void> {
     name: requireEnv('ACUMATICA_USERNAME'),
     password: requireEnv('ACUMATICA_PASSWORD'),
     company: requireEnv('ACUMATICA_TENANT'),
-    branch: entityBranch('FS'),
   };
   let res: Response;
   try {
@@ -113,10 +112,6 @@ async function login(): Promise<void> {
 }
 
 async function get<T>(branch: string, endpoint: string): Promise<T> {
-  return await getOnce<T>(branch, endpoint, /* allowReloginOnAuthFail */ true);
-}
-
-async function getOnce<T>(branch: string, endpoint: string, allowReloginOnAuthFail: boolean): Promise<T> {
   await ensureSession();
   const base = normalizeBaseUrl(requireEnv('ACUMATICA_BASE_URL'));
   const res = await fetch(`${base}/entity/Default/${config.ACUMATICA_ENDPOINT_VERSION}/${endpoint}`, {
@@ -126,14 +121,8 @@ async function getOnce<T>(branch: string, endpoint: string, allowReloginOnAuthFa
       'PX-CbApiBranch': branch,
     },
   });
-  // Expired or revoked session; clear the cache, log in fresh, and retry once.
-  // Second 401/403 falls through to the generic error below.
-  if ((res.status === 401 || res.status === 403) && allowReloginOnAuthFail) {
-    clearCachedSession();
-    await login();
-    return await getOnce<T>(branch, endpoint, /* allowReloginOnAuthFail */ false);
-  }
   if (!res.ok) {
+    if (res.status === 401 || res.status === 403) clearCachedSession();
     const text = await res.text();
     throw new Error(`Acumatica ${endpoint} ${res.status}: ${text.slice(0, 500)}`);
   }
@@ -145,7 +134,7 @@ function normalizeBaseUrl(value: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-async function listAll(branch: string, entity: string, max = config.ACUMATICA_MAX_ITEMS): Promise<ContractRow[]> {
+async function listCapped(branch: string, entity: string, max: number): Promise<ContractRow[]> {
   const rows: ContractRow[] = [];
   const top = Math.min(100, max);
   for (let skip = 0; rows.length < max; skip += top) {
@@ -157,14 +146,31 @@ async function listAll(branch: string, entity: string, max = config.ACUMATICA_MA
   return rows.slice(0, max);
 }
 
+async function listOptional(branch: string, entity: string, max: number): Promise<ContractRow[]> {
+  try {
+    return await listCapped(branch, entity, max);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/\s(404|405):/.test(msg) || msg.includes(' 404:') || msg.includes(' 405:')) {
+      console.warn(`[acumatica] optional endpoint ${entity} unavailable for branch ${branch}; skipping`);
+      return [];
+    }
+    throw err;
+  }
+}
+
 type ContractRow = {
   id?: string;
   CustomerID?: { value?: string };
   CustomerName?: { value?: string };
+  VendorID?: { value?: string };
+  VendorName?: { value?: string };
   OrderNbr?: { value?: string };
   ReferenceNbr?: { value?: string };
   InventoryID?: { value?: string };
   Description?: { value?: string };
+  SalespersonID?: { value?: string };
+  Name?: { value?: string };
   LastModifiedDateTime?: { value?: string };
   [k: string]: unknown;
 };
@@ -193,16 +199,22 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
   const id =
     (row.id as string | undefined) ||
     fieldValue(row, 'CustomerID') ||
+    fieldValue(row, 'VendorID') ||
     fieldValue(row, 'OrderNbr') ||
     fieldValue(row, 'ReferenceNbr') ||
     fieldValue(row, 'InventoryID') ||
+    fieldValue(row, 'SalespersonID') ||
     `row-${Math.random().toString(36).slice(2, 10)}`;
   const name =
     fieldValue(row, 'CustomerName') ||
+    fieldValue(row, 'VendorName') ||
     fieldValue(row, 'Description') ||
+    fieldValue(row, 'Name') ||
     fieldValue(row, 'OrderNbr') ||
     fieldValue(row, 'CustomerID') ||
+    fieldValue(row, 'VendorID') ||
     fieldValue(row, 'InventoryID') ||
+    fieldValue(row, 'SalespersonID') ||
     id;
   // v3 freshness contract (Phase 2): when LastModifiedDateTime is missing from
   // the upstream row, surface empty rather than pretending the row was just
@@ -214,18 +226,28 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
   return { kind, id: String(id), name, updated_at: updated, body: plainRow(row) };
 }
 
-export async function fetchAcumaticaSnapshot(entity?: EntityCode): Promise<AcumaticaSnapshot> {
+export interface FetchAcumaticaSnapshotOptions {
+  entity?: EntityCode;
+  cap?: number;
+}
+
+export async function fetchAcumaticaSnapshot(options: FetchAcumaticaSnapshotOptions = {}): Promise<AcumaticaSnapshot> {
+  const entity = options.entity;
   const branch = entity ? entityBranch(entity) : entityBranch('FS');
-  const [customers, orders, invoices, items] = await Promise.all([
-    listAll(branch, 'Customer', config.ACUMATICA_MAX_ITEMS),
-    listAll(branch, 'SalesOrder', config.ACUMATICA_MAX_ITEMS),
-    listAll(branch, 'SalesInvoice', config.ACUMATICA_MAX_ITEMS),
-    listAll(branch, 'StockItem', config.ACUMATICA_MAX_ITEMS),
-  ]);
+  const envCap = Number(process.env.ACUMATICA_INGEST_CAP ?? '');
+  const cap = options.cap ?? (Number.isInteger(envCap) && envCap > 0 ? envCap : Math.min(config.ACUMATICA_MAX_ITEMS, 100));
+  const customers = await listCapped(branch, 'Customer', cap);
+  const items = await listCapped(branch, 'StockItem', cap);
+  const vendors = await listCapped(branch, 'Vendor', cap);
+  const orders = await listCapped(branch, 'SalesOrder', cap);
+  const invoices = await listCapped(branch, 'SalesInvoice', cap);
+  const reps = await listOptional(branch, 'SalesPerson', cap);
   return {
     customers: customers.map((r) => toEntity('customer', r)),
+    items: items.map((r) => toEntity('item', r)),
+    vendors: vendors.map((r) => toEntity('vendor', r)),
     orders: orders.map((r) => toEntity('order', r)),
     invoices: invoices.map((r) => toEntity('invoice', r)),
-    items: items.map((r) => toEntity('item', r)),
+    reps: reps.map((r) => toEntity('rep', r)),
   };
 }

@@ -151,6 +151,9 @@ function parseDate(value: unknown): Date | null {
 }
 
 function sourceInstanceFor(sourceId: string): string {
+  if (sourceId === 'acumatica-fs') return 'FS';
+  if (sourceId === 'acumatica-blcs') return 'BLC';
+  if (sourceId === 'acumatica-usa') return 'USA';
   if (sourceId === 'pipedrive-fs') return 'FS';
   if (sourceId === 'pipedrive-blcs-usa') return 'BLCS/USA';
   if (sourceId.endsWith('-fs')) return 'FS';
@@ -212,6 +215,7 @@ function entityTitle(page: RawPage, fm: Record<string, unknown>, fields: Record<
 
   const candidates = [
     fields['CustomerName'],
+    fields['VendorName'],
     fields['Name'],
     fields.name,
     fields.title,
@@ -220,6 +224,8 @@ function entityTitle(page: RawPage, fm: Record<string, unknown>, fields: Record<
     fields['OrderNbr'],
     fields['ReferenceNbr'],
     fields['InventoryID'],
+    fields['VendorID'],
+    fields['SalespersonID'],
     page.title,
   ];
   for (const candidate of candidates) {

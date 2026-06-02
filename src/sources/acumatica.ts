@@ -12,7 +12,7 @@ const SOURCE_ID = 'acumatica';
 const SOURCE_KIND = 'acumatica';
 const FIXTURE_PATH = 'fixtures/acumatica/snapshot.json';
 
-export type AcumaticaEntityKind = 'customer' | 'order' | 'invoice' | 'item';
+export type AcumaticaEntityKind = 'customer' | 'item' | 'vendor' | 'order' | 'invoice' | 'rep';
 
 export interface AcumaticaEntity {
   kind: AcumaticaEntityKind;
@@ -24,18 +24,20 @@ export interface AcumaticaEntity {
 
 export interface AcumaticaSnapshot {
   customers: AcumaticaEntity[];
+  items: AcumaticaEntity[];
+  vendors: AcumaticaEntity[];
   orders: AcumaticaEntity[];
   invoices: AcumaticaEntity[];
-  items: AcumaticaEntity[];
+  reps: AcumaticaEntity[];
 }
 
-function slugFor(e: AcumaticaEntity): string {
-  const short = computeContentHash(`${e.kind}/${e.id}`).slice(0, 10);
-  return `acumatica/${e.kind}/${e.id.replace(/[^a-zA-Z0-9_-]/g, '_')}-${short}`;
+function slugFor(sourceId: string, e: AcumaticaEntity): string {
+  const short = computeContentHash(`${sourceId}/${e.kind}/${e.id}`).slice(0, 10);
+  return `${sourceId}/${e.kind}/${e.id.replace(/[^a-zA-Z0-9_-]/g, '_')}-${short}`;
 }
 
-function sourceUri(e: AcumaticaEntity): string {
-  return `acumatica://${e.kind}/${encodeURIComponent(e.id)}`;
+function sourceUri(sourceId: string, e: AcumaticaEntity): string {
+  return `acumatica://${sourceId}/${e.kind}/${encodeURIComponent(e.id)}`;
 }
 
 function renderBody(body: Record<string, unknown>): string {
@@ -51,20 +53,20 @@ function renderBody(body: Record<string, unknown>): string {
   return lines.join('\n');
 }
 
-function markdownFor(e: AcumaticaEntity): string {
+function markdownFor(sourceId: string, e: AcumaticaEntity): string {
   return `---
 type: note
 title: "${e.name.replaceAll('"', '\\"')}"
 acumatica_id: "${e.id.replaceAll('"', '\\"')}"
 acumatica_kind: "${e.kind}"
-source_uri: "${sourceUri(e)}"
+source_uri: "${sourceUri(sourceId, e)}"
 source_kind: "${SOURCE_KIND}"
 updated_at: "${e.updated_at}"
 ---
 
 # ${e.name}
 
-- Source: ${sourceUri(e)}
+- Source: ${sourceUri(sourceId, e)}
 - Kind: ${e.kind}
 - Updated: ${e.updated_at || '(unknown)'}
 
@@ -83,23 +85,25 @@ class AcumaticaSource implements IngestionSource {
   async start(ctx: IngestionSourceContext): Promise<void> {
     const all = [
       ...this.snapshot.customers,
+      ...this.snapshot.items,
+      ...this.snapshot.vendors,
       ...this.snapshot.orders,
       ...this.snapshot.invoices,
-      ...this.snapshot.items,
+      ...this.snapshot.reps,
     ];
     for (const e of all) {
-      const content = markdownFor(e);
+      const content = markdownFor(this.id, e);
       ctx.emit({
         source_id: this.id,
         source_kind: this.kind,
-        source_uri: sourceUri(e),
+        source_uri: sourceUri(this.id, e),
         received_at: new Date().toISOString(),
         content_type: 'text/markdown',
         content,
         content_hash: computeContentHash(content),
         untrusted_payload: false,
         metadata: {
-          slug: slugFor(e),
+          slug: slugFor(this.id, e),
           entity_kind: e.kind,
           entity_id: e.id,
           updated_at: e.updated_at,
@@ -116,11 +120,22 @@ class AcumaticaSource implements IngestionSource {
   async stop(): Promise<void> {}
 }
 
-async function loadSnapshot(dryRun: boolean, entity?: EntityCode): Promise<AcumaticaSnapshot> {
+async function loadSnapshot(dryRun: boolean, entity?: EntityCode, cap?: number): Promise<AcumaticaSnapshot> {
   if (dryRun) {
-    return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as AcumaticaSnapshot;
+    return normalizeSnapshot(JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as Partial<AcumaticaSnapshot>);
   }
-  return await fetchAcumaticaSnapshot(entity);
+  return await fetchAcumaticaSnapshot({ entity, cap });
+}
+
+function normalizeSnapshot(snapshot: Partial<AcumaticaSnapshot>): AcumaticaSnapshot {
+  return {
+    customers: snapshot.customers ?? [],
+    items: snapshot.items ?? [],
+    vendors: snapshot.vendors ?? [],
+    orders: snapshot.orders ?? [],
+    invoices: snapshot.invoices ?? [],
+    reps: snapshot.reps ?? [],
+  };
 }
 
 export function createAcumaticaConnector(id = SOURCE_ID, displayName = 'Acumatica ERP', entity?: EntityCode): ConnectorSpec {
@@ -132,8 +147,8 @@ export function createAcumaticaConnector(id = SOURCE_ID, displayName = 'Acumatic
     kind: SOURCE_KIND,
     fixturePath: FIXTURE_PATH,
     requiredEnv,
-    async build({ dryRun }) {
-      const snapshot = await loadSnapshot(dryRun, entity);
+    async build({ dryRun, cap }) {
+      const snapshot = await loadSnapshot(dryRun, entity, cap);
       return new AcumaticaSource(id, snapshot);
     },
   };

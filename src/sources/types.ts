@@ -7,5 +7,5 @@ export interface ConnectorSpec {
   fixturePath: string;
   requiredEnv: string[];
   requiredAnyEnv?: string[][];
-  build(opts: { dryRun: boolean }): Promise<IngestionSource> | IngestionSource;
+  build(opts: { dryRun: boolean; cap?: number }): Promise<IngestionSource> | IngestionSource;
 }
