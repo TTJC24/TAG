@@ -17,8 +17,8 @@ export const connectors: Record<string, ConnectorSpec> = {
   'acumatica-blcs': createAcumaticaConnector('acumatica-blcs', 'Acumatica ERP - BLCS', 'BLCS'),
   'acumatica-usa': createAcumaticaConnector('acumatica-usa', 'Acumatica ERP - USA', 'USA'),
   [pipedriveConnector.id]: pipedriveConnector,
-  'pipedrive-fs': createPipedriveConnector('pipedrive-fs', 'Pipedrive CRM - FS', 'PIPEDRIVE_API_TOKEN_FS'),
-  'pipedrive-blcs-usa': createPipedriveConnector('pipedrive-blcs-usa', 'Pipedrive CRM - BLCS/USA', 'PIPEDRIVE_API_TOKEN_BLCS_USA'),
+  'pipedrive-fs': createPipedriveConnector('pipedrive-fs', 'Pipedrive CRM - FS', 'PIPEDRIVE_API_TOKEN_FS', 'PIPEDRIVE_COMPANY_DOMAIN_FS'),
+  'pipedrive-blcs-usa': createPipedriveConnector('pipedrive-blcs-usa', 'Pipedrive CRM - BLCS/USA', 'PIPEDRIVE_API_TOKEN_BLCS_USA', 'PIPEDRIVE_COMPANY_DOMAIN_BLCS_USA'),
   ...Object.fromEntries(supermemoryConnectors.map((c) => [c.id, c])),
 };
 

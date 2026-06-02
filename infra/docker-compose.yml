@@ -22,7 +22,7 @@ name: company-brain
 
 services:
   company-brain-postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: company-brain-postgres
     restart: unless-stopped
     environment:
@@ -84,6 +84,8 @@ services:
       PIPEDRIVE_API_TOKEN_FS: ${PIPEDRIVE_API_TOKEN_FS:-}
       PIPEDRIVE_API_TOKEN_BLCS_USA: ${PIPEDRIVE_API_TOKEN_BLCS_USA:-}
       PIPEDRIVE_COMPANY_DOMAIN: ${PIPEDRIVE_COMPANY_DOMAIN:-}
+      PIPEDRIVE_COMPANY_DOMAIN_FS: ${PIPEDRIVE_COMPANY_DOMAIN_FS:-}
+      PIPEDRIVE_COMPANY_DOMAIN_BLCS_USA: ${PIPEDRIVE_COMPANY_DOMAIN_BLCS_USA:-}
       SUPERMEMORY_API_KEY: ${SUPERMEMORY_API_KEY:-}
       SCHEDULER_ENABLED: "true"
       SCHEDULER_DRY_RUN: ${SCHEDULER_DRY_RUN:-false}

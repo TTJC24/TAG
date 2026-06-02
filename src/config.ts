@@ -57,6 +57,8 @@ const schema = z.object({
   PIPEDRIVE_API_TOKEN_FS: z.string().optional(),
   PIPEDRIVE_API_TOKEN_BLCS_USA: z.string().optional(),
   PIPEDRIVE_COMPANY_DOMAIN: z.string().optional(),
+  PIPEDRIVE_COMPANY_DOMAIN_FS: z.string().optional(),
+  PIPEDRIVE_COMPANY_DOMAIN_BLCS_USA: z.string().optional(),
   PIPEDRIVE_MAX_ITEMS: z.coerce.number().int().positive().default(500),
   COMPANY_BRAIN_API_TOKEN: z.string().default('dev-local-token'),
   COMPANY_BRAIN_API_PORT: z.coerce.number().int().positive().default(4317),

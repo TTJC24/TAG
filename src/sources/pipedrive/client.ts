@@ -27,7 +27,7 @@ async function getJson<T>(path: string, opts: PipedriveFetchOptions = {}): Promi
     res = await fetch(`https://${domain}.pipedrive.com/api/v1${path}${sep}api_token=${token}`);
   } catch (err) {
     throw new Error(
-      `Pipedrive network error for ${path} (domain=${domain}): ${err instanceof Error ? err.message : String(err)}. Check PIPEDRIVE_COMPANY_DOMAIN in .env.`,
+      `Pipedrive network error for ${path} (domain=${domain}): ${err instanceof Error ? err.message : String(err)}. Check PIPEDRIVE_COMPANY_DOMAIN or the scoped PIPEDRIVE_COMPANY_DOMAIN_* value in .env.`,
     );
   }
   if (!res.ok) {

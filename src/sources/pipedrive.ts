@@ -149,22 +149,33 @@ class PipedriveSource implements IngestionSource {
   async stop(): Promise<void> {}
 }
 
-async function loadSnapshot(dryRun: boolean, apiToken?: string): Promise<PipedriveSnapshot> {
+type PipedriveTokenEnv = 'PIPEDRIVE_API_TOKEN_FS' | 'PIPEDRIVE_API_TOKEN_BLCS_USA';
+type PipedriveDomainEnv = 'PIPEDRIVE_COMPANY_DOMAIN_FS' | 'PIPEDRIVE_COMPANY_DOMAIN_BLCS_USA';
+
+async function loadSnapshot(dryRun: boolean, apiToken?: string, companyDomain?: string): Promise<PipedriveSnapshot> {
   if (dryRun) {
     return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as PipedriveSnapshot;
   }
-  return await fetchPipedriveSnapshot({ apiToken });
+  return await fetchPipedriveSnapshot({ apiToken, companyDomain });
 }
 
-export function createPipedriveConnector(id = SOURCE_ID, displayName = 'Pipedrive CRM', tokenEnv?: 'PIPEDRIVE_API_TOKEN_FS' | 'PIPEDRIVE_API_TOKEN_BLCS_USA'): ConnectorSpec {
+export function createPipedriveConnector(id = SOURCE_ID, displayName = 'Pipedrive CRM', tokenEnv?: PipedriveTokenEnv, domainEnv?: PipedriveDomainEnv): ConnectorSpec {
+  const requiredEnv = [
+    domainEnv ?? 'PIPEDRIVE_COMPANY_DOMAIN',
+    ...(tokenEnv ? [tokenEnv] : ['PIPEDRIVE_API_TOKEN']),
+  ];
   return {
     id,
     displayName,
     kind: SOURCE_KIND,
     fixturePath: FIXTURE_PATH,
-    requiredEnv: ['PIPEDRIVE_COMPANY_DOMAIN', ...(tokenEnv ? [tokenEnv] : ['PIPEDRIVE_API_TOKEN'])],
+    requiredEnv,
     async build({ dryRun }) {
-      const snapshot = await loadSnapshot(dryRun, tokenEnv ? config[tokenEnv] : undefined);
+      const snapshot = await loadSnapshot(
+        dryRun,
+        tokenEnv ? config[tokenEnv] : undefined,
+        domainEnv ? config[domainEnv] : undefined,
+      );
       return new PipedriveSource(id, snapshot);
     },
   };
