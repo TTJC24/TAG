@@ -27,7 +27,12 @@ export interface SharePointItem {
 }
 
 function slugFor(it: SharePointItem): string {
-  const day = it.last_modified.slice(0, 10);
+  // v3 freshness contract: slug needs a date prefix for chronological ordering
+  // even when upstream last_modified is unknown. Fall back to today's date for
+  // the slug ONLY; the emitted metadata.upstream_updated_at stays honestly
+  // null so downstream surfaces (page generator, search index) render
+  // "freshness unknown" instead of today's date.
+  const day = (it.last_modified || new Date().toISOString()).slice(0, 10);
   const short = computeContentHash(it.id).slice(0, 10);
   return `sharepoint/m365/${day}-${short}`;
 }
@@ -71,7 +76,7 @@ last_modified: "${it.last_modified}"
 - Web URL: ${it.web_url}
 - Size: ${it.size} bytes
 - MIME: ${it.mime_type}
-- Last modified: ${it.last_modified} by ${it.modified_by}
+- Last modified: ${it.last_modified || '(unknown)'} by ${it.modified_by || '(unknown)'}
 
 ${extracted ? `## Extracted Content\n\n${extracted.slice(0, 12000)}\n` : '> No plain-text body was available for this file; metadata and the web URL were indexed.'}
 `;
@@ -101,6 +106,11 @@ class M365SharePointSource implements IngestionSource {
           item_id: it.id,
           drive_id: it.drive_id,
           last_modified: it.last_modified,
+          // v3 freshness contract: explicit upstream timestamp, null when
+          // Graph did not report lastModifiedDateTime. Prefer this over
+          // `last_modified` (which is "" when unknown for backward-compat)
+          // and over received_at (which is wall-clock ingest time).
+          upstream_updated_at: it.last_modified || null,
         },
       });
     }

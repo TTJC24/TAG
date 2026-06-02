@@ -273,7 +273,13 @@ export async function fetchSharePointItems(): Promise<SharePointItem[]> {
           web_url: item.webUrl,
           size: item.size ?? 0,
           mime_type: item.file.mimeType ?? 'application/octet-stream',
-          last_modified: item.lastModifiedDateTime ?? new Date().toISOString(),
+          // v3 freshness contract (Phase 2): empty string when Graph omits
+          // lastModifiedDateTime. The downstream connector's slug builder
+          // falls back to today's date for chronological ordering only; the
+          // emitted upstream_updated_at metadata stays honestly null so the
+          // "last refreshed" stamp on rendered pages surfaces "(unknown)"
+          // rather than wall-clock-pretending-to-be-record-time.
+          last_modified: item.lastModifiedDateTime ?? '',
           modified_by: item.createdBy?.user?.displayName ?? '',
           content_text: contentText,
         });
