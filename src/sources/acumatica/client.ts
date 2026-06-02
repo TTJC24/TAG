@@ -204,7 +204,13 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
     fieldValue(row, 'CustomerID') ||
     fieldValue(row, 'InventoryID') ||
     id;
-  const updated = fieldValue(row, 'LastModifiedDateTime') || new Date().toISOString();
+  // v3 freshness contract (Phase 2): when LastModifiedDateTime is missing from
+  // the upstream row, surface empty rather than pretending the row was just
+  // modified now. The silent `new Date().toISOString()` fallback was masking
+  // unknown-freshness as apparent-current, which v3's "last refreshed" stamps
+  // would then render as a lie. Downstream renderers and the SQL query
+  // endpoint check for empty/null and surface "freshness unknown" instead.
+  const updated = fieldValue(row, 'LastModifiedDateTime') || '';
   return { kind, id: String(id), name, updated_at: updated, body: plainRow(row) };
 }
 

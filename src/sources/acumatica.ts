@@ -66,7 +66,7 @@ updated_at: "${e.updated_at}"
 
 - Source: ${sourceUri(e)}
 - Kind: ${e.kind}
-- Updated: ${e.updated_at}
+- Updated: ${e.updated_at || '(unknown)'}
 
 ## Fields
 
@@ -103,6 +103,11 @@ class AcumaticaSource implements IngestionSource {
           entity_kind: e.kind,
           entity_id: e.id,
           updated_at: e.updated_at,
+          // v3 freshness contract: explicit upstream timestamp, null when the
+          // source row did not carry LastModifiedDateTime. Consumers should
+          // prefer this over `updated_at` (which is "" when unknown for
+          // backward-compat) and over received_at (which is wall-clock).
+          upstream_updated_at: e.updated_at || null,
         },
       });
     }
