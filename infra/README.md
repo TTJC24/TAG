@@ -217,17 +217,90 @@ cd /opt/company-brain/repo/infra
 docker compose up -d --no-deps company-brain-ingest company-brain-query
 ```
 
-## Phase 2B+ (page generator) addition
+## Phase 2B — page generator
 
-When the page generator lands (Week 2B of v3), it will run inside the
-existing `company-brain-ingest` container at the end of each scheduler tick,
-writing HTML to `/opt/company-brain/dist/`. Publishing to Cloudflare Pages
-will be a separate `wrangler pages deploy` step driven by either:
-- a host-side cron that runs `wrangler` on the host (not in compose), or
-- an additional one-shot compose service that runs after the page
-  generator completes.
+The page generator (`src/page-gen/index.ts`) renders the brain's
+`public.pages` rows into a static site under `/opt/company-brain/dist/`.
+No server runtime is required to view the output -- open `dist/index.html`
+in a browser, or push the folder to Cloudflare Pages.
 
-The choice is deferred until the page generator is in place.
+The generator runs INSIDE the `company-brain-ingest` container so it
+shares the same image and the bind mount to `/opt/company-brain/dist/`.
+It connects to Postgres as `company_brain_reader` (read-only) via the
+existing `QUERY_DATABASE_URL` -- the ingest container inherits that env
+var from `.env`.
+
+### Manual page generation
+
+```bash
+# On jerry-data, after ingest has populated pages:
+docker compose exec company-brain-ingest bun run pagegen
+
+# Output:
+# [pagegen] output directory: /app/dist
+# [pagegen] loaded 217 pages from public.pages
+# [pagegen] classified: customers=42 orders=18 invoices=23 items=11 vendors=0 reps=0 other=123
+# [pagegen] wrote styles.css + search.js
+# [pagegen] wrote index.html + search.html
+# [pagegen] wrote /customer/index.html + 42 detail pages
+# ... etc
+# [pagegen] done in 184ms -- 94 detail pages + 6 listings + home + search.
+
+# The container's /app/dist is bind-mounted to the host's /opt/company-brain/dist
+# so the output is immediately visible on the host:
+ls /opt/company-brain/dist
+```
+
+### Publishing to Cloudflare Pages (deferred)
+
+Today this is a manual step from your local machine OR the droplet, using
+the Wrangler CLI:
+
+```bash
+# One-time: install wrangler
+npm i -g wrangler
+wrangler login
+
+# Each publish:
+scp -r root@142.93.196.10:/opt/company-brain/dist ./dist-snapshot
+wrangler pages deploy ./dist-snapshot --project-name company-brain
+```
+
+Eventually this gets wrapped in a host cron after each ingest cycle. Not
+in scope for v1.
+
+### Generated layout
+
+```
+dist/
+  index.html               home (section counts + recent activity)
+  search.html              client-side search shell
+  search-index.json        Lunr index covering customer/order/invoice/item/vendor/rep
+  styles.css               shared stylesheet (light + dark, mobile-friendly)
+  search.js                Lunr-driven search client
+  customer/
+    index.html             listing of all customer records
+    <id>.html              one page per customer with key fields + related orders/invoices + source markdown body
+  order/
+    index.html
+    <id>.html
+  invoice/                 (same pattern)
+  item/                    (same pattern)
+  vendor/                  index.html only (empty-state placeholder; no vendor connector yet)
+  rep/                     index.html only (empty-state placeholder; no rep connector yet)
+```
+
+Every detail page surfaces:
+- Entity name, ID, type
+- Source system + system of record
+- Last refreshed (UTC) + upstream updated (UTC, when known)
+- Freshness badge (`fresh` / `recent` / `stale` / `unknown`)
+- Structured fields extracted from the markdown body bullets
+- Related records (customer pages link to that customer's orders + invoices)
+- The full source markdown body as ingested
+
+The page generator runs against an empty `public.pages` cleanly -- it
+emits a "brain is empty, run ingest" home page rather than failing.
 
 ## Failure modes and recovery
 

@@ -15,6 +15,7 @@
     "smoke:api": "bun run src/cli/api-smoke.ts",
     "ingest:fixtures": "bun run src/cli/ingest-fixtures.ts",
     "api": "bun run src/api/server.ts",
+    "pagegen": "bun run src/page-gen/index.ts",
     "query": "bun run src/query/server.ts",
     "scheduler": "bun run src/scheduler/index.ts",
     "web:dev": "cd web && bun run dev",
@@ -27,6 +28,7 @@
     "@hono/node-server": "^1.13.7",
     "node-cron": "^3.0.3",
     "@azure/msal-node": "^2.16.2",
+    "marked": "^18.0.0",
     "pg": "^8.13.1",
     "zod": "^3.23.8"
   },
