@@ -224,6 +224,42 @@ To verify Access gating, open the hostname from a browser/session that is not
 authorized by the Access policy. It should show Cloudflare Access login or deny
 the request before reaching nginx.
 
+### Scheduled Pipedrive refresh
+
+Company Brain v3 refreshes the static site by ingesting Pipedrive, then running
+page generation. Acumatica is intentionally not part of this job.
+
+Manual run:
+
+```bash
+cd /opt/company-brain/repo/infra
+./refresh-pipedrive-static.sh
+tail -n 80 /opt/company-brain/logs/pipedrive-refresh-$(date -u +%Y%m%d).log
+```
+
+Install the host cron job:
+
+```bash
+cat >/etc/cron.d/company-brain-pipedrive-refresh <<'CRON'
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Company Brain v3: refresh Pipedrive CRM data and regenerate static pages.
+# Runs every 4 hours. The script has its own lock, so overlapping runs exit.
+17 */4 * * * root /opt/company-brain/repo/infra/refresh-pipedrive-static.sh
+CRON
+chmod 644 /etc/cron.d/company-brain-pipedrive-refresh
+```
+
+Failure behavior:
+
+- If either Pipedrive ingest fails, `pagegen` is not run, so the existing
+  static `dist/` remains untouched.
+- Before `pagegen`, the script copies the current `dist/` to
+  `/opt/company-brain/dist-refresh-backup`.
+- If `pagegen` fails, the previous static snapshot is restored.
+- Logs are written to `/opt/company-brain/logs/pipedrive-refresh-YYYYMMDD.log`.
+
 ### Tail logs
 
 ```bash
