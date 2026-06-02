@@ -108,6 +108,13 @@ class M365CalendarSource implements IngestionSource {
           mailbox_upn: ev.mailbox_upn,
           event_start: ev.start,
           event_end: ev.end,
+          // v3 freshness contract: calendar events do not carry a Graph
+          // lastModifiedDateTime in this connector. event_start is an event
+          // attribute (when the meeting is/was scheduled), NOT a freshness
+          // signal. Explicit null tells downstream "no upstream freshness
+          // information" and downstream renderers should fall back to the
+          // ingest timestamp with a "freshness unknown" qualifier.
+          upstream_updated_at: null,
         },
       });
     }

@@ -71,7 +71,12 @@ function toEntity(kind: PipedriveEntityKind, row: Record<string, unknown>): Pipe
   const id = String(row.id ?? row.uuid ?? '');
   const name =
     String(row.title ?? row.name ?? row.subject ?? row.content ?? id).slice(0, 200) || id;
-  const updated = String(row.update_time ?? row.add_time ?? new Date().toISOString());
+  // v3 freshness contract (Phase 2): when neither update_time nor add_time
+  // is present, surface empty rather than wall-clock. Pipedrive in practice
+  // always carries at least add_time, so the fallback is defensive -- but
+  // the silent `new Date().toISOString()` was masking the corner cases
+  // (incomplete rows from partial fetches, beta API endpoints, etc).
+  const updated = String(row.update_time ?? row.add_time ?? '');
   return { kind, id, name, updated_at: updated, body: row };
 }
 

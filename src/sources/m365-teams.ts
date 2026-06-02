@@ -115,6 +115,9 @@ class M365TeamsSource implements IngestionSource {
           user_upn: t.user_upn,
           channel_id: t.channel_id,
           team_id: t.team_id,
+          // v3 freshness contract: Teams messages carry createdDateTime
+          // upstream (Graph requires it for chat/channel messages).
+          upstream_updated_at: t.created_at || null,
         },
       });
     }

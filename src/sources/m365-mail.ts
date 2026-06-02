@@ -97,6 +97,10 @@ class M365MailSource implements IngestionSource {
           mailbox_upn: msg.mailbox_upn,
           conversation_id: msg.conversation_id,
           mail_received_at: msg.received_at,
+          // v3 freshness contract: upstream receivedDateTime is the canonical
+          // freshness signal for mail. Graph requires it; null fallback is
+          // defensive against corner-case partial pulls.
+          upstream_updated_at: msg.received_at || null,
         },
       });
     }

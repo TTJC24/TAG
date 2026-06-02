@@ -98,7 +98,7 @@ updated_at: "${e.updated_at}"
 
 - Source: ${sourceUri(sourceId, e)}
 - Kind: ${e.kind}
-- Updated: ${e.updated_at}
+- Updated: ${e.updated_at || '(unknown)'}
 
 ## Fields
 
@@ -138,6 +138,9 @@ class PipedriveSource implements IngestionSource {
           entity_kind: e.kind,
           entity_id: e.id,
           updated_at: e.updated_at,
+          // v3 freshness contract: explicit upstream timestamp, null when
+          // upstream did not carry update_time or add_time.
+          upstream_updated_at: e.updated_at || null,
         },
       });
     }

@@ -101,6 +101,10 @@ class SupermemorySource implements IngestionSource {
           entity: this.scope,
           created_at: doc.createdAt,
           updated_at: doc.updatedAt,
+          // v3 freshness contract: prefer updatedAt, fall through to
+          // createdAt, then null. Supermemory documents always carry at
+          // least createdAt in practice.
+          upstream_updated_at: doc.updatedAt || doc.createdAt || null,
         },
       });
     }
