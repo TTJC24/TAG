@@ -15,6 +15,7 @@
     "smoke:api": "bun run src/cli/api-smoke.ts",
     "ingest:fixtures": "bun run src/cli/ingest-fixtures.ts",
     "api": "bun run src/api/server.ts",
+    "acumatica:readiness": "bun run src/cli/acumatica-readiness.ts",
     "pagegen": "bun run src/page-gen/index.ts",
     "query": "bun run src/query/server.ts",
     "scheduler": "bun run src/scheduler/index.ts",

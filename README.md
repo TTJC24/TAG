@@ -78,6 +78,63 @@ python3 -m json.tool /opt/company-brain/dist/build-meta.json
 It includes the generated timestamp, build commit, search entry count, section
 counts, source counts, and pagegen duration.
 
+## Acumatica read-only readiness
+
+Acumatica is not part of the v3 Pipedrive beta ingest until readiness passes.
+Do not run full Acumatica ingest while the API reports `API Login Limit`.
+
+Required non-secret shape:
+
+```bash
+ACUMATICA_BASE_URL=https://bigleaguecs.acumatica.com
+ACUMATICA_ENDPOINT_VERSION=24.200.001
+ACUMATICA_TENANT=Production
+ACUMATICA_BRANCH_FS=FS
+ACUMATICA_BRANCH_BLCS=BLC
+ACUMATICA_BRANCH_USA=USA
+```
+
+Required secret values, stored only in `/opt/company-brain/infra/.env` on the
+droplet:
+
+```bash
+ACUMATICA_USERNAME=
+ACUMATICA_PASSWORD=
+```
+
+Run the readiness check from production:
+
+```bash
+cd /opt/company-brain/repo/infra
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run acumatica:readiness
+```
+
+What it does:
+
+- attempts exactly one Acumatica login
+- does not ingest records
+- does not write to ERP
+- performs at most one `Customer?$top=1` read per branch using `PX-CbApiBranch`
+- checks FS, BLC, and USA branch visibility
+- logs sanitized errors only
+- exits nonzero on failure
+
+Success looks like:
+
+```text
+Acumatica readiness check
+- Login: OK
+- FS (FS): read OK, Customer $top=1 returned ...
+- BLCS (BLC): read OK, Customer $top=1 returned ...
+- USA (USA): read OK, Customer $top=1 returned ...
+Acumatica readiness: PASS
+```
+
+`API Login Limit` means the integration user has exhausted Acumatica API
+sessions/seats. Do not retry-loop. Ask the Acumatica admin/support to clear
+stale API sessions, confirm the integration user has Contract API access, and
+provision a dedicated read-only API user/session capacity for Company Brain.
+
 ## Quickstart (fixture-only, ~60 seconds)
 
 This path takes you from a fresh clone to a cited answer using only stub
