@@ -20,6 +20,8 @@ import {
   type ClassifiedEntity,
   type ClassifiedBuckets,
   type RelationshipIndex,
+  cleanVisibleText,
+  decodeHtmlEntities,
   objectField,
   relationKey,
 } from './classify.ts';
@@ -53,8 +55,19 @@ export function safeSlug(raw: string): string {
 
 function renderBodyMarkdown(md: string): string {
   // marked v9+ returns string; older returns Promise<string>. We force sync.
-  const out = marked.parse(md ?? '', { async: false }) as unknown;
+  const out = marked.parse(cleanMarkdownForDisplay(md), { async: false }) as unknown;
   return typeof out === 'string' ? out : String(out);
+}
+
+function cleanMarkdownForDisplay(md: string): string {
+  return decodeHtmlEntities(md)
+    .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+    .replace(/<\s*\/p\s*>/gi, '\n')
+    .replace(/<\s*\/div\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function formatTimestamp(d: Date | null): string {
@@ -69,6 +82,11 @@ function freshnessBadge(report: FreshnessReport): string {
       ? `upstream last updated ${formatTimestamp(report.upstreamUpdatedAt)}`
       : `freshness unknown -- last ingested ${formatTimestamp(report.pageUpdatedAt)}`;
   return `<span class="${cls}" title="${escapeHtml(tip)}">${escapeHtml(report.status)} · ${escapeHtml(report.label)}</span>`;
+}
+
+function visible(value: unknown, fallback = ''): string {
+  const clean = cleanVisibleText(value);
+  return clean.length > 0 ? clean : fallback;
 }
 
 const TYPE_LABELS: Record<string, { single: string; plural: string }> = {
@@ -228,7 +246,7 @@ export function renderTypeListing(
     .map((e) => {
       const f = classifyFreshness(e.upstreamUpdatedAt, e.pageUpdatedAt, generatedAt);
       return `<tr>
-        <td class="entity-name"><a href="${escapeHtml(entityHref(type, e.fileSlug))}">${escapeHtml(e.title)}</a><span>${escapeHtml(primaryLine(e))}</span></td>
+        <td class="entity-name"><a href="${escapeHtml(entityHref(type, e.fileSlug))}">${escapeHtml(visible(e.title, 'Untitled record'))}</a><span>${escapeHtml(primaryLine(e))}</span></td>
         <td>${badge(type)}</td>
         <td>${badge(e.sourceSystem)} ${badge(e.sourceInstance)}</td>
         <td>${freshnessBadge(f)}</td>
@@ -300,8 +318,8 @@ export function renderEntityDetail(
       </p>
       <div class="detail-title-row">
         <div>
-          <p class="eyebrow">${escapeHtml(single)} · ${escapeHtml(entity.sourceSystem)} · ${escapeHtml(entity.sourceInstance)}</p>
-          <h1>${escapeHtml(entity.title)}</h1>
+          <p class="eyebrow">${escapeHtml(single)} - ${escapeHtml(visible(entity.sourceSystem))} - ${escapeHtml(visible(entity.sourceInstance))}</p>
+          <h1>${escapeHtml(visible(entity.title, 'Untitled record'))}</h1>
           <p class="lede">${escapeHtml(primaryLine(entity))}</p>
         </div>
         ${freshnessBadge(freshness)}
@@ -326,20 +344,33 @@ export function renderEntityDetail(
     </details>
   `;
 
-  return layout({ title: entity.title, generatedAt, active: type }, content);
+  return layout({ title: visible(entity.title, 'Untitled record'), generatedAt, active: type }, content);
 }
 
 function badge(value: string): string {
-  return `<span class="badge">${escapeHtml(value)}</span>`;
+  return `<span class="badge">${escapeHtml(visible(value))}</span>`;
 }
 
 function primaryLine(entity: ClassifiedEntity): string {
-  const org = entity.fields.org_name ?? objectField(entity.fields.org_id, 'name');
-  const owner = entity.fields.owner_name ?? objectField(entity.fields.user_id, 'name') ?? objectField(entity.fields.creator_user_id, 'name');
-  const status = entity.fields.status;
+  const org = visible(entity.fields.org_name ?? objectField(entity.fields.org_id, 'name'));
+  const person = visible(objectField(entity.fields.person_id, 'name'));
+  const deal = visible(objectField(entity.fields.deal_id, 'title') ?? objectField(entity.fields.deal_id, 'name'));
+  const owner = visible(entity.fields.owner_name ?? objectField(entity.fields.user_id, 'name') ?? objectField(entity.fields.creator_user_id, 'name'));
+  const status = visible(entity.fields.status);
   const value = formatMoney(entity.fields.value, entity.fields.currency);
-  const email = primaryFromArray(entity.fields.email) ?? entity.fields.primary_email;
-  const phone = primaryFromArray(entity.fields.phone);
+  const email = visible(primaryFromArray(entity.fields.email) ?? entity.fields.primary_email);
+  const phone = visible(primaryFromArray(entity.fields.phone));
+  const date = visible(entity.fields.due_date ?? entity.fields.update_time ?? entity.fields.add_time);
+  if (entity.type === 'activity') {
+    const related = [org, person, deal].filter((part) => part.length > 0).slice(0, 2).join(' - ');
+    const activityParts = [
+      related,
+      owner ? `Owner: ${owner}` : null,
+      date,
+      visible(entity.fields.type),
+    ].filter((part): part is string => Boolean(part && part.length > 0));
+    if (activityParts.length > 0) return activityParts.slice(0, 4).join(' - ');
+  }
   const parts = [org, owner ? `Owner: ${owner}` : null, status, value, email, phone].filter(
     (part): part is string => Boolean(part && part.length > 0),
   );
@@ -377,7 +408,7 @@ function renderMetaCards(type: string, entity: ClassifiedEntity, freshness: Fres
       .map(
         ([label, value]) => `<div class="meta-tile">
           <span>${escapeHtml(label)}</span>
-          <strong>${escapeHtml(value)}</strong>
+          <strong>${escapeHtml(visible(value, 'Unknown'))}</strong>
         </div>`,
       )
       .join('\n    ')}
@@ -411,9 +442,10 @@ function usefulFieldEntries(entity: ClassifiedEntity): Array<[string, string]> {
   const seen = new Set<string>();
   const rows: Array<[string, string]> = [];
   const push = (key: string, value: string | undefined): void => {
-    if (!value || seen.has(key) || isJsonLike(value) || looksSensitive(key, value)) return;
+    const clean = visible(value);
+    if (!clean || seen.has(key) || isJsonLike(value ?? '') || looksSensitive(key, clean)) return;
     seen.add(key);
-    rows.push([humanizeField(key), value]);
+    rows.push([humanizeField(key), clean]);
   };
   for (const key of priority) push(key, entity.fields[key]);
   for (const [key, value] of Object.entries(entity.fields)) {
@@ -467,7 +499,9 @@ function renderPipedriveSummary(type: string, entity: ClassifiedEntity): string 
     ['Activity type', entity.fields.type],
     ['Due date', entity.fields.due_date],
   ];
-  const rows = rawRows.filter((row): row is [string, string] => Boolean(row[1] && row[1].length > 0));
+  const rows = rawRows
+    .map(([label, value]) => [label, visible(value)] as [string, string])
+    .filter((row): row is [string, string] => Boolean(row[1] && row[1].length > 0));
 
   if (rows.length === 0) return '';
 
@@ -580,7 +614,7 @@ function renderRelatedLists(
             .slice(0, 20)
             .map(
               ([fileSlug, title, id]) =>
-                `<li><a href="${escapeHtml(entityHref(type, fileSlug))}">${escapeHtml(title)}</a> <span class="muted">(${escapeHtml(id)})</span></li>`,
+                `<li><a href="${escapeHtml(entityHref(type, fileSlug))}">${escapeHtml(visible(title, 'Untitled record'))}</a> <span class="muted">(${escapeHtml(visible(id))})</span></li>`,
             )
             .join('\n          ')}
           ${rows.length > 20 ? `<li class="more">+ ${rows.length - 20} more (truncated)</li>` : ''}
@@ -903,12 +937,21 @@ body {
 .topbar {
   align-items: center;
   gap: 1rem;
+  flex-wrap: nowrap;
   padding: 0.85rem 1.5rem;
   background: rgba(255,255,255,0.92);
   backdrop-filter: blur(10px);
   box-shadow: 0 1px 0 rgba(16, 24, 40, 0.04);
 }
-.brand { display: inline-flex; align-items: center; gap: 0.55rem; white-space: nowrap; }
+.brand {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 0.55rem;
+  min-width: max-content;
+  white-space: nowrap;
+}
+.brand span:last-child { white-space: nowrap; }
 .brand-mark {
   display: inline-grid; place-items: center;
   width: 2rem; height: 2rem;
@@ -918,7 +961,7 @@ body {
   font-size: 0.78rem;
   letter-spacing: 0.04em;
 }
-.topbar nav { gap: 0.25rem; align-items: center; }
+.topbar nav { gap: 0.25rem; align-items: center; min-width: 0; overflow-x: auto; white-space: nowrap; }
 .topbar nav a {
   padding: 0.42rem 0.65rem;
   border-radius: 6px;
@@ -1085,10 +1128,42 @@ h2 { font-size: 1.15rem; line-height: 1.25; margin-top: 1.75rem; }
 
 @media (max-width: 760px) {
   .topbar { align-items: flex-start; flex-direction: column; }
+  .brand { width: 100%; }
   .topbar nav { width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 0.1rem; }
   main { padding: 1rem; }
   .hero, .detail-title-row { flex-direction: column; align-items: flex-start; }
-  .entity-list { display: block; overflow-x: auto; }
+  .entity-list, .entity-list thead, .entity-list tbody, .entity-list tr, .entity-list td {
+    display: block;
+    width: 100%;
+  }
+  .entity-list {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+  .entity-list thead { display: none; }
+  .entity-list tr {
+    margin: 0 0 0.8rem;
+    padding: 0.8rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+  }
+  .entity-list td {
+    border: 0;
+    padding: 0.22rem 0;
+  }
+  .entity-list td:nth-child(2),
+  .entity-list td:nth-child(3),
+  .entity-list td:nth-child(4) {
+    display: inline-flex;
+    width: auto;
+    margin-right: 0.35rem;
+    vertical-align: top;
+  }
+  .entity-name { min-width: 0; }
+  .entity-name a { overflow-wrap: anywhere; }
   .entity-fields th, .entity-fields td { display: block; width: 100%; }
   .entity-fields th { border-bottom: 0; padding-bottom: 0.1rem; }
   .entity-fields td { padding-top: 0.1rem; }

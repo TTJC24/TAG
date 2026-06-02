@@ -97,6 +97,52 @@ function getString(obj: Record<string, unknown>, key: string): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
 }
 
+export function decodeHtmlEntities(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&#x2F;/gi, '/')
+    .replace(/&#(\d+);/g, (_m, code: string) => {
+      const n = Number(code);
+      return Number.isFinite(n) ? String.fromCharCode(n) : '';
+    })
+    .replace(/&#x([0-9a-f]+);/gi, (_m, code: string) => {
+      const n = Number.parseInt(code, 16);
+      return Number.isFinite(n) ? String.fromCharCode(n) : '';
+    });
+}
+
+export function cleanVisibleText(value: unknown): string {
+  return decodeHtmlEntities(value)
+    .replace(/<\s*br\s*\/?\s*>/gi, ' ')
+    .replace(/<\s*\/p\s*>/gi, ' ')
+    .replace(/<\s*\/div\s*>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isDirtyTitle(value: string | null | undefined): boolean {
+  if (!value) return true;
+  const clean = cleanVisibleText(value);
+  if (clean.length === 0) return true;
+  const lower = clean.toLowerCase();
+  return (
+    /<[^>]+>/.test(value) ||
+    lower === 'null' ||
+    lower === 'undefined' ||
+    lower === 'mobile scan' ||
+    lower.startsWith('mobile scan ') ||
+    lower.length > 140
+  );
+}
+
 function parseDate(value: unknown): Date | null {
   if (typeof value !== 'string' || value.length === 0) return null;
   const ms = Date.parse(value);
@@ -157,18 +203,47 @@ function entityId(page: RawPage, fm: Record<string, unknown>): string {
   );
 }
 
-function entityTitle(page: RawPage, fields: Record<string, string>): string {
-  // Prefer the human field over the raw title when both exist.
-  return (
-    (page.title && page.title.length > 0 ? page.title : null) ??
-    fields['CustomerName'] ??
-    fields['Name'] ??
-    fields['Description'] ??
-    fields['OrderNbr'] ??
-    fields['ReferenceNbr'] ??
-    fields['InventoryID'] ??
-    'Untitled record'
-  );
+function entityTitle(page: RawPage, fm: Record<string, unknown>, fields: Record<string, string>): string {
+  const pipedriveKind = getString(fm, 'pipedrive_kind');
+  if (pipedriveKind === 'activity' || pipedriveKind === 'note') {
+    const derived = activityTitle(page, fields, pipedriveKind);
+    if (derived) return derived;
+  }
+
+  const candidates = [
+    fields['CustomerName'],
+    fields['Name'],
+    fields.name,
+    fields.title,
+    fields.subject,
+    fields['Description'],
+    fields['OrderNbr'],
+    fields['ReferenceNbr'],
+    fields['InventoryID'],
+    page.title,
+  ];
+  for (const candidate of candidates) {
+    if (!isDirtyTitle(candidate)) return cleanVisibleText(candidate);
+  }
+  return 'Untitled record';
+}
+
+function activityTitle(page: RawPage, fields: Record<string, string>, kind: string): string | null {
+  const subject = fields.subject ?? fields.title ?? page.title;
+  const related =
+    fields.org_name ??
+    objectField(fields.org_id, 'name') ??
+    objectField(fields.person_id, 'name') ??
+    objectField(fields.deal_id, 'title') ??
+    objectField(fields.deal_id, 'name');
+  if (related && isDirtyTitle(subject)) return cleanVisibleText(related);
+  if (subject && !isDirtyTitle(subject)) return cleanVisibleText(subject);
+
+  const rawType = cleanVisibleText(fields.type ?? fields.activity_type ?? '');
+  const type = rawType.toLowerCase() === 'mobile scan' ? '' : rawType;
+  const date = cleanVisibleText(fields.due_date ?? fields.add_time ?? fields.update_time ?? '');
+  const label = kind === 'note' ? 'Pipedrive note' : (type ? `${type} activity` : 'Pipedrive activity');
+  return date ? `${label} - ${date}` : label;
 }
 
 export function classifyPage(page: RawPage): ClassifiedEntity {
@@ -180,7 +255,7 @@ export function classifyPage(page: RawPage): ClassifiedEntity {
   return {
     id: entityId(page, fm),
     type: classifyType(page, fm),
-    title: entityTitle(page, fields),
+    title: entityTitle(page, fm, fields),
     sourceSystem,
     sourceInstance: sourceInstanceFor(page.source_id),
     entityKind: getString(fm, 'pipedrive_kind') ?? getString(fm, 'acumatica_kind'),

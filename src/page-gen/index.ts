@@ -26,6 +26,7 @@ import { loadAllPages, openReaderPool, type RawPage } from './db.ts';
 import {
   buildRelations,
   classifyAll,
+  cleanVisibleText,
   type ClassifiedBuckets,
   type ClassifiedEntity,
 } from './classify.ts';
@@ -92,9 +93,12 @@ function bucketFor(buckets: ClassifiedBuckets, type: string): ClassifiedEntity[]
 function searchKeywords(entity: ClassifiedEntity): string {
   // Compact tokenized "keywords" string Lunr can match against. Includes id,
   // title, source kind, and a flattened list of structured field values.
-  const parts: string[] = [entity.id, entity.title, entity.sourceSystem, entity.sourceKind];
+  const parts: string[] = [entity.id, entity.title, entity.sourceSystem, entity.sourceKind]
+    .map((part) => cleanVisibleText(part))
+    .filter((part) => part.length > 0);
   for (const [k, v] of Object.entries(entity.fields)) {
-    parts.push(k, v);
+    const clean = cleanVisibleText(v);
+    if (clean.length > 0) parts.push(k, clean);
   }
   // Keep size sane: cap each entry's keywords at 2kb. The full markdown body
   // can be huge for some sources (SharePoint extracted text). Anything past
@@ -111,7 +115,7 @@ function buildSearchIndex(buckets: ClassifiedBuckets, generatedAt: Date): Search
       entries.push({
         type,
         id: e.id,
-        name: e.title,
+        name: cleanVisibleText(e.title) || 'Untitled record',
         keywords: searchKeywords(e),
         url: entityHref(type, e.fileSlug),
         sourceSystem: e.sourceSystem,
