@@ -1,0 +1,155 @@
+# Company Brain v3 — DigitalOcean droplet `jerry-data` deployment.
+#
+# STRICT ISOLATION CONTRACT
+#   - Docker Compose project name: company-brain (set via `name:` below)
+#   - All containers, volumes, and the network share the `company-brain-` prefix
+#   - No host port published — external traffic enters via cloudflared only
+#   - All persistent paths under /opt/company-brain/ on the host
+#   - DOES NOT touch jerry-* or hermes-* services on the same droplet
+#
+# OPERATIONS
+#   cd /opt/company-brain/infra
+#   docker compose up -d
+#   docker compose ps                          # health check
+#   docker compose logs -f company-brain-query # tail the query service
+#   docker compose down                        # stop ALL company-brain services
+#
+# DO NOT use generic Compose commands like `docker stop $(docker ps -q)` on this
+# host — that would also stop Jerry / Hermes. Always pass `-p company-brain` or
+# `cd` into this directory so the project filter is applied.
+
+name: company-brain
+
+services:
+  company-brain-postgres:
+    image: postgres:16-alpine
+    container_name: company-brain-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: company_brain
+      POSTGRES_USER: company_brain_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?POSTGRES_ADMIN_PASSWORD must be set}
+      INGEST_PASSWORD: ${POSTGRES_INGEST_PASSWORD:?POSTGRES_INGEST_PASSWORD must be set}
+      READER_PASSWORD: ${POSTGRES_READER_PASSWORD:?POSTGRES_READER_PASSWORD must be set}
+    volumes:
+      # Postgres data files live under the project namespace on the host
+      - /opt/company-brain/postgres-data:/var/lib/postgresql/data
+      # Init script creates the ingest + reader roles on first boot
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+      # Backup target (used by manual `docker exec ... pg_dump > /backups/...`)
+      - /opt/company-brain/backups:/backups
+    networks:
+      - company-brain-net
+    # Intentionally NO `ports:` block. Postgres is reachable only via the
+    # company-brain-net Docker network. The host's 5432 stays free for any
+    # Jerry or Hermes Postgres that already exists.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U company_brain_admin -d company_brain"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  company-brain-ingest:
+    image: company-brain-bun:latest
+    container_name: company-brain-ingest
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.bun
+    restart: unless-stopped
+    depends_on:
+      company-brain-postgres:
+        condition: service_healthy
+    environment:
+      # Ingest pool uses the WRITE-capable role
+      DATABASE_URL: postgres://company_brain_ingest:${POSTGRES_INGEST_PASSWORD}@company-brain-postgres:5432/company_brain
+      COMPANY_BRAIN_ENGINE: postgres
+      # Connector credentials — passed through from /opt/company-brain/infra/.env
+      ZEROENTROPY_API_KEY: ${ZEROENTROPY_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      M365_TENANT_ID: ${M365_TENANT_ID:-}
+      M365_CLIENT_ID: ${M365_CLIENT_ID:-}
+      M365_CLIENT_SECRET: ${M365_CLIENT_SECRET:-}
+      M365_USER_PRINCIPAL_NAME: ${M365_USER_PRINCIPAL_NAME:-}
+      M365_USER_PRINCIPAL_NAMES: ${M365_USER_PRINCIPAL_NAMES:-}
+      ACUMATICA_BASE_URL: ${ACUMATICA_BASE_URL:-}
+      ACUMATICA_ENDPOINT_VERSION: ${ACUMATICA_ENDPOINT_VERSION:-24.200.001}
+      ACUMATICA_USERNAME: ${ACUMATICA_USERNAME:-}
+      ACUMATICA_PASSWORD: ${ACUMATICA_PASSWORD:-}
+      ACUMATICA_TENANT: ${ACUMATICA_TENANT:-}
+      ACUMATICA_BRANCH_FS: ${ACUMATICA_BRANCH_FS:-}
+      ACUMATICA_BRANCH_BLCS: ${ACUMATICA_BRANCH_BLCS:-}
+      ACUMATICA_BRANCH_USA: ${ACUMATICA_BRANCH_USA:-}
+      PIPEDRIVE_API_TOKEN: ${PIPEDRIVE_API_TOKEN:-}
+      PIPEDRIVE_API_TOKEN_FS: ${PIPEDRIVE_API_TOKEN_FS:-}
+      PIPEDRIVE_API_TOKEN_BLCS_USA: ${PIPEDRIVE_API_TOKEN_BLCS_USA:-}
+      PIPEDRIVE_COMPANY_DOMAIN: ${PIPEDRIVE_COMPANY_DOMAIN:-}
+      SUPERMEMORY_API_KEY: ${SUPERMEMORY_API_KEY:-}
+      SCHEDULER_ENABLED: "true"
+      SCHEDULER_DRY_RUN: ${SCHEDULER_DRY_RUN:-false}
+      SCHEDULER_NO_EMBED: ${SCHEDULER_NO_EMBED:-false}
+      SCHEDULER_SOURCES: ${SCHEDULER_SOURCES:-}
+    volumes:
+      # Page generator output target (Phase 2B). Cloudflare Pages publish is a
+      # separate `wrangler pages deploy ./dist` step run from the host.
+      - /opt/company-brain/dist:/app/dist
+      # Acumatica disk-cached session (the seat-saver we landed in 35284f5)
+      - /opt/company-brain/state:/app/state
+      - /opt/company-brain/logs:/app/logs
+    networks:
+      - company-brain-net
+    command: ["bun", "run", "src/scheduler/index.ts"]
+
+  company-brain-query:
+    image: company-brain-bun:latest
+    container_name: company-brain-query
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.bun
+    restart: unless-stopped
+    depends_on:
+      company-brain-postgres:
+        condition: service_healthy
+    environment:
+      # READ-ONLY pool, separate from the ingest pool. The reader role has
+      # SELECT only on public.*; it cannot INSERT/UPDATE/DELETE/DDL.
+      QUERY_DATABASE_URL: postgres://company_brain_reader:${POSTGRES_READER_PASSWORD}@company-brain-postgres:5432/company_brain
+      QUERY_PORT: "4317"
+      # Cloudflare Access injects CF-Access-Authenticated-User-Email on every
+      # forwarded request. The query service captures it into the query log.
+    volumes:
+      - /opt/company-brain/logs:/app/logs
+    networks:
+      - company-brain-net
+    # No host port. cloudflared routes brain.<domain> → company-brain-query:4317
+    # over the docker network.
+    command: ["bun", "run", "src/query/server.ts"]
+
+  company-brain-cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: company-brain-cloudflared
+    restart: unless-stopped
+    depends_on:
+      - company-brain-query
+    volumes:
+      # Tunnel config + credentials are bind-mounted from the host. You
+      # create them BEFORE `docker compose up` via the runbook in
+      # infra/README.md (cloudflared tunnel create → puts credentials in
+      # ~/.cloudflared/<uuid>.json, copy to /opt/company-brain/cloudflared/).
+      - /opt/company-brain/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - /opt/company-brain/cloudflared/credentials.json:/etc/cloudflared/credentials.json:ro
+    networks:
+      - company-brain-net
+    command: ["tunnel", "--config", "/etc/cloudflared/config.yml", "run"]
+
+networks:
+  company-brain-net:
+    name: company-brain-net
+    driver: bridge
+    # Explicit subnet to avoid any chance of collision with Jerry's or
+    # Hermes's docker networks. 10.116.x is the droplet's private network
+    # so we pick 172.30.0.0/16 (well inside Docker's default RFC1918 range
+    # but distinct from the 172.17.0.0/16 default bridge).
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16

@@ -1,0 +1,33 @@
+# Single Bun image used by both company-brain-ingest and company-brain-query.
+# Differs only in the `command:` they run from docker-compose.yml.
+#
+# Built locally on the droplet from the repo at /opt/company-brain/repo.
+# Image name: company-brain-bun:latest
+
+FROM oven/bun:1.3-alpine
+
+# Working directory mirrors the host's repo checkout path so file references
+# (e.g. fixture paths, src/sources/registry.ts imports) resolve identically
+# whether running on the host or in a container.
+WORKDIR /app
+
+# Install only what's needed for runtime. Build context is the repo root
+# (set via `build: context: ..` in docker-compose.yml).
+COPY package.json bun.lock* ./
+RUN bun install --frozen-lockfile --production
+
+# Source. .dockerignore (committed alongside) keeps node_modules, dist,
+# fixtures (the actual snapshots), and the docs out of the image.
+COPY . .
+
+# Drop privileges. The bun image ships a `bun` user (uid 1000).
+# Bind mounts in docker-compose write into /opt/company-brain/{dist,logs,state}
+# which is owned by root on the host; the runtime exec will chown those at
+# bootstrap time (see infra/bootstrap.sh).
+USER bun
+
+# No EXPOSE — host ports are never bound. Inter-service traffic flows over
+# the company-brain-net Docker network only.
+
+# Default command is overridden per-service in docker-compose.yml.
+CMD ["bun", "--version"]

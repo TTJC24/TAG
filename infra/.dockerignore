@@ -1,0 +1,20 @@
+# Keep the company-brain-bun image small. The build context is the repo root.
+node_modules
+.git
+.env
+.env.local
+.env.example
+.acumatica-session
+.company-brain-store.json
+dist
+build
+web/dist
+web/node_modules
+*.log
+fixtures/**/snapshots
+fixtures/**/real-*
+HANDOFF_V2.md
+HANDOFF_V2_1.md
+HANDOFF_V3.md
+infra/cloudflared/credentials.json
+infra/cloudflared/config.yml
