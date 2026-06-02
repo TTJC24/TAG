@@ -68,7 +68,7 @@ function freshnessBadge(report: FreshnessReport): string {
     report.reference === 'upstream'
       ? `upstream last updated ${formatTimestamp(report.upstreamUpdatedAt)}`
       : `freshness unknown -- last ingested ${formatTimestamp(report.pageUpdatedAt)}`;
-  return `<span class="${cls}" title="${escapeHtml(tip)}">${escapeHtml(report.status)} -- ${escapeHtml(report.label)}</span>`;
+  return `<span class="${cls}" title="${escapeHtml(tip)}">${escapeHtml(report.status)} · ${escapeHtml(report.label)}</span>`;
 }
 
 const TYPE_LABELS: Record<string, { single: string; plural: string }> = {
@@ -119,7 +119,7 @@ function layout(opts: LayoutOpts, contentHtml: string): string {
 </head>
 <body>
   <header class="topbar">
-    <a class="brand" href="/">Company Brain</a>
+    <a class="brand" href="/"><span class="brand-mark">CB</span><span>Company Brain</span></a>
     <nav>
       ${nav}
       <a class="search-link" href="/search.html">Search</a>
@@ -129,8 +129,7 @@ function layout(opts: LayoutOpts, contentHtml: string): string {
 ${contentHtml}
   </main>
   <footer class="generated-at">
-    Generated ${formatTimestamp(opts.generatedAt)} UTC.
-    Static site -- this page is a snapshot. The brain is read-only.
+    Snapshot generated ${formatTimestamp(opts.generatedAt)}. Static, read-only, access controlled.
   </footer>
 </body>
 </html>
@@ -150,34 +149,32 @@ export function renderHome(
       const list = bucketFor(buckets, type);
       const label = TYPE_LABELS[type]!.plural;
       const count = list.length;
-      const recent = list.slice(0, 5);
-      const recentHtml =
-        count === 0
-          ? '<p class="empty">No records yet. Run an ingest to populate.</p>'
-          : `<ul class="recent">
-              ${recent
-                .map(
-                  (e) =>
-                    `<li><a href="${escapeHtml(entityHref(type, e.fileSlug))}">${escapeHtml(e.title)}</a> <span class="muted">(${escapeHtml(e.id)})</span></li>`,
-                )
-                .join('\n              ')}
-              ${count > recent.length ? `<li class="more"><a href="${escapeHtml('/' + type + '/')}">See all ${count} ${escapeHtml(label.toLowerCase())} &rarr;</a></li>` : ''}
-            </ul>`;
-      return `<section class="home-section">
-        <h2><a href="${escapeHtml('/' + type + '/')}">${escapeHtml(label)}</a> <span class="count">${count}</span></h2>
-        ${recentHtml}
-      </section>`;
+      const single = TYPE_LABELS[type]!.single;
+      return `<a class="stat-card" href="${escapeHtml('/' + type + '/')}">
+        <span class="stat-label">${escapeHtml(label)}</span>
+        <strong>${count.toLocaleString()}</strong>
+        <span class="stat-sub">${count === 1 ? single : `${single} records`}</span>
+      </a>`;
     },
   );
 
   const body = `
-    <h1>Company Brain</h1>
-    <p class="lede">A static, read-only directory of customers, orders, invoices, items, vendors, and reps across the brain's connected systems. Last refreshed timestamps are on every page.</p>
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Internal operating directory</p>
+        <h1>Company Brain</h1>
+        <p class="lede">Search customers, contacts, deals, activity, and operating records from connected systems. Static, read-only, and gated by Cloudflare Access.</p>
+      </div>
+      <div class="hero-meta">
+        <span>${totalPages.toLocaleString()} records</span>
+        <span>Source: Pipedrive</span>
+      </div>
+    </section>
 
-    <p class="stats">
-      <strong>${totalPages}</strong> total records in the brain DB
-      &middot; <a href="/search.html">Search all records</a>
-    </p>
+    <a class="home-search" href="/search.html">
+      <span>Search the directory</span>
+      <strong>Customers, contacts, deals, notes, owners, emails, phone numbers</strong>
+    </a>
 
     <div class="home-grid">
       ${sections.join('\n      ')}
@@ -211,7 +208,10 @@ export function renderTypeListing(
   if (entities.length === 0) {
     const single = TYPE_LABELS[type]?.single ?? type;
     const body = `
-      <h1>${escapeHtml(label)}</h1>
+      <section class="page-heading">
+        <p class="breadcrumbs"><a href="/">Home</a> &rsaquo; <span>${escapeHtml(label)}</span></p>
+        <h1>${escapeHtml(label)}</h1>
+      </section>
       <div class="empty-state">
         <p>No ${escapeHtml(single.toLowerCase())} records in the brain yet.</p>
         ${
@@ -228,20 +228,23 @@ export function renderTypeListing(
     .map((e) => {
       const f = classifyFreshness(e.upstreamUpdatedAt, e.pageUpdatedAt, generatedAt);
       return `<tr>
-        <td><a href="${escapeHtml(entityHref(type, e.fileSlug))}">${escapeHtml(e.title)}</a></td>
-        <td class="mono">${escapeHtml(e.id)}</td>
-        <td>${escapeHtml(e.sourceSystem)}</td>
+        <td class="entity-name"><a href="${escapeHtml(entityHref(type, e.fileSlug))}">${escapeHtml(e.title)}</a><span>${escapeHtml(primaryLine(e))}</span></td>
+        <td>${badge(type)}</td>
+        <td>${badge(e.sourceSystem)} ${badge(e.sourceInstance)}</td>
         <td>${freshnessBadge(f)}</td>
       </tr>`;
     })
     .join('\n      ');
 
   const body = `
-    <h1>${escapeHtml(label)} <span class="count">${entities.length}</span></h1>
-    <p class="lede">Click any row for full detail and related records.</p>
+    <section class="page-heading">
+      <p class="breadcrumbs"><a href="/">Home</a> &rsaquo; <span>${escapeHtml(label)}</span></p>
+      <h1>${escapeHtml(label)} <span class="count">${entities.length.toLocaleString()}</span></h1>
+      <p class="lede">Browse records, then use Search when you need to jump directly to a company, person, deal, or note.</p>
+    </section>
     <table class="entity-list">
       <thead>
-        <tr><th>Name</th><th>ID</th><th>Source</th><th>Freshness</th></tr>
+        <tr><th>Name</th><th>Type</th><th>Source</th><th>Freshness</th></tr>
       </thead>
       <tbody>
         ${rows}
@@ -263,26 +266,11 @@ export function renderEntityDetail(
   const single = TYPE_LABELS[type]?.single ?? type;
   const freshness = classifyFreshness(entity.upstreamUpdatedAt, entity.pageUpdatedAt, generatedAt);
 
-  // Top metadata block
-  const meta = `
-    <dl class="entity-meta">
-      <dt>Type</dt>            <dd>${escapeHtml(single)}</dd>
-      <dt>ID</dt>              <dd class="mono">${escapeHtml(entity.id)}</dd>
-      <dt>Source system</dt>   <dd>${escapeHtml(entity.sourceSystem)}</dd>
-      <dt>Source instance</dt> <dd>${escapeHtml(entity.sourceInstance)}</dd>
-      <dt>Entity type</dt>     <dd>${escapeHtml(entity.entityKind ?? single.toLowerCase())}</dd>
-      <dt>System of record</dt><dd>${escapeHtml(systemOfRecordFor(type, entity))}</dd>
-      <dt>Source URI</dt>      <dd>${entity.sourceUri ? `<code>${escapeHtml(entity.sourceUri)}</code>` : '(none)'}</dd>
-      <dt>Page slug</dt>       <dd class="mono">${escapeHtml(entity.pageSlug)}</dd>
-      <dt>Last refreshed UTC</dt><dd>${escapeHtml(formatTimestamp(entity.pageUpdatedAt))}</dd>
-      <dt>Upstream updated UTC</dt><dd>${escapeHtml(formatTimestamp(entity.upstreamUpdatedAt))}</dd>
-      <dt>Freshness</dt>       <dd>${freshnessBadge(freshness)}</dd>
-    </dl>
-  `;
+  const metaCards = renderMetaCards(type, entity, freshness);
 
   // Key fields table (parsed from markdown bullets)
   const summaryBlock = renderPipedriveSummary(type, entity);
-  const fieldEntries = Object.entries(entity.fields);
+  const fieldEntries = usefulFieldEntries(entity);
   const fieldsBlock =
     fieldEntries.length === 0
       ? '<p class="muted">No structured fields extracted from this record.</p>'
@@ -304,35 +292,151 @@ export function renderEntityDetail(
   const bodyHtml = renderBodyMarkdown(entity.body);
 
   const content = `
-    <p class="breadcrumbs">
-      <a href="/">Home</a>
-      &rsaquo; <a href="${escapeHtml('/' + type + '/')}">${escapeHtml(TYPE_LABELS[type]?.plural ?? type)}</a>
-      &rsaquo; <span>${escapeHtml(entity.title)}</span>
-    </p>
-
-    <h1>${escapeHtml(entity.title)}</h1>
-
-    <section class="meta-card">
-      ${meta}
+    <section class="detail-heading">
+      <p class="breadcrumbs">
+        <a href="/">Home</a>
+        &rsaquo; <a href="/search.html">Search</a>
+        &rsaquo; <a href="${escapeHtml('/' + type + '/')}">${escapeHtml(TYPE_LABELS[type]?.plural ?? type)}</a>
+      </p>
+      <div class="detail-title-row">
+        <div>
+          <p class="eyebrow">${escapeHtml(single)} · ${escapeHtml(entity.sourceSystem)} · ${escapeHtml(entity.sourceInstance)}</p>
+          <h1>${escapeHtml(entity.title)}</h1>
+          <p class="lede">${escapeHtml(primaryLine(entity))}</p>
+        </div>
+        ${freshnessBadge(freshness)}
+      </div>
     </section>
+
+    ${metaCards}
 
     ${summaryBlock}
 
     <section>
-      <h2>Key fields</h2>
+      <h2>Useful fields</h2>
       ${fieldsBlock}
     </section>
 
     ${related}
 
-    <section>
-      <h2>Source body</h2>
-      <p class="muted">Markdown as ingested. Anything you see here came directly from ${escapeHtml(entity.sourceSystem)} at last refresh; no LLM interpretation.</p>
+    <details class="raw-data">
+      <summary>Raw data</summary>
+      <p class="muted">Source markdown as ingested. This is intentionally collapsed to keep operational pages readable.</p>
       <article class="source-body">${bodyHtml}</article>
-    </section>
+    </details>
   `;
 
   return layout({ title: entity.title, generatedAt, active: type }, content);
+}
+
+function badge(value: string): string {
+  return `<span class="badge">${escapeHtml(value)}</span>`;
+}
+
+function primaryLine(entity: ClassifiedEntity): string {
+  const org = entity.fields.org_name ?? objectField(entity.fields.org_id, 'name');
+  const owner = entity.fields.owner_name ?? objectField(entity.fields.user_id, 'name') ?? objectField(entity.fields.creator_user_id, 'name');
+  const status = entity.fields.status;
+  const value = formatMoney(entity.fields.value, entity.fields.currency);
+  const email = primaryFromArray(entity.fields.email) ?? entity.fields.primary_email;
+  const phone = primaryFromArray(entity.fields.phone);
+  const parts = [org, owner ? `Owner: ${owner}` : null, status, value, email, phone].filter(
+    (part): part is string => Boolean(part && part.length > 0),
+  );
+  return parts.length > 0 ? parts.slice(0, 3).join(' · ') : `${entity.sourceSystem} ${entity.entityKind ?? entity.type}`;
+}
+
+function primaryFromArray(raw: string | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return null;
+    const preferred = parsed.find((item) => item && typeof item === 'object' && (item as Record<string, unknown>).primary === true) ?? parsed[0];
+    if (!preferred || typeof preferred !== 'object') return null;
+    const value = (preferred as Record<string, unknown>).value;
+    return typeof value === 'string' && value.length > 0 ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function renderMetaCards(type: string, entity: ClassifiedEntity, freshness: FreshnessReport): string {
+  const cards: Array<[string, string]> = [
+    ['Record type', TYPE_LABELS[type]?.single ?? type],
+    ['Source', `${entity.sourceSystem} · ${entity.sourceInstance}`],
+    ['System of record', systemOfRecordFor(type, entity)],
+    ['Owner', entity.fields.owner_name ?? objectField(entity.fields.user_id, 'name') ?? objectField(entity.fields.creator_user_id, 'name') ?? 'Unknown'],
+    ['Updated', formatTimestamp(entity.upstreamUpdatedAt)],
+    ['Refreshed', formatTimestamp(entity.pageUpdatedAt)],
+    ['Freshness', freshness.status],
+  ];
+  if (entity.sourceUri) cards.push(['Source URI', entity.sourceUri]);
+
+  return `<section class="meta-grid">
+    ${cards
+      .map(
+        ([label, value]) => `<div class="meta-tile">
+          <span>${escapeHtml(label)}</span>
+          <strong>${escapeHtml(value)}</strong>
+        </div>`,
+      )
+      .join('\n    ')}
+  </section>`;
+}
+
+function usefulFieldEntries(entity: ClassifiedEntity): Array<[string, string]> {
+  const priority = [
+    'name',
+    'title',
+    'org_name',
+    'owner_name',
+    'status',
+    'stage_id',
+    'value',
+    'currency',
+    'email',
+    'phone',
+    'primary_email',
+    'due_date',
+    'add_time',
+    'update_time',
+    'last_activity_date',
+    'next_activity_date',
+    'notes_count',
+    'open_deals_count',
+    'closed_deals_count',
+    'won_deals_count',
+    'lost_deals_count',
+  ];
+  const seen = new Set<string>();
+  const rows: Array<[string, string]> = [];
+  const push = (key: string, value: string | undefined): void => {
+    if (!value || seen.has(key) || isJsonLike(value) || looksSensitive(key, value)) return;
+    seen.add(key);
+    rows.push([humanizeField(key), value]);
+  };
+  for (const key of priority) push(key, entity.fields[key]);
+  for (const [key, value] of Object.entries(entity.fields)) {
+    if (rows.length >= 24) break;
+    push(key, value);
+  }
+  return rows;
+}
+
+function humanizeField(key: string): string {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function isJsonLike(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.startsWith('{') || trimmed.startsWith('[');
+}
+
+function looksSensitive(key: string, value: string): boolean {
+  const haystack = `${key} ${value}`.toLowerCase();
+  return haystack.includes('token') || haystack.includes('secret') || haystack.includes('password') || haystack.includes('api_key');
 }
 
 function systemOfRecordFor(type: string, entity: ClassifiedEntity): string {
@@ -354,6 +458,8 @@ function renderPipedriveSummary(type: string, entity: ClassifiedEntity): string 
     ['Owner/user', entity.fields.owner_name ?? objectField(entity.fields.user_id, 'name') ?? objectField(entity.fields.creator_user_id, 'name')],
     ['Organization/customer', entity.fields.org_name ?? objectField(entity.fields.org_id, 'name')],
     ['Contact/person', objectField(entity.fields.person_id, 'name') ?? entity.fields.name],
+    ['Email', primaryFromArray(entity.fields.email) ?? entity.fields.primary_email],
+    ['Phone', primaryFromArray(entity.fields.phone)],
     ['Deal status', entity.fields.status],
     ['Deal stage', entity.fields.stage_id],
     ['Deal value', formatMoney(entity.fields.value, entity.fields.currency)],
@@ -492,9 +598,12 @@ function renderRelatedLists(
 // ---------------------------------------------------------------------------
 export function renderSearchPage(generatedAt: Date): string {
   const body = `
-    <h1>Search</h1>
-    <p class="lede">Type any keyword. Search runs client-side against a static index -- no server, no LLM.</p>
-    <input id="q" class="search-input" type="search" placeholder="Try: ACME, BLC, SO-100, INV-2025, wedge anchor" autofocus />
+    <section class="page-heading">
+      <p class="breadcrumbs"><a href="/">Home</a> &rsaquo; <span>Search</span></p>
+      <h1>Search Company Brain</h1>
+      <p class="lede">Client-side search across the static directory. No server call, no LLM, no writeback.</p>
+    </section>
+    <input id="q" class="search-input" type="search" placeholder="Search companies, contacts, deals, owners, notes, emails, phone numbers" autofocus />
     <div id="results" class="search-results">
       <p class="muted">Start typing to search.</p>
     </div>
@@ -771,6 +880,219 @@ h3 { margin: 1.5rem 0 0.5rem; font-size: 1.05rem; }
   }
   .freshness { background: rgba(255,255,255,0.04); }
 }
+
+/* Internal operating directory polish */
+:root {
+  --bg: #f6f7f9;
+  --fg: #17202a;
+  --muted: #647184;
+  --border: #dfe4ea;
+  --card: #ffffff;
+  --card-soft: #fbfcfd;
+  --accent: #2457c5;
+  --accent-soft: #edf3ff;
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 8px 24px rgba(16, 24, 40, 0.04);
+}
+
+body {
+  font: 15px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.topbar {
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.5rem;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 rgba(16, 24, 40, 0.04);
+}
+.brand { display: inline-flex; align-items: center; gap: 0.55rem; white-space: nowrap; }
+.brand-mark {
+  display: inline-grid; place-items: center;
+  width: 2rem; height: 2rem;
+  border-radius: 6px;
+  background: var(--fg);
+  color: #fff;
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+}
+.topbar nav { gap: 0.25rem; align-items: center; }
+.topbar nav a {
+  padding: 0.42rem 0.65rem;
+  border-radius: 6px;
+  color: var(--muted);
+}
+.topbar nav a:hover { background: var(--accent-soft); color: var(--accent); text-decoration: none; }
+.topbar nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); }
+.topbar .search-link { border-left: 0; margin-left: 0.25rem; font-weight: 650; }
+
+main { max-width: 1180px; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
+h1 { font-size: 2rem; line-height: 1.15; letter-spacing: 0; }
+h2 { font-size: 1.15rem; line-height: 1.25; margin-top: 1.75rem; }
+.lede { max-width: 760px; color: var(--muted); font-size: 1rem; }
+.eyebrow {
+  margin: 0 0 0.45rem;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero, .page-heading, .detail-heading {
+  margin-bottom: 1.25rem;
+  padding: 1.4rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.hero { display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; }
+.hero h1, .page-heading h1, .detail-heading h1 { margin-bottom: 0.45rem; }
+.hero-meta { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: flex-end; }
+.hero-meta span, .badge {
+  display: inline-flex; align-items: center;
+  min-height: 1.65rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card-soft);
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.home-search {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0 0 1rem;
+  padding: 1.1rem 1.25rem;
+  background: var(--fg);
+  color: #fff;
+  border-radius: 8px;
+  text-decoration: none;
+  box-shadow: var(--shadow);
+}
+.home-search span { color: rgba(255,255,255,0.72); font-size: 0.85rem; }
+.home-search strong { font-size: 1.08rem; font-weight: 650; }
+.home-search:hover { background: #0f1720; text-decoration: none; }
+
+.home-grid { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0.85rem; }
+.stat-card {
+  display: grid;
+  gap: 0.35rem;
+  padding: 1rem;
+  min-height: 8rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-decoration: none;
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+.stat-card:hover { border-color: #b8c7f5; box-shadow: 0 10px 28px rgba(36, 87, 197, 0.12); text-decoration: none; }
+.stat-card strong { font-size: 2rem; line-height: 1; letter-spacing: 0; }
+.stat-label { color: var(--muted); font-weight: 700; }
+.stat-sub { color: var(--muted); font-size: 0.86rem; }
+
+.entity-list, .entity-fields, .meta-card, .source-body, .empty-state, .search-results li {
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.entity-list { font-size: 0.94rem; }
+.entity-list th { text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; }
+.entity-list td { vertical-align: top; }
+.entity-name { min-width: 18rem; }
+.entity-name a { display: block; font-weight: 650; }
+.entity-name span { display: block; color: var(--muted); font-size: 0.86rem; margin-top: 0.12rem; }
+
+.detail-title-row { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; }
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+.meta-tile {
+  padding: 0.9rem 1rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.meta-tile span { display: block; color: var(--muted); font-size: 0.76rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.meta-tile strong { display: block; margin-top: 0.25rem; font-size: 0.95rem; overflow-wrap: anywhere; }
+
+.entity-fields th { width: 220px; white-space: nowrap; }
+.entity-fields td { overflow-wrap: anywhere; }
+.related {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 0.45rem;
+}
+.related li {
+  padding: 0.55rem 0.7rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.raw-data {
+  margin-top: 1.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.raw-data summary {
+  cursor: pointer;
+  padding: 0.9rem 1rem;
+  font-weight: 700;
+}
+.raw-data > p, .raw-data .source-body { margin: 0 1rem 1rem; }
+.raw-data .source-body { box-shadow: none; max-height: 36rem; overflow: auto; }
+
+.search-input {
+  padding: 0.95rem 1rem;
+  font-size: 1.08rem;
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.search-results li {
+  padding: 1rem;
+  margin-bottom: 0.75rem;
+}
+.search-results li a { display: inline-block; margin: 0.35rem 0 0.15rem; font-size: 1.02rem; }
+.search-results .result-meta { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.35rem; }
+.type-badge, .source-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card-soft);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.source-badge { text-transform: none; letter-spacing: 0; }
+
+.generated-at { max-width: 1180px; }
+
+@media (max-width: 760px) {
+  .topbar { align-items: flex-start; flex-direction: column; }
+  .topbar nav { width: 100%; overflow-x: auto; flex-wrap: nowrap; padding-bottom: 0.1rem; }
+  main { padding: 1rem; }
+  .hero, .detail-title-row { flex-direction: column; align-items: flex-start; }
+  .entity-list { display: block; overflow-x: auto; }
+  .entity-fields th, .entity-fields td { display: block; width: 100%; }
+  .entity-fields th { border-bottom: 0; padding-bottom: 0.1rem; }
+  .entity-fields td { padding-top: 0.1rem; }
+}
 `;
 }
 
@@ -866,13 +1188,13 @@ export function searchClientSource(): string {
       var d = docs[h.ref];
       if (!d) return '';
       var refreshed = d.lastRefreshedUtc
-        ? '<span class="muted">last refreshed ' + esc(d.lastRefreshedUtc) + '</span>'
-        : '<span class="muted">freshness unknown</span>';
+        ? '<span class="muted">Updated ' + esc(d.lastRefreshedUtc) + '</span>'
+        : '<span class="muted">Freshness unknown</span>';
       return '<li>' +
-        '<span class="type-badge">' + esc(d.type) + '</span>' +
-        '<a href="' + esc(d.url) + '">' + esc(d.name) + '</a> ' +
-        '<span class="muted">(' + esc(d.id) + ' &middot; ' + esc(d.sourceSystem || 'unknown') + ')</span><br>' +
-        refreshed +
+        '<div><span class="type-badge">' + esc(d.type) + '</span> ' +
+        '<span class="source-badge">' + esc(d.sourceSystem || 'unknown') + '</span></div>' +
+        '<a href="' + esc(d.url) + '">' + esc(d.name) + '</a>' +
+        '<div class="result-meta">' + refreshed + '</div>' +
         '</li>';
     }).join('') + '</ul>';
     setStatus(
