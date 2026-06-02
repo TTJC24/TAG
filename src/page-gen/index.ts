@@ -20,7 +20,7 @@
  *   0 — site written
  *   1 — DB unreachable / unrecoverable error
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { loadAllPages, openReaderPool, type RawPage } from './db.ts';
 import {
@@ -42,7 +42,7 @@ import {
 } from './render.ts';
 
 const OUT_DIR = process.env.PAGEGEN_OUT_DIR ?? 'dist';
-const TYPES = ['customer', 'order', 'invoice', 'item', 'vendor', 'rep'] as const;
+const TYPES = ['customer', 'deal', 'contact', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep'] as const;
 
 interface SearchIndexEntry {
   type: string;
@@ -68,6 +68,12 @@ async function ensureDir(p: string): Promise<void> {
   await mkdir(p, { recursive: true });
 }
 
+async function clearDir(p: string): Promise<void> {
+  await ensureDir(p);
+  const entries = await readdir(p);
+  await Promise.all(entries.map((entry) => rm(path.join(p, entry), { recursive: true, force: true })));
+}
+
 function bucketFor(buckets: ClassifiedBuckets, type: string): ClassifiedEntity[] {
   switch (type) {
     case 'customer': return buckets.customers;
@@ -76,6 +82,9 @@ function bucketFor(buckets: ClassifiedBuckets, type: string): ClassifiedEntity[]
     case 'item': return buckets.items;
     case 'vendor': return buckets.vendors;
     case 'rep': return buckets.reps;
+    case 'deal': return buckets.deals;
+    case 'contact': return buckets.contacts;
+    case 'activity': return buckets.activities;
     default: return [];
   }
 }
@@ -104,7 +113,7 @@ function buildSearchIndex(buckets: ClassifiedBuckets, generatedAt: Date): Search
         id: e.id,
         name: e.title,
         keywords: searchKeywords(e),
-        url: entityHref(type, e.id),
+        url: entityHref(type, e.fileSlug),
         sourceSystem: e.sourceSystem,
         lastRefreshedUtc:
           freshness.upstreamUpdatedAt?.toISOString().replace('.000Z', 'Z') ??
@@ -150,7 +159,7 @@ async function writeEntityPages(
   let idCollisions = 0;
 
   for (const e of entities) {
-    let slug = safeSlug(e.id);
+    let slug = safeSlug(e.fileSlug);
     if (usedSlugs.has(slug)) {
       // Two entities slugged to the same filename. Disambiguate with the
       // page slug suffix. This should be very rare in practice; we log it.
@@ -188,13 +197,15 @@ async function main(): Promise<void> {
 
   const buckets = classifyAll(pages);
   log(
-    `classified: customers=${buckets.customers.length} orders=${buckets.orders.length} ` +
+      `classified: customers=${buckets.customers.length} orders=${buckets.orders.length} ` +
       `invoices=${buckets.invoices.length} items=${buckets.items.length} ` +
       `vendors=${buckets.vendors.length} reps=${buckets.reps.length} ` +
+      `deals=${buckets.deals.length} contacts=${buckets.contacts.length} ` +
+      `activities=${buckets.activities.length} ` +
       `other=${buckets.other.length}`,
   );
 
-  await ensureDir(absOutDir);
+  await clearDir(absOutDir);
   await writeStaticAssets(absOutDir);
   log('wrote styles.css + search.js');
 
@@ -262,7 +273,7 @@ async function main(): Promise<void> {
   }
   if (buckets.other.length > 0) {
     log(
-      `note: ${buckets.other.length} record${buckets.other.length === 1 ? '' : 's'} did not map to one of the six v3 surfaces (likely Pipedrive/M365/Supermemory). These are still in the brain DB and searchable via the SQL endpoint, but the static site only renders Acumatica entity types in v1.`,
+      `note: ${buckets.other.length} record${buckets.other.length === 1 ? '' : 's'} did not map to a v3 static surface. These are still in the brain DB and searchable via the SQL endpoint.`,
     );
   }
 }

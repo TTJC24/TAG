@@ -26,6 +26,9 @@ export type EntityType =
   | 'item'
   | 'vendor'
   | 'rep'
+  | 'deal'
+  | 'contact'
+  | 'activity'
   | 'other';
 
 export interface ClassifiedEntity {
@@ -36,12 +39,18 @@ export interface ClassifiedEntity {
   title: string;
   /** Source system identifier (`Acumatica`, `Pipedrive`, `M365 Mail`, etc.) */
   sourceSystem: string;
+  /** Source instance/scope (`FS`, `BLCS/USA`, etc.) */
+  sourceInstance: string;
+  /** Source record type (`deal`, `organization`, `person`, etc.) */
+  entityKind: string | null;
   /** Raw connector source_kind. */
   sourceKind: string;
   /** Source URI from frontmatter, if any. */
   sourceUri: string | null;
   /** Page slug (gbrain's stable handle). */
   pageSlug: string;
+  /** Output slug used by the static page generator. */
+  fileSlug: string;
   /** gbrain ingestion timestamp (when we last imported the page). */
   pageUpdatedAt: Date;
   /**
@@ -65,6 +74,9 @@ export interface ClassifiedBuckets {
   items: ClassifiedEntity[];
   vendors: ClassifiedEntity[];
   reps: ClassifiedEntity[];
+  deals: ClassifiedEntity[];
+  contacts: ClassifiedEntity[];
+  activities: ClassifiedEntity[];
   /** Anything that doesn't map to the six v3 surfaces. Surfaced in search
    *  but not rendered as a dedicated page in v1. */
   other: ClassifiedEntity[];
@@ -90,6 +102,15 @@ function parseDate(value: unknown): Date | null {
   const ms = Date.parse(value);
   if (!Number.isFinite(ms)) return null;
   return new Date(ms);
+}
+
+function sourceInstanceFor(sourceId: string): string {
+  if (sourceId === 'pipedrive-fs') return 'FS';
+  if (sourceId === 'pipedrive-blcs-usa') return 'BLCS/USA';
+  if (sourceId.endsWith('-fs')) return 'FS';
+  if (sourceId.endsWith('-blcs')) return 'BLCS';
+  if (sourceId.endsWith('-usa')) return 'USA';
+  return sourceId;
 }
 
 /**
@@ -118,8 +139,12 @@ function classifyType(page: RawPage, fm: Record<string, unknown>): EntityType {
   if (acumaticaKind === 'item') return 'item';
   if (acumaticaKind === 'vendor') return 'vendor';
   if (acumaticaKind === 'rep' || acumaticaKind === 'salesperson') return 'rep';
-  // Pipedrive: persons could be reps if the user later wires that mapping.
-  // For v1, leave them as 'other' (searchable but no dedicated page).
+  const pipedriveKind = getString(fm, 'pipedrive_kind');
+  if (pipedriveKind === 'organization') return 'customer';
+  if (pipedriveKind === 'person') return 'contact';
+  if (pipedriveKind === 'deal') return 'deal';
+  if (pipedriveKind === 'activity' || pipedriveKind === 'note') return 'activity';
+
   return 'other';
 }
 
@@ -157,9 +182,12 @@ export function classifyPage(page: RawPage): ClassifiedEntity {
     type: classifyType(page, fm),
     title: entityTitle(page, fields),
     sourceSystem,
+    sourceInstance: sourceInstanceFor(page.source_id),
+    entityKind: getString(fm, 'pipedrive_kind') ?? getString(fm, 'acumatica_kind'),
     sourceKind,
     sourceUri: getString(fm, 'source_uri'),
     pageSlug: page.slug,
+    fileSlug: page.slug,
     pageUpdatedAt: page.updated_at,
     upstreamUpdatedAt: parseDate(upstreamRaw),
     fields,
@@ -176,6 +204,9 @@ export function classifyAll(pages: readonly RawPage[]): ClassifiedBuckets {
     items: [],
     vendors: [],
     reps: [],
+    deals: [],
+    contacts: [],
+    activities: [],
     other: [],
   };
   for (const p of pages) {
@@ -187,6 +218,9 @@ export function classifyAll(pages: readonly RawPage[]): ClassifiedBuckets {
       case 'item': buckets.items.push(c); break;
       case 'vendor': buckets.vendors.push(c); break;
       case 'rep': buckets.reps.push(c); break;
+      case 'deal': buckets.deals.push(c); break;
+      case 'contact': buckets.contacts.push(c); break;
+      case 'activity': buckets.activities.push(c); break;
       default: buckets.other.push(c); break;
     }
   }
@@ -204,11 +238,35 @@ export interface RelationshipIndex {
   ordersByCustomer: Map<string, ClassifiedEntity[]>;
   /** customerId -> ordered list of invoices for that customer. */
   invoicesByCustomer: Map<string, ClassifiedEntity[]>;
+  /** customer/org id -> Pipedrive contacts. */
+  contactsByCustomer: Map<string, ClassifiedEntity[]>;
+  /** customer/org id -> Pipedrive deals. */
+  dealsByCustomer: Map<string, ClassifiedEntity[]>;
+  /** customer/org id -> Pipedrive activity and note records. */
+  activitiesByCustomer: Map<string, ClassifiedEntity[]>;
+  /** deal id -> Pipedrive activity and note records. */
+  activitiesByDeal: Map<string, ClassifiedEntity[]>;
+  /** contact/person id -> Pipedrive deals. */
+  dealsByContact: Map<string, ClassifiedEntity[]>;
+  /** contact/person id -> Pipedrive activity and note records. */
+  activitiesByContact: Map<string, ClassifiedEntity[]>;
+  customersByKey: Map<string, ClassifiedEntity>;
+  dealsByKey: Map<string, ClassifiedEntity>;
+  contactsByKey: Map<string, ClassifiedEntity>;
 }
 
 export function buildRelations(buckets: ClassifiedBuckets): RelationshipIndex {
   const ordersByCustomer = new Map<string, ClassifiedEntity[]>();
   const invoicesByCustomer = new Map<string, ClassifiedEntity[]>();
+  const contactsByCustomer = new Map<string, ClassifiedEntity[]>();
+  const dealsByCustomer = new Map<string, ClassifiedEntity[]>();
+  const activitiesByCustomer = new Map<string, ClassifiedEntity[]>();
+  const activitiesByDeal = new Map<string, ClassifiedEntity[]>();
+  const dealsByContact = new Map<string, ClassifiedEntity[]>();
+  const activitiesByContact = new Map<string, ClassifiedEntity[]>();
+  const customersByKey = new Map<string, ClassifiedEntity>();
+  const dealsByKey = new Map<string, ClassifiedEntity>();
+  const contactsByKey = new Map<string, ClassifiedEntity>();
 
   for (const order of buckets.orders) {
     const customerId = order.fields['CustomerID'];
@@ -224,6 +282,28 @@ export function buildRelations(buckets: ClassifiedBuckets): RelationshipIndex {
     list.push(invoice);
     invoicesByCustomer.set(customerId, list);
   }
+  for (const customer of buckets.customers) {
+    customersByKey.set(relationKey(customer.sourceInstance, customer.id), customer);
+  }
+  for (const deal of buckets.deals) {
+    dealsByKey.set(relationKey(deal.sourceInstance, deal.id), deal);
+  }
+  for (const contact of buckets.contacts) {
+    contactsByKey.set(relationKey(contact.sourceInstance, contact.id), contact);
+  }
+
+  for (const contact of buckets.contacts) {
+    addRelation(contactsByCustomer, relatedKey(contact, 'org_id', 'org'), contact);
+  }
+  for (const deal of buckets.deals) {
+    addRelation(dealsByCustomer, relatedKey(deal, 'org_id', 'org'), deal);
+    addRelation(dealsByContact, relatedKey(deal, 'person_id', 'person'), deal);
+  }
+  for (const activity of buckets.activities) {
+    addRelation(activitiesByCustomer, relatedKey(activity, 'org_id', 'org'), activity);
+    addRelation(activitiesByDeal, relatedKey(activity, 'deal_id', 'deal'), activity);
+    addRelation(activitiesByContact, relatedKey(activity, 'person_id', 'person'), activity);
+  }
 
   // Sort related lists by upstream timestamp desc when present, else by
   // gbrain page updated_at desc -- newest first.
@@ -236,6 +316,77 @@ export function buildRelations(buckets: ClassifiedBuckets): RelationshipIndex {
   };
   for (const list of ordersByCustomer.values()) sortDesc(list);
   for (const list of invoicesByCustomer.values()) sortDesc(list);
+  for (const list of contactsByCustomer.values()) sortDesc(list);
+  for (const list of dealsByCustomer.values()) sortDesc(list);
+  for (const list of activitiesByCustomer.values()) sortDesc(list);
+  for (const list of activitiesByDeal.values()) sortDesc(list);
+  for (const list of dealsByContact.values()) sortDesc(list);
+  for (const list of activitiesByContact.values()) sortDesc(list);
 
-  return { ordersByCustomer, invoicesByCustomer };
+  return {
+    ordersByCustomer,
+    invoicesByCustomer,
+    contactsByCustomer,
+    dealsByCustomer,
+    activitiesByCustomer,
+    activitiesByDeal,
+    dealsByContact,
+    activitiesByContact,
+    customersByKey,
+    dealsByKey,
+    contactsByKey,
+  };
+}
+
+function addRelation(
+  map: Map<string, ClassifiedEntity[]>,
+  id: string | null,
+  entity: ClassifiedEntity,
+): void {
+  if (!id) return;
+  const list = map.get(id) ?? [];
+  list.push(entity);
+  map.set(id, list);
+}
+
+function relatedId(entity: ClassifiedEntity, fieldName: string, fallbackPrefix: string): string | null {
+  const raw = entity.fields[fieldName];
+  if (!raw) return null;
+  const parsed = parseMaybeJson(raw);
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    const obj = parsed as Record<string, unknown>;
+    const value = obj.value ?? obj.id;
+    if (typeof value === 'string' || typeof value === 'number') return String(value);
+  }
+  if (/^\d+$/.test(raw)) return raw;
+  return raw.length > 0 ? `${fallbackPrefix}:${raw}` : null;
+}
+
+function relatedKey(entity: ClassifiedEntity, fieldName: string, fallbackPrefix: string): string | null {
+  const id = relatedId(entity, fieldName, fallbackPrefix);
+  return id ? relationKey(entity.sourceInstance, id) : null;
+}
+
+export function relationKey(sourceInstance: string, id: string): string {
+  return `${sourceInstance}:${id}`;
+}
+
+export function parseMaybeJson(raw: string | undefined): unknown {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+export function objectField(raw: string | undefined, key: string): string | null {
+  const parsed = parseMaybeJson(raw);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const value = (parsed as Record<string, unknown>)[key];
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (typeof value === 'number') return String(value);
+  return null;
 }

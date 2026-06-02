@@ -20,6 +20,8 @@ import {
   type ClassifiedEntity,
   type ClassifiedBuckets,
   type RelationshipIndex,
+  objectField,
+  relationKey,
 } from './classify.ts';
 import { classifyFreshness, type FreshnessReport } from './freshness.ts';
 
@@ -76,7 +78,12 @@ const TYPE_LABELS: Record<string, { single: string; plural: string }> = {
   item: { single: 'Item', plural: 'Items' },
   vendor: { single: 'Vendor', plural: 'Vendors' },
   rep: { single: 'Rep', plural: 'Reps' },
+  deal: { single: 'Deal', plural: 'Deals' },
+  contact: { single: 'Contact', plural: 'Contacts' },
+  activity: { single: 'Activity', plural: 'Activities' },
 };
+
+const NAV_TYPES = ['customer', 'deal', 'contact', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep'] as const;
 
 export function entityHref(type: string, id: string): string {
   return `/${encodeURIComponent(type)}/${encodeURIComponent(safeSlug(id))}.html`;
@@ -92,7 +99,7 @@ interface LayoutOpts {
 }
 
 function layout(opts: LayoutOpts, contentHtml: string): string {
-  const nav = (['index', 'customer', 'order', 'invoice', 'item', 'vendor', 'rep'] as const)
+  const nav = (['index', ...NAV_TYPES] as const)
     .map((slot) => {
       const href = slot === 'index' ? '/' : `/${slot}/`;
       const label = slot === 'index' ? 'Home' : (TYPE_LABELS[slot]?.plural ?? slot);
@@ -138,7 +145,7 @@ export function renderHome(
   generatedAt: Date,
   totalPages: number,
 ): string {
-  const sections = (['customer', 'order', 'invoice', 'item', 'vendor', 'rep'] as const).map(
+  const sections = NAV_TYPES.map(
     (type) => {
       const list = bucketFor(buckets, type);
       const label = TYPE_LABELS[type]!.plural;
@@ -151,7 +158,7 @@ export function renderHome(
               ${recent
                 .map(
                   (e) =>
-                    `<li><a href="${escapeHtml(entityHref(type, e.id))}">${escapeHtml(e.title)}</a> <span class="muted">(${escapeHtml(e.id)})</span></li>`,
+                    `<li><a href="${escapeHtml(entityHref(type, e.fileSlug))}">${escapeHtml(e.title)}</a> <span class="muted">(${escapeHtml(e.id)})</span></li>`,
                 )
                 .join('\n              ')}
               ${count > recent.length ? `<li class="more"><a href="${escapeHtml('/' + type + '/')}">See all ${count} ${escapeHtml(label.toLowerCase())} &rarr;</a></li>` : ''}
@@ -221,7 +228,7 @@ export function renderTypeListing(
     .map((e) => {
       const f = classifyFreshness(e.upstreamUpdatedAt, e.pageUpdatedAt, generatedAt);
       return `<tr>
-        <td><a href="${escapeHtml(entityHref(type, e.id))}">${escapeHtml(e.title)}</a></td>
+        <td><a href="${escapeHtml(entityHref(type, e.fileSlug))}">${escapeHtml(e.title)}</a></td>
         <td class="mono">${escapeHtml(e.id)}</td>
         <td>${escapeHtml(e.sourceSystem)}</td>
         <td>${freshnessBadge(f)}</td>
@@ -262,16 +269,19 @@ export function renderEntityDetail(
       <dt>Type</dt>            <dd>${escapeHtml(single)}</dd>
       <dt>ID</dt>              <dd class="mono">${escapeHtml(entity.id)}</dd>
       <dt>Source system</dt>   <dd>${escapeHtml(entity.sourceSystem)}</dd>
+      <dt>Source instance</dt> <dd>${escapeHtml(entity.sourceInstance)}</dd>
+      <dt>Entity type</dt>     <dd>${escapeHtml(entity.entityKind ?? single.toLowerCase())}</dd>
       <dt>System of record</dt><dd>${escapeHtml(systemOfRecordFor(type, entity))}</dd>
       <dt>Source URI</dt>      <dd>${entity.sourceUri ? `<code>${escapeHtml(entity.sourceUri)}</code>` : '(none)'}</dd>
       <dt>Page slug</dt>       <dd class="mono">${escapeHtml(entity.pageSlug)}</dd>
-      <dt>Last ingested</dt>   <dd>${escapeHtml(formatTimestamp(entity.pageUpdatedAt))} UTC</dd>
-      <dt>Upstream updated</dt><dd>${escapeHtml(formatTimestamp(entity.upstreamUpdatedAt))} UTC</dd>
+      <dt>Last refreshed UTC</dt><dd>${escapeHtml(formatTimestamp(entity.pageUpdatedAt))}</dd>
+      <dt>Upstream updated UTC</dt><dd>${escapeHtml(formatTimestamp(entity.upstreamUpdatedAt))}</dd>
       <dt>Freshness</dt>       <dd>${freshnessBadge(freshness)}</dd>
     </dl>
   `;
 
   // Key fields table (parsed from markdown bullets)
+  const summaryBlock = renderPipedriveSummary(type, entity);
   const fieldEntries = Object.entries(entity.fields);
   const fieldsBlock =
     fieldEntries.length === 0
@@ -306,6 +316,8 @@ export function renderEntityDetail(
       ${meta}
     </section>
 
+    ${summaryBlock}
+
     <section>
       <h2>Key fields</h2>
       ${fieldsBlock}
@@ -328,9 +340,47 @@ function systemOfRecordFor(type: string, entity: ClassifiedEntity): string {
   //   customer/order/invoice/item/vendor -> Acumatica
   //   rep -> Pipedrive (when wired); otherwise N/A
   //   anything else -> the entity's own sourceSystem
+  if (entity.sourceKind === 'pipedrive') return 'Pipedrive';
   if (['customer', 'order', 'invoice', 'item', 'vendor'].includes(type)) return 'Acumatica';
   if (type === 'rep') return entity.sourceSystem;
   return entity.sourceSystem;
+}
+
+function renderPipedriveSummary(type: string, entity: ClassifiedEntity): string {
+  if (entity.sourceKind !== 'pipedrive') return '';
+
+  const rawRows: Array<[string, string | null | undefined]> = [
+    ['Display name/title', entity.title],
+    ['Owner/user', entity.fields.owner_name ?? objectField(entity.fields.user_id, 'name') ?? objectField(entity.fields.creator_user_id, 'name')],
+    ['Organization/customer', entity.fields.org_name ?? objectField(entity.fields.org_id, 'name')],
+    ['Contact/person', objectField(entity.fields.person_id, 'name') ?? entity.fields.name],
+    ['Deal status', entity.fields.status],
+    ['Deal stage', entity.fields.stage_id],
+    ['Deal value', formatMoney(entity.fields.value, entity.fields.currency)],
+    ['Activity subject', entity.fields.subject],
+    ['Activity type', entity.fields.type],
+    ['Due date', entity.fields.due_date],
+  ];
+  const rows = rawRows.filter((row): row is [string, string] => Boolean(row[1] && row[1].length > 0));
+
+  if (rows.length === 0) return '';
+
+  return `<section>
+    <h2>Pipedrive summary</h2>
+    <table class="entity-fields">
+      <tbody>
+        ${rows
+          .map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`)
+          .join('\n        ')}
+      </tbody>
+    </table>
+  </section>`;
+}
+
+function formatMoney(value: string | undefined, currency: string | undefined): string | null {
+  if (!value) return null;
+  if (!currency) return value;
+  return `${value} ${currency}`;
 }
 
 function renderRelated(
@@ -350,54 +400,90 @@ function renderRelated(
         </ul>
       </section>`;
     }
+    if (type === 'deal') {
+      const orgId = objectField(entity.fields.org_id, 'value') ?? entity.fields.org_id;
+      const personId = objectField(entity.fields.person_id, 'value') ?? entity.fields.person_id;
+      const customer = orgId ? relations.customersByKey.get(relationKey(entity.sourceInstance, orgId)) : null;
+      const contact = personId ? relations.contactsByKey.get(relationKey(entity.sourceInstance, personId)) : null;
+      const activities = relations.activitiesByDeal.get(relationKey(entity.sourceInstance, entity.id)) ?? [];
+      return renderRelatedLists([
+        customer ? ['Customer', 'customer', [[customer.fileSlug, customer.title, customer.id]]] : null,
+        contact ? ['Contact', 'contact', [[contact.fileSlug, contact.title, contact.id]]] : null,
+        ['Activities and notes', 'activity', activities.map((a) => [a.fileSlug, a.title, a.id])],
+      ]);
+    }
+    if (type === 'contact') {
+      const orgId = objectField(entity.fields.org_id, 'value') ?? entity.fields.org_id;
+      const customer = orgId ? relations.customersByKey.get(relationKey(entity.sourceInstance, orgId)) : null;
+      const deals = relations.dealsByContact.get(relationKey(entity.sourceInstance, entity.id)) ?? [];
+      const activities = relations.activitiesByContact.get(relationKey(entity.sourceInstance, entity.id)) ?? [];
+      return renderRelatedLists([
+        customer ? ['Customer', 'customer', [[customer.fileSlug, customer.title, customer.id]]] : null,
+        ['Deals', 'deal', deals.map((d) => [d.fileSlug, d.title, d.id])],
+        ['Activities and notes', 'activity', activities.map((a) => [a.fileSlug, a.title, a.id])],
+      ]);
+    }
+    if (type === 'activity') {
+      const orgId = entity.fields.org_id;
+      const dealId = entity.fields.deal_id;
+      const personId = entity.fields.person_id;
+      const customer = orgId ? relations.customersByKey.get(relationKey(entity.sourceInstance, orgId)) : null;
+      const deal = dealId ? relations.dealsByKey.get(relationKey(entity.sourceInstance, dealId)) : null;
+      const contact = personId ? relations.contactsByKey.get(relationKey(entity.sourceInstance, personId)) : null;
+      return renderRelatedLists([
+        customer ? ['Customer', 'customer', [[customer.fileSlug, customer.title, customer.id]]] : null,
+        deal ? ['Deal', 'deal', [[deal.fileSlug, deal.title, deal.id]]] : null,
+        contact ? ['Contact', 'contact', [[contact.fileSlug, contact.title, contact.id]]] : null,
+      ]);
+    }
     return '';
   }
 
-  // For a customer page, list orders + invoices.
+  // For a customer page, list orders, invoices, and Pipedrive CRM records.
   const orders = relations.ordersByCustomer.get(entity.id) ?? [];
   const invoices = relations.invoicesByCustomer.get(entity.id) ?? [];
+  const key = relationKey(entity.sourceInstance, entity.id);
+  const contacts = relations.contactsByCustomer.get(key) ?? [];
+  const deals = relations.dealsByCustomer.get(key) ?? [];
+  const activities = relations.activitiesByCustomer.get(key) ?? [];
 
-  if (orders.length === 0 && invoices.length === 0) {
+  if (orders.length === 0 && invoices.length === 0 && contacts.length === 0 && deals.length === 0 && activities.length === 0) {
     return `<section>
       <h2>Related</h2>
-      <p class="muted">No orders or invoices indexed for this customer yet.</p>
+      <p class="muted">No related records indexed for this customer yet.</p>
     </section>`;
   }
 
-  const ordersHtml =
-    orders.length === 0
-      ? ''
-      : `<h3>Orders <span class="count">${orders.length}</span></h3>
+  return renderRelatedLists([
+    ['Contacts', 'contact', contacts.map((c) => [c.fileSlug, c.title, c.id])],
+    ['Deals', 'deal', deals.map((d) => [d.fileSlug, d.title, d.id])],
+    ['Activities and notes', 'activity', activities.map((a) => [a.fileSlug, a.title, a.id])],
+    ['Orders', 'order', orders.map((o) => [o.fileSlug, o.title, o.id])],
+    ['Invoices', 'invoice', invoices.map((i) => [i.fileSlug, i.title, i.id])],
+  ]);
+}
+
+function renderRelatedLists(
+  groups: Array<[string, string, Array<[string, string, string]>] | null>,
+): string {
+  const sections = groups
+    .filter((g): g is [string, string, Array<[string, string, string]>] => g !== null && g[2].length > 0)
+    .map(([label, type, rows]) => `<h3>${escapeHtml(label)} <span class="count">${rows.length}</span></h3>
         <ul class="related">
-          ${orders
+          ${rows
             .slice(0, 20)
             .map(
-              (o) =>
-                `<li><a href="${escapeHtml(entityHref('order', o.id))}">${escapeHtml(o.title)}</a> <span class="muted">(${escapeHtml(o.id)})</span></li>`,
+              ([fileSlug, title, id]) =>
+                `<li><a href="${escapeHtml(entityHref(type, fileSlug))}">${escapeHtml(title)}</a> <span class="muted">(${escapeHtml(id)})</span></li>`,
             )
             .join('\n          ')}
-          ${orders.length > 20 ? `<li class="more">+ ${orders.length - 20} more (truncated)</li>` : ''}
-        </ul>`;
+          ${rows.length > 20 ? `<li class="more">+ ${rows.length - 20} more (truncated)</li>` : ''}
+        </ul>`);
 
-  const invoicesHtml =
-    invoices.length === 0
-      ? ''
-      : `<h3>Invoices <span class="count">${invoices.length}</span></h3>
-        <ul class="related">
-          ${invoices
-            .slice(0, 20)
-            .map(
-              (i) =>
-                `<li><a href="${escapeHtml(entityHref('invoice', i.id))}">${escapeHtml(i.title)}</a> <span class="muted">(${escapeHtml(i.id)})</span></li>`,
-            )
-            .join('\n          ')}
-          ${invoices.length > 20 ? `<li class="more">+ ${invoices.length - 20} more (truncated)</li>` : ''}
-        </ul>`;
-
+  if (sections.length === 0) return '';
   return `<section>
     <h2>Related</h2>
-    ${ordersHtml}
-    ${invoicesHtml}
+    ${sections.join('\n    ')}
   </section>`;
 }
 
@@ -818,6 +904,9 @@ function bucketFor(buckets: ClassifiedBuckets, type: string): ClassifiedEntity[]
     case 'item': return buckets.items;
     case 'vendor': return buckets.vendors;
     case 'rep': return buckets.reps;
+    case 'deal': return buckets.deals;
+    case 'contact': return buckets.contacts;
+    case 'activity': return buckets.activities;
     default: return [];
   }
 }
