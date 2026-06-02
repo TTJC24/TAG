@@ -10,7 +10,7 @@ ingress:
   # Static Company Brain site generated into /opt/company-brain/dist.
   # The nginx container is internal-only; it has no host port binding.
   - hostname: <HOSTNAME>
-    service: http://company-brain-static:80
+    service: http://company-brain-static:8080
 
   # Catch-all: any hostname routed to this tunnel that is not matched above
   # gets a 404 from cloudflared itself.

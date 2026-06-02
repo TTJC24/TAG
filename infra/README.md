@@ -172,44 +172,26 @@ Bring up the internal static service:
 cd /opt/company-brain/repo/infra
 docker compose --env-file /opt/company-brain/infra/.env up -d company-brain-static
 docker compose --env-file /opt/company-brain/infra/.env ps company-brain-static
-docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1/ >/dev/null
-docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1/search.html >/dev/null
-docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1/search-index.json >/dev/null
+docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1:8080/ >/dev/null
+docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1:8080/search.html >/dev/null
+docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1:8080/search-index.json >/dev/null
 ```
 
-Create or install the Cloudflare Tunnel credentials:
+Create the Cloudflare Tunnel token:
 
 ```bash
-# On a machine authenticated to the correct Cloudflare account:
-cloudflared tunnel login
-cloudflared tunnel create company-brain
-cloudflared tunnel route dns company-brain brain.<your-domain>
+# In Cloudflare Zero Trust:
+# Networks -> Tunnels -> Create tunnel -> Cloudflared -> Docker
+# Public hostname: brain.<your-domain>
+# Service: http://company-brain-static:8080
+# Copy the generated tunnel token.
 
-# Copy the created tunnel credential JSON to the droplet.
-scp ~/.cloudflared/<UUID>.json \
-  root@142.93.196.10:/opt/company-brain/cloudflared/credentials.json
-```
-
-Install the tunnel config on the droplet:
-
-```bash
 ssh root@142.93.196.10
-install -d -m 700 /opt/company-brain/cloudflared
-cp /opt/company-brain/repo/infra/cloudflared/config.example.yml \
-  /opt/company-brain/cloudflared/config.yml
-sed -i 's/<UUID>/<your-tunnel-uuid>/g' /opt/company-brain/cloudflared/config.yml
-sed -i 's/<HOSTNAME>/brain.<your-domain>/g' /opt/company-brain/cloudflared/config.yml
-chmod 600 /opt/company-brain/cloudflared/config.yml /opt/company-brain/cloudflared/credentials.json
+printf '\nCLOUDFLARED_TOKEN=<paste-token-here>\n' >> /opt/company-brain/infra/.env
+chmod 600 /opt/company-brain/infra/.env
 ```
 
-The resulting ingress must route to the static service:
-
-```yaml
-ingress:
-  - hostname: brain.<your-domain>
-    service: http://company-brain-static:80
-  - service: http_status:404
-```
+Do not route the hostname to `company-brain-query:4317` or Postgres.
 
 Create the Cloudflare Access application in Zero Trust:
 
