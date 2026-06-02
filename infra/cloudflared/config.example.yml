@@ -1,52 +1,17 @@
-# Company Brain v3 Cloudflare Tunnel config — template.
+# Company Brain v3 Cloudflare Tunnel config template.
 #
-# WORKFLOW (run on the droplet, NOT in this repo):
-#
-#   1) Install cloudflared on your local machine if you don't have it:
-#        https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
-#   2) Authenticate cloudflared to your Cloudflare account:
-#        cloudflared tunnel login
-#   3) Create a named tunnel for company-brain (anywhere; the credentials
-#      file is what matters):
-#        cloudflared tunnel create company-brain
-#      This prints a UUID and writes ~/.cloudflared/<uuid>.json.
-#   4) Route the subdomain you chose (e.g. brain.fasteningspecialists.com)
-#      to the tunnel:
-#        cloudflared tunnel route dns company-brain brain.<your-domain>
-#   5) Copy the credentials file to the droplet:
-#        scp ~/.cloudflared/<uuid>.json root@142.93.196.10:/opt/company-brain/cloudflared/credentials.json
-#   6) Copy THIS file to the droplet, edit the <UUID> and <HOSTNAME>
-#      placeholders, then rename it to config.yml:
-#        scp infra/cloudflared/config.example.yml root@142.93.196.10:/opt/company-brain/cloudflared/config.example.yml
-#        ssh root@142.93.196.10
-#        cd /opt/company-brain/cloudflared
-#        cp config.example.yml config.yml
-#        # edit config.yml: replace <UUID> and <HOSTNAME>
-#   7) Create the Cloudflare Access application gating <HOSTNAME>:
-#      Cloudflare Zero Trust dashboard -> Access -> Applications -> Add an
-#      application -> Self-hosted -> domain: <HOSTNAME> -> policy: emails
-#      ending @your-domain (or Entra OIDC group membership).
-#   8) docker compose up -d cloudflared on the droplet.
+# This tunnel exposes the generated static site only. It does not route the
+# guarded SQL query service, Postgres, /ask, a React app, or any writeback API.
 
 tunnel: <UUID>
 credentials-file: /etc/cloudflared/credentials.json
 
-# Routing: every public hostname is mapped to an internal service.
-# Add more ingress entries here as new surfaces come online (e.g. a
-# `pages.<HOSTNAME>` route once the static page generator is up — but Pages
-# is normally hosted by Cloudflare directly via `wrangler pages deploy`,
-# not through this tunnel).
 ingress:
-  # SQL query service. Cloudflare Access sits in front of this hostname
-  # and injects the CF-Access-Authenticated-User-Email header on every
-  # forwarded request.
+  # Static Company Brain site generated into /opt/company-brain/dist.
+  # The nginx container is internal-only; it has no host port binding.
   - hostname: <HOSTNAME>
-    service: http://company-brain-query:4317
-    originRequest:
-      # Block any request that doesn't carry a valid Cloudflare Access JWT.
-      # The query service ALSO validates this header in code (belt+suspenders).
-      noTLSVerify: false
+    service: http://company-brain-static:80
 
-  # Catch-all: any hostname routed to this tunnel that isn't matched above
-  # gets a 404 from cloudflared itself (never reaches an internal service).
+  # Catch-all: any hostname routed to this tunnel that is not matched above
+  # gets a 404 from cloudflared itself.
   - service: http_status:404

@@ -34,6 +34,7 @@ non-namespaced Docker resource.
 | Container: Postgres | `company-brain-postgres` |
 | Container: ingest | `company-brain-ingest` (Bun scheduler) |
 | Container: query | `company-brain-query` (read-only SQL endpoint) |
+| Container: static | `company-brain-static` (internal nginx serving `/opt/company-brain/dist`) |
 | Container: tunnel | `company-brain-cloudflared` |
 | Host directory: logs | `/opt/company-brain/logs/` |
 | Host directory: backups | `/opt/company-brain/backups/` |
@@ -42,10 +43,10 @@ non-namespaced Docker resource.
 | Host directory: state cache | `/opt/company-brain/state/` (Acumatica session, etc.) |
 | Host directory: tunnel creds | `/opt/company-brain/cloudflared/` (mode 700) |
 
-**No host ports are published.** All external traffic enters via cloudflared.
-That means Postgres on `5432` stays available to any other tenant on the
-droplet without conflict, and the SQL endpoint on internal `:4317` is only
-reachable through Cloudflare Access.
+**No Company Brain host ports are published.** All external traffic enters via
+cloudflared. Postgres and the guarded SQL query service stay private on the
+`company-brain-net` Docker network. The public hostname routes only to the
+static nginx service.
 
 ## One-shot setup (run on the droplet)
 
@@ -158,6 +159,88 @@ docker ps --filter "name=hermes-"
 ```
 
 ## Day-2 operations
+
+### Serve the generated static site behind Cloudflare Access
+
+The public Company Brain hostname serves only the static site generated under
+`/opt/company-brain/dist`. It does not expose Postgres, `/query`, `/ask`, a
+React UI, Teams bot, or writeback.
+
+Bring up the internal static service:
+
+```bash
+cd /opt/company-brain/repo/infra
+docker compose --env-file /opt/company-brain/infra/.env up -d company-brain-static
+docker compose --env-file /opt/company-brain/infra/.env ps company-brain-static
+docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1/ >/dev/null
+docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1/search.html >/dev/null
+docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1/search-index.json >/dev/null
+```
+
+Create or install the Cloudflare Tunnel credentials:
+
+```bash
+# On a machine authenticated to the correct Cloudflare account:
+cloudflared tunnel login
+cloudflared tunnel create company-brain
+cloudflared tunnel route dns company-brain brain.<your-domain>
+
+# Copy the created tunnel credential JSON to the droplet.
+scp ~/.cloudflared/<UUID>.json \
+  root@142.93.196.10:/opt/company-brain/cloudflared/credentials.json
+```
+
+Install the tunnel config on the droplet:
+
+```bash
+ssh root@142.93.196.10
+install -d -m 700 /opt/company-brain/cloudflared
+cp /opt/company-brain/repo/infra/cloudflared/config.example.yml \
+  /opt/company-brain/cloudflared/config.yml
+sed -i 's/<UUID>/<your-tunnel-uuid>/g' /opt/company-brain/cloudflared/config.yml
+sed -i 's/<HOSTNAME>/brain.<your-domain>/g' /opt/company-brain/cloudflared/config.yml
+chmod 600 /opt/company-brain/cloudflared/config.yml /opt/company-brain/cloudflared/credentials.json
+```
+
+The resulting ingress must route to the static service:
+
+```yaml
+ingress:
+  - hostname: brain.<your-domain>
+    service: http://company-brain-static:80
+  - service: http_status:404
+```
+
+Create the Cloudflare Access application in Zero Trust:
+
+- Application type: Self-hosted
+- Domain: `brain.<your-domain>`
+- Policy: allow only approved company users or groups
+- Session duration: your security preference
+
+Start the tunnel:
+
+```bash
+cd /opt/company-brain/repo/infra
+docker compose --env-file /opt/company-brain/infra/.env up -d company-brain-cloudflared
+docker compose --env-file /opt/company-brain/infra/.env logs -f company-brain-cloudflared
+```
+
+Verify through Cloudflare from a browser:
+
+```text
+https://brain.<your-domain>/
+https://brain.<your-domain>/search.html
+https://brain.<your-domain>/search-index.json
+https://brain.<your-domain>/customer/
+https://brain.<your-domain>/deal/
+https://brain.<your-domain>/contact/
+https://brain.<your-domain>/activity/
+```
+
+To verify Access gating, open the hostname from a browser/session that is not
+authorized by the Access policy. It should show Cloudflare Access login or deny
+the request before reaching nginx.
 
 ### Tail logs
 
