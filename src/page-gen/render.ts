@@ -11,7 +11,7 @@
  *   /dist/index.html          home with section counts + recent activity
  *   /dist/search.html         search shell that loads search-index.json
  *   /dist/styles.css          shared stylesheet
- *   /dist/search.js           client-side search using Lunr from CDN
+ *   /dist/search.js           client-side search over search-index.json
  *   /dist/<type>/index.html   listing per entity type
  *   /dist/<type>/<slug>.html  per-record detail
  */
@@ -669,7 +669,7 @@ function renderRelatedLists(
 }
 
 // ---------------------------------------------------------------------------
-// Search page (shell + client-side Lunr)
+// Search page (shell + client-side search)
 // ---------------------------------------------------------------------------
 export function renderSearchPage(generatedAt: Date, buildMeta?: BuildMeta): string {
   const body = `
@@ -682,7 +682,6 @@ export function renderSearchPage(generatedAt: Date, buildMeta?: BuildMeta): stri
     <div id="results" class="search-results">
       <p class="muted">Start typing to search.</p>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/lunr@2.3.9/lunr.min.js" integrity="sha384-vRQ9bDyE0Wnu+lMfm57BlYLO0/XauFuKpVsZPs7KEDwYKktWi5+Kw3FFv7Lbwqzc" crossorigin="anonymous"></script>
     <script src="/search.js"></script>
   `;
   return layout({ title: 'Search', generatedAt, buildMeta }, body);
@@ -1263,16 +1262,15 @@ h2 { font-size: 1.15rem; line-height: 1.25; margin-top: 1.75rem; }
 }
 
 export function searchClientSource(): string {
-  // Single-file client-side search. Loads /search-index.json, builds a Lunr
-  // index in the browser, debounces input, renders matches into #results.
+  // Single-file client-side search. Loads /search-index.json and performs
+  // normalized substring/token matching with no external JS dependency.
   return `(function () {
   'use strict';
   var input = document.getElementById('q');
   var results = document.getElementById('results');
   if (!input || !results) return;
 
-  var index = null;
-  var docs = {};
+  var docs = [];
   var ready = false;
 
   function setStatus(html) { results.innerHTML = html; }
@@ -1280,27 +1278,28 @@ export function searchClientSource(): string {
   setStatus('<p class="muted">Loading search index...</p>');
 
   fetch('/search-index.json', { cache: 'force-cache' })
-    .then(function (r) { return r.json(); })
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' loading /search-index.json');
+      return r.json();
+    })
     .then(function (data) {
       var entries = data.entries || [];
-      index = lunr(function () {
-        this.ref('id');
-        this.field('title', { boost: 5 });
-        this.field('id_field', { boost: 4 });
-        this.field('keywords');
-        this.field('source_system', { boost: 2 });
-        this.field('type', { boost: 2 });
-        entries.forEach(function (e) {
-          this.add({
-            id: e.url,
-            id_field: e.id,
-            title: e.name,
-            keywords: e.keywords || '',
-            source_system: e.sourceSystem || '',
-            type: e.type || '',
-          });
-          docs[e.url] = e;
-        }, this);
+      docs = entries.map(function (e) {
+        var searchable = [
+          e.name || '',
+          e.id || '',
+          e.type || '',
+          e.sourceSystem || '',
+          e.keywords || ''
+        ].join(' ');
+        return {
+          raw: e,
+          nameNorm: norm(e.name || ''),
+          idNorm: norm(e.id || ''),
+          typeNorm: norm(e.type || ''),
+          sourceNorm: norm(e.sourceSystem || ''),
+          allNorm: norm(searchable)
+        };
       });
       ready = true;
       setStatus(
@@ -1311,7 +1310,7 @@ export function searchClientSource(): string {
     })
     .catch(function (err) {
       setStatus(
-        '<p class="muted">Failed to load search index: ' +
+        '<p class="muted">Failed to load search index. Search is unavailable until /search-index.json loads. Details: ' +
         (err && err.message ? err.message : err) +
         '</p>'
       );
@@ -1322,6 +1321,44 @@ export function searchClientSource(): string {
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
+  function norm(s) {
+    return String(s == null ? '' : s)
+      .toLowerCase()
+      .replace(/\\bsales\\s+orders?\\b/g, ' order ')
+      .replace(/[^a-z0-9]+/g, ' ')
+      .replace(/\\s+/g, ' ')
+      .trim();
+  }
+
+  function tokens(s) {
+    var n = norm(s);
+    return n.length ? n.split(' ') : [];
+  }
+
+  function scoreDoc(d, queryNorm, queryTokens) {
+    if (!queryNorm) return 0;
+    var score = 0;
+    if (d.nameNorm === queryNorm) score += 200;
+    if (d.idNorm === queryNorm) score += 180;
+    if (d.nameNorm.indexOf(queryNorm) !== -1) score += 100;
+    if (d.idNorm.indexOf(queryNorm) !== -1) score += 80;
+    if (d.typeNorm.indexOf(queryNorm) !== -1) score += 45;
+    if (d.sourceNorm.indexOf(queryNorm) !== -1) score += 35;
+    if (d.allNorm.indexOf(queryNorm) !== -1) score += 20;
+
+    for (var i = 0; i < queryTokens.length; i += 1) {
+      var t = queryTokens[i];
+      if (!t) continue;
+      if (d.nameNorm.indexOf(t) !== -1) score += 25;
+      else if (d.idNorm.indexOf(t) !== -1) score += 18;
+      else if (d.typeNorm.indexOf(t) !== -1) score += 10;
+      else if (d.sourceNorm.indexOf(t) !== -1) score += 8;
+      else if (d.allNorm.indexOf(t) !== -1) score += 3;
+      else return 0;
+    }
+    return score;
+  }
+
   function run() {
     if (!ready) return;
     var q = input.value.trim();
@@ -1329,29 +1366,24 @@ export function searchClientSource(): string {
       setStatus('<p class="muted">Start typing to search.</p>');
       return;
     }
-    var hits;
-    try {
-      hits = index.search(q);
-    } catch (e) {
-      // Lunr throws on bad query syntax (e.g. a stray colon). Re-try with
-      // a sanitized version that only keeps word chars + spaces.
-      var clean = q.replace(/[^\\w\\s]/g, ' ').replace(/\\s+/g, ' ').trim();
-      if (clean.length === 0) {
-        setStatus('<p class="muted">Try a simpler query.</p>');
-        return;
-      }
-      try { hits = index.search(clean); } catch (e2) {
-        setStatus('<p class="muted">Search failed: ' + esc(e2.message) + '</p>');
-        return;
-      }
-    }
+    var queryNorm = norm(q);
+    var queryTokens = tokens(q);
+    var hits = docs
+      .map(function (d) {
+        return { doc: d.raw, score: scoreDoc(d, queryNorm, queryTokens) };
+      })
+      .filter(function (h) { return h.score > 0; })
+      .sort(function (a, b) {
+        if (b.score !== a.score) return b.score - a.score;
+        return String(a.doc.name || '').localeCompare(String(b.doc.name || ''));
+      });
     if (hits.length === 0) {
       setStatus('<p class="muted">No matches for &ldquo;' + esc(q) + '&rdquo;.</p>');
       return;
     }
     var top = hits.slice(0, 50);
     var html = '<ul>' + top.map(function (h) {
-      var d = docs[h.ref];
+      var d = h.doc;
       if (!d) return '';
       var refreshed = d.lastRefreshedUtc
         ? '<span class="muted">Updated ' + esc(d.lastRefreshedUtc) + '</span>'
