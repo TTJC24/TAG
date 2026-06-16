@@ -9,6 +9,7 @@
 - Fixture ingestion, smoke tests, answer-quality evaluation, and cited answer behavior.
 - Knowledge API consumed by other apps through `COMPANY_BRAIN_API_URL` and `COMPANY_BRAIN_API_TOKEN`.
 - Retrieval quality, provenance, citations, and source freshness.
+- Source lifecycle conventions, virtual paths, and connector health/freshness rules documented in `docs/source-lifecycle-and-provenance.md`.
 
 ## Does Not Own
 
@@ -41,6 +42,8 @@ Compare and selectively salvage useful ideas from:
 - `vault-gateway`: gateway/auth patterns if still useful.
 - `cortex`: document/context/search concepts if unique work exists.
 - `gbrain-eval`: historical evaluation notes.
+
+The first Vault salvage slice has been translated into Company Brain's own source lifecycle and provenance contract in `docs/source-lifecycle-and-provenance.md`. Treat that document as the active target for source metadata, virtual paths, source health, and future workspace/team scoping. Do not port Vault code wholesale.
 
 ## Automated Readiness Gate
 
