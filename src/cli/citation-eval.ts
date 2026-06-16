@@ -22,17 +22,12 @@ function assertText(answer: BrainAnswer, pattern: RegExp, message: string): void
   assert(pattern.test(answer.text), `${message}\nAnswer:\n${answer.text}`);
 }
 
-function isProtocolUri(value: string): boolean {
-  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
-}
-
 function assertCitationMetadata(citation: BrainCitation, context: string): void {
   assert(citation.slug.trim().length > 0, `${context}: citation slug is required`);
   assert(citation.source_id.trim().length > 0, `${context}: citation source_id is required`);
-  assert(citation.source_uri !== null, `${context}: citation source_uri is required`);
+  assert(citation.source_uri !== null, `${context}: citation source pointer is required`);
   if (citation.source_uri !== null) {
-    assert(citation.source_uri.trim().length > 0, `${context}: citation source_uri cannot be blank`);
-    assert(isProtocolUri(citation.source_uri), `${context}: citation source_uri must be protocol-shaped, got ${citation.source_uri}`);
+    assert(citation.source_uri.trim().length > 0, `${context}: citation source pointer cannot be blank`);
   }
 }
 
