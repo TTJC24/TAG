@@ -9,6 +9,7 @@
     "search": "bun run src/cli/search.ts",
     "eval:answers": "bun run src/cli/answer-eval.ts",
     "fixtures:check": "bun run src/cli/fixture-check.ts",
+    "provenance:check": "bun run src/cli/provenance-check.ts",
     "doctor": "bun run src/cli/doctor.ts",
     "status": "bun run src/cli/status.ts",
     "smoke": "bun run src/cli/smoke.ts",
