@@ -89,6 +89,8 @@ Minimum health signals:
 - generated pages include build/source metadata,
 - and answer evals can identify stale or missing citations.
 
+`bun run provenance:check` now enforces the fixture-mode baseline: connector events must include stable `source_id`, `source_kind`, protocol-shaped `source_uri`, content hash, slug metadata, explicit `upstream_updated_at` or `null`, and operator-visible source URI in the rendered content. It skips registered live-only connector variants that do not have fixture files.
+
 ## First Code Slice Candidate
 
 When ready for implementation, keep the first code slice small:
