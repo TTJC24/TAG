@@ -33,6 +33,10 @@ function assertCitationMetadata(citation: BrainCitation, context: string): void 
   assert(citation.source_uri !== null, `${context}: citation source pointer is required`);
   if (citation.source_uri !== null) {
     assert(citation.source_uri.trim().length > 0, `${context}: citation source pointer cannot be blank`);
+    assert(
+      isProtocolUri(citation.source_uri),
+      `${context}: citation source_uri must be protocol-shaped, got ${citation.source_uri}`,
+    );
   }
 }
 

@@ -642,7 +642,7 @@ async function askSingleIntent(opts: AskOptions, memoriesPromise: Promise<string
         slug: h.slug,
         source_id: h.source_id ?? 'default',
         title: displayTitle(h, extractFields(h.chunk_text ?? '')),
-        source_uri: h.source_id ?? null,
+        source_uri: (h as SourcePage).source_uri ?? h.source_id ?? null,
       });
       if (citations.length >= 3) break;
     }
@@ -794,6 +794,7 @@ async function recentCollaborationHits(
       slug: page.slug,
       title: page.title,
       source_id: page.source_id,
+      source_uri: page.source_uri,
       chunk_text: page.chunk_text,
       score: Math.max(0.1, recordTimestamp(page as SearchResult) / 1_000_000_000_000),
     }) as SearchResult)
