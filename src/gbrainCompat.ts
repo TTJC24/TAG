@@ -160,5 +160,5 @@ export async function hybridSearch(engine: any, query: string, options: { limit?
     .filter((page: StorePage) => Number(page.score) > 0)
     .sort((a: StorePage, b: StorePage) => Number(b.score ?? 0) - Number(a.score ?? 0) || String(a.slug).localeCompare(String(b.slug)))
     .slice(0, limit)
-    .map(({ content, content_hash, imported_at, metadata, raw_event, received_at, source_kind, source_uri, ...hit }: StorePage) => hit as SearchResult);
+    .map(({ content, content_hash, imported_at, metadata, raw_event, received_at, source_kind, ...hit }: StorePage) => hit as SearchResult);
 }
