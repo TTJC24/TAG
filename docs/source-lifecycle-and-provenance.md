@@ -91,7 +91,9 @@ Minimum health signals:
 
 `bun run provenance:check` enforces the fixture-mode baseline: connector events must include stable `source_id`, `source_kind`, protocol-shaped `source_uri`, content hash, slug metadata, explicit `upstream_updated_at` or `null`, and operator-visible source URI in the rendered content. It skips registered live-only connector variants that do not have fixture files.
 
-`bun run eval:citations` enforces the answer-facing citation baseline: representative cited answers must include non-empty citation slug/source ID/protocol-shaped source URI, stay within expected source systems, and render freshness cues such as received/start timestamps for recency-sensitive mail and calendar answers. Ambiguous answers must not return authoritative citations.
+`bun run eval:citations` enforces the current answer-facing citation baseline: representative cited answers must include non-empty citation slug/source ID/source pointer, stay within expected source systems, and render freshness cues such as received/start timestamps for recency-sensitive mail and calendar answers. Ambiguous answers must not return authoritative citations.
+
+Current gap: answer citations still need a deeper code pass to expose the original protocol-shaped `source_uri` from retrieved search hits instead of only the current source pointer.
 
 Company Brain CI runs fixture validation, provenance validation, citation eval, and typecheck in that order.
 
@@ -102,7 +104,7 @@ The first code slice is partially implemented:
 1. Audit existing connector metadata for the lifecycle fields above.
 2. Add missing virtual path helpers where connectors currently use ad hoc identifiers.
 3. Extend `status`, `doctor`, `smoke`, or fixture checks to report source freshness/failure state.
-4. Add one fixture/eval case that fails when a citation lacks source metadata. Done via `src/cli/citation-eval.ts` and `bun run eval:citations`.
+4. Add one fixture/eval case that fails when a citation lacks source metadata. Done via `src/cli/citation-eval.ts` and `bun run eval:citations` for the current answer contract; true protocol-shaped answer citation URIs remain open.
 5. Document any schema gap before adding new tables.
 
 ## Non-Goals
