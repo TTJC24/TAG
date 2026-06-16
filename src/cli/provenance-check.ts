@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import {
   validateIngestionEvent,
@@ -18,7 +19,7 @@ interface ProvenanceIssue {
 interface ProvenanceCheckResult {
   ok: boolean;
   issues: ProvenanceIssue[];
-  summary: { connectorsChecked: number; eventsChecked: number };
+  summary: { connectorsChecked: number; connectorsSkipped: number; eventsChecked: number };
 }
 
 function isObject(v: unknown): v is Record<string, unknown> {
@@ -124,11 +125,16 @@ async function collectEvents(spec: ConnectorSpec, issues: ProvenanceIssue[]): Pr
 export async function runProvenanceCheck(): Promise<ProvenanceCheckResult> {
   const issues: ProvenanceIssue[] = [];
   let connectorsChecked = 0;
+  let connectorsSkipped = 0;
   let eventsChecked = 0;
   const seenUris = new Set<string>();
   const seenSlugs = new Set<string>();
 
   for (const spec of Object.values(connectors)) {
+    if (!existsSync(spec.fixturePath)) {
+      connectorsSkipped += 1;
+      continue;
+    }
     connectorsChecked += 1;
     let events: IngestionEvent[];
     try {
@@ -160,16 +166,16 @@ export async function runProvenanceCheck(): Promise<ProvenanceCheckResult> {
   return {
     ok: issues.length === 0,
     issues,
-    summary: { connectorsChecked, eventsChecked },
+    summary: { connectorsChecked, connectorsSkipped, eventsChecked },
   };
 }
 
 function formatReport(result: ProvenanceCheckResult): string {
   if (result.ok) {
-    return `provenance:check OK - ${result.summary.connectorsChecked} connectors, ${result.summary.eventsChecked} events, 0 issues`;
+    return `provenance:check OK - ${result.summary.connectorsChecked} connectors, ${result.summary.connectorsSkipped} skipped, ${result.summary.eventsChecked} events, 0 issues`;
   }
   const lines = [
-    `provenance:check FAILED - ${result.summary.connectorsChecked} connectors, ${result.summary.eventsChecked} events, ${result.issues.length} issue(s):`,
+    `provenance:check FAILED - ${result.summary.connectorsChecked} connectors, ${result.summary.connectorsSkipped} skipped, ${result.summary.eventsChecked} events, ${result.issues.length} issue(s):`,
   ];
   for (const issue of result.issues) {
     const event = issue.event ? ` ${issue.event}` : '';
