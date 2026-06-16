@@ -15,7 +15,7 @@ type CitationExpectation = {
 
 type EvalResult = { name: string; ok: true; citations: number };
 
-function assert(condition: unknown, message: string): void {
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
@@ -124,12 +124,12 @@ const citationCases: CitationExpectation[] = [
     },
   },
   {
-    name: 'upcoming meeting cites calendar and renders start timestamp',
-    question: 'upcoming meetings',
+    name: 'latest meeting cites calendar and renders start timestamp',
+    question: 'latest meeting',
     assert(answer) {
       assert(answer.intent === 'collaboration_lookup', `expected collaboration_lookup, got ${answer.intent}`);
-      assertCitedAnswer(answer, ['m365-calendar'], 'upcoming meetings');
-      assertText(answer, /\bStart:\s*\d{4}-\d{2}-\d{2}T/i, 'upcoming meeting answer did not render start timestamp');
+      assertCitedAnswer(answer, ['m365-calendar'], 'latest meeting');
+      assertText(answer, /\bStart:\s*\d{4}-\d{2}-\d{2}T/i, 'latest meeting answer did not render start timestamp');
     },
   },
   {

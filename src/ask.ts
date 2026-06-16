@@ -797,7 +797,7 @@ async function recentCollaborationHits(
       source_uri: page.source_uri,
       chunk_text: page.chunk_text,
       score: Math.max(0.1, recordTimestamp(page as SearchResult) / 1_000_000_000_000),
-    }) as SearchResult)
+    }) as unknown as SearchResult)
     .filter((hit) => recordTimestamp(hit) > 0)
     .filter((hit) => {
       const timestamp = recordTimestamp(hit);
