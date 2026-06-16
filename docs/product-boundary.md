@@ -42,9 +42,21 @@ Compare and selectively salvage useful ideas from:
 - `cortex`: document/context/search concepts if unique work exists.
 - `gbrain-eval`: historical evaluation notes.
 
-## Readiness Gates
+## Automated Readiness Gate
 
-Before production-impacting changes:
+`.github/workflows/ci.yml` now runs on pushes and pull requests to `main`:
+
+```bash
+bun install --frozen-lockfile
+bun run fixtures:check
+bun run typecheck
+```
+
+The workflow provides Postgres 16 and fixture-mode placeholder env vars, but it intentionally does not call live connectors or external LLM/embedding providers.
+
+## Manual / Deployment Readiness Gates
+
+Before production-impacting changes, still run the deeper checks in an environment with the required local services and safe credentials:
 
 ```bash
 bun run fixtures:check
