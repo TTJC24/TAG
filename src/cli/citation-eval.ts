@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { existsSync, unlinkSync } from 'node:fs';
 import { askBrain, type BrainAnswer, type BrainCitation } from '../ask.ts';
+import { hybridSearch } from '../gbrainCompat.ts';
 import { runIngestion } from '../ingest/run.ts';
 import { connectors } from '../sources/registry.ts';
 import { openEngine } from '../engine.ts';
@@ -20,6 +21,10 @@ function assert(condition: unknown, message: string): void {
 
 function assertText(answer: BrainAnswer, pattern: RegExp, message: string): void {
   assert(pattern.test(answer.text), `${message}\nAnswer:\n${answer.text}`);
+}
+
+function isProtocolUri(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 
 function assertCitationMetadata(citation: BrainCitation, context: string): void {
@@ -64,6 +69,21 @@ async function ensureFixtureBrain(): Promise<void> {
       summaryOnly: true,
       quiet: true,
     });
+  }
+}
+
+async function assertSearchResultsExposeSourceUris(): Promise<void> {
+  const engine = await openEngine();
+  try {
+    const hits = await hybridSearch(engine, 'acme terms', { sourceIds: ['acumatica'], limit: 5 });
+    assert(hits.length > 0, 'search provenance check returned no Acumatica hits');
+    for (const hit of hits) {
+      const sourceUri = (hit as { source_uri?: unknown }).source_uri;
+      assert(typeof sourceUri === 'string' && sourceUri.length > 0, `search hit ${hit.slug} is missing source_uri`);
+      assert(isProtocolUri(sourceUri), `search hit ${hit.slug} source_uri must be protocol-shaped, got ${sourceUri}`);
+    }
+  } finally {
+    await engine.disconnect();
   }
 }
 
@@ -137,6 +157,7 @@ async function main(): Promise<void> {
   }
 
   await ensureFixtureBrain();
+  await assertSearchResultsExposeSourceUris();
   const cases: EvalResult[] = [];
   for (const testCase of citationCases) {
     const answer = await askBrain({ question: testCase.question, limit: 8 });
@@ -152,6 +173,7 @@ async function main(): Promise<void> {
         fixturesChecked: fixtureCheck.summary.fixturesChecked,
         itemsChecked: fixtureCheck.summary.itemsChecked,
       },
+      'search-source-uri': { ok: true },
     },
     summary: { passed: cases.length, total: cases.length },
     cases,
