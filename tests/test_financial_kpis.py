@@ -17,6 +17,7 @@ class FakeAcumaticaClient:
 
 
 def _settings(monkeypatch) -> Settings:
+    monkeypatch.setenv("FINANCIAL_NOW_UTC", "2026-04-10T15:00:00+00:00")
     monkeypatch.setenv("ACUMATICA_FINANCIAL_DATE_FIELD", "invoice_date")
     monkeypatch.setenv("ACUMATICA_FINANCIAL_BRANCH_FIELD", "branch")
     monkeypatch.setenv("ACUMATICA_FINANCIAL_REP_FIELD", "rep")

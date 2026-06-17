@@ -304,6 +304,8 @@ class FinancialKpiService:
     extractor: AcumaticaFinancialExtractor
 
     def _now(self) -> datetime:
+        if self.settings.financial_now_utc.strip():
+            return _parse_datetime(self.settings.financial_now_utc)
         return datetime.now(timezone.utc)
 
     def _persist_validation_artifact(self, artifact: FinancialValidationArtifact) -> None:

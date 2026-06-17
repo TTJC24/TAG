@@ -66,6 +66,7 @@ class Settings:
     acumatica_financial_gross_profit_field: str
     financial_extract_top: int
     financial_validation_artifact_path: str
+    financial_now_utc: str
 
     pipedrive_base_url: str
     pipedrive_api_token: str
@@ -132,6 +133,7 @@ class Settings:
                 "FINANCIAL_VALIDATION_ARTIFACT_PATH",
                 "artifacts/financial_validation/latest.json",
             ),
+            financial_now_utc=os.getenv("FINANCIAL_NOW_UTC", ""),
             pipedrive_base_url=os.getenv("PIPEDRIVE_BASE_URL", "https://api.pipedrive.com/v1"),
             pipedrive_api_token=os.getenv("PIPEDRIVE_API_TOKEN", ""),
             pipedrive_timeout_seconds=int(os.getenv("PIPEDRIVE_TIMEOUT_SECONDS", "30")),
