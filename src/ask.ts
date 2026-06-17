@@ -633,6 +633,22 @@ async function askSingleIntent(opts: AskOptions, memoriesPromise: Promise<string
       : await runSearches(engine, opts.question, profile, opts.limit ?? 12, resolvedEntity);
     const filtered = resolvedEntity?.ambiguous ? [] : usefulHits(opts.question, profile, hits, resolvedEntity);
     const answerEntity = alignResolvedEntity(resolvedEntity, filtered[0]);
+    const missingProvenance = filtered.find((hit) => !hasStableSourceProvenance(hit));
+    if (missingProvenance) {
+      const memories = await memoriesPromise;
+      return {
+        text: [
+          `I found a matching ${profile.label}, but it is missing stable source provenance.`,
+          'Re-ingest or repair that source before treating the answer as authoritative.',
+        ].join('\n'),
+        citations: [],
+        memories,
+        intent: profile.intent,
+        scope: profile.scope,
+        confidence: 'low',
+        resolvedEntity: answerEntity,
+      };
+    }
     const seen = new Set<string>();
     const citations: BrainCitation[] = [];
     for (const h of filtered) {
@@ -660,6 +676,11 @@ async function askSingleIntent(opts: AskOptions, memoriesPromise: Promise<string
   } finally {
     await engine.disconnect();
   }
+}
+
+function hasStableSourceProvenance(hit: SearchResult): boolean {
+  const sourceUri = (hit as SourcePage).source_uri;
+  return typeof sourceUri === 'string' && /^[a-z][a-z0-9+.-]*:\/\//i.test(sourceUri);
 }
 
 function mixedIntentQuestions(question: string, sources?: string[]): string[] {

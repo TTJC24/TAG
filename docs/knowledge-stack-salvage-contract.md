@@ -41,6 +41,7 @@ Represent Vault concepts as:
 - retrieval authorization checks at the API boundary,
 - optional workspace/team filters only after current Company Brain use cases require them,
 - connector health and freshness telemetry,
+- source-isolation and missing-provenance refusal checks,
 - and explicit role/cost gates for expensive answer generation.
 
 ## `vault-ui` -> TractionOS or Company Brain
