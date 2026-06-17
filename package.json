@@ -12,6 +12,7 @@
     "fixtures:check": "bun run src/cli/fixture-check.ts",
     "provenance:check": "bun run src/cli/provenance-check.ts",
     "source-health:check": "bun run src/cli/source-health-check.ts",
+    "live-readiness:check": "bun run src/cli/live-readiness-check.ts",
     "doctor": "bun run src/cli/doctor.ts",
     "status": "bun run src/cli/status.ts",
     "smoke": "bun run src/cli/smoke.ts",

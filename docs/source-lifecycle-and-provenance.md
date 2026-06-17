@@ -97,6 +97,8 @@ Minimum health signals:
 
 Current gap: deeper `smoke`, `smoke:api`, live source freshness against configured systems, and production environment verification still need a safe configured environment.
 
+`docs/live-readiness-ledger.md` is the release ledger for that gap. `bun run live-readiness:check` keeps the blocked live-readiness boundary visible in CI until safe-env smoke/API/source-freshness evidence is recorded.
+
 Company Brain CI runs fixture validation, provenance validation, source health validation, citation eval, answer eval, and typecheck in that order.
 
 ## First Code Slice Candidate

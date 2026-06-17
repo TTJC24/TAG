@@ -69,6 +69,8 @@ bun run eval:answers
 bun run typecheck
 ```
 
+Record live-source/API promotion evidence in `docs/live-readiness-ledger.md`. CI runs `bun run live-readiness:check` so the repo does not claim live production readiness from fixture-mode checks alone.
+
 For production Pipedrive/static-directory work, also verify the scheduled refresh logs and `build-meta.json` on the droplet.
 
 For Acumatica work, do not remove caps or schedule live refresh until readiness passes without `API Login Limit` and capped validation data has been inspected in the static site.

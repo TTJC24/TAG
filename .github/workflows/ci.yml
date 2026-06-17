@@ -52,6 +52,9 @@ jobs:
       - name: Validate source health and freshness
         run: bun run source-health:check
 
+      - name: Validate live readiness boundary
+        run: bun run live-readiness:check
+
       - name: Evaluate citation metadata
         run: bun run eval:citations
 
