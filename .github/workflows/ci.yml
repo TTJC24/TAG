@@ -8,7 +8,7 @@ on:
 
 jobs:
   verify:
-    name: Fixture, provenance, citation, and type checks
+    name: Fixture, provenance, answer, and type checks
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -51,6 +51,9 @@ jobs:
 
       - name: Evaluate citation metadata
         run: bun run eval:citations
+
+      - name: Evaluate answer behavior
+        run: bun run eval:answers
 
       - name: Typecheck
         run: bun run typecheck
