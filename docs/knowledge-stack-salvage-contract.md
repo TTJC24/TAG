@@ -84,7 +84,7 @@ Archive candidate after:
 
 Treat as historical evaluation material. Preserve any answer-quality prompts, fixtures, scoring rubrics, or known-failure examples that improve `bun run eval:answers` or fixture checks.
 
-Archive candidate after historical lessons are linked or copied into Company Brain and owner approval is given.
+The current historical lessons are captured in `docs/gbrain-eval-lessons.md`. Archive remains owner-approval gated; do not import old snapshots or keep building product features in `gbrain-eval`.
 
 ## First Company Brain Salvage Slice
 
@@ -94,7 +94,7 @@ The first useful slice should be documentation and data-model alignment, not a l
 2. Add a virtual path convention for Pipedrive, M365, Acumatica, files, and generated internal docs.
 3. Add explicit retrieval authorization notes for future workspace/team scoping.
 4. Add connector health/freshness checks to smoke or evaluation plans.
-5. Import only evaluation fixtures from `gbrain-eval` if they improve current answer-quality tests.
+5. Import only sanitized evaluation fixtures from `gbrain-eval` if they improve current answer-quality tests. Current useful lessons are documented in `docs/gbrain-eval-lessons.md`; no raw snapshot import is needed.
 
 ## Readiness Gate
 

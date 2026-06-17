@@ -41,7 +41,7 @@ Compare and selectively salvage useful ideas from:
 - `vault-ui`: knowledge browsing UI if it has custom work beyond scaffold.
 - `vault-gateway`: gateway/auth patterns if still useful.
 - `cortex`: document/context/search concepts if unique work exists.
-- `gbrain-eval`: historical evaluation notes.
+- `gbrain-eval`: historical evaluation notes, now summarized in `docs/gbrain-eval-lessons.md`.
 
 The first Vault salvage slice has been translated into Company Brain's own source lifecycle and provenance contract in `docs/source-lifecycle-and-provenance.md`. Treat that document as the active target for source metadata, virtual paths, source health, and future workspace/team scoping. Do not port Vault code wholesale.
 
