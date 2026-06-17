@@ -49,6 +49,9 @@ jobs:
       - name: Validate source provenance
         run: bun run provenance:check
 
+      - name: Validate source health and freshness
+        run: bun run source-health:check
+
       - name: Evaluate citation metadata
         run: bun run eval:citations
 

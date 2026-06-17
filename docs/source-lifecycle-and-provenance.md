@@ -91,11 +91,13 @@ Minimum health signals:
 
 `bun run provenance:check` enforces the fixture-mode baseline: connector events must include stable `source_id`, `source_kind`, protocol-shaped `source_uri`, content hash, slug metadata, explicit `upstream_updated_at` or `null`, and operator-visible source URI in the rendered content. It skips registered live-only connector variants that do not have fixture files.
 
+`bun run source-health:check` enforces the connector health baseline: status output must classify every connector as `live_ready`, `fixture_ready`, or `blocked`; missing live credentials must be reported as sanitized env-name-only failure state; and freshness classification must distinguish fresh, recent, stale, and unknown upstream timestamps without pretending ingestion time is upstream freshness.
+
 `bun run eval:citations` now enforces two related baselines. First, fixture search hits must preserve protocol-shaped `source_uri` through the JSON search adapter. Second, representative cited answers must include non-empty citation slug/source ID/protocol-shaped source URI, stay within expected source systems, and render freshness cues such as received/start timestamps for recency-sensitive mail and calendar answers. Ambiguous answers must not return authoritative citations.
 
-Current gap: deeper `smoke`, `smoke:api`, full `eval:answers`, live source freshness, source failure-state coverage, and production environment verification still need a safe configured environment.
+Current gap: deeper `smoke`, `smoke:api`, live source freshness against configured systems, and production environment verification still need a safe configured environment.
 
-Company Brain CI runs fixture validation, provenance validation, citation eval, and typecheck in that order.
+Company Brain CI runs fixture validation, provenance validation, source health validation, citation eval, answer eval, and typecheck in that order.
 
 ## First Code Slice Candidate
 
@@ -103,7 +105,7 @@ The first code slice is partially implemented:
 
 1. Audit existing connector metadata for the lifecycle fields above.
 2. Add missing virtual path helpers where connectors currently use ad hoc identifiers.
-3. Extend `status`, `doctor`, `smoke`, or fixture checks to report source freshness/failure state.
+3. Extend `status`, `doctor`, `smoke`, or fixture checks to report source freshness/failure state. Done for the current connector status contract via `src/cli/source-health-check.ts` and `bun run source-health:check`; live configured source checks still need safe env verification.
 4. Add one fixture/eval case that fails when a citation lacks source metadata. Done via `src/cli/citation-eval.ts` and `bun run eval:citations` for the current answer contract; JSON search hit source URIs are preserved and answer citations now require protocol-shaped source URIs.
 5. Document any schema gap before adding new tables.
 

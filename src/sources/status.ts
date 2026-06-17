@@ -11,6 +11,8 @@ export interface ConnectorStatus {
   liveReady: boolean;
   missingEnv: string[];
   documentCount: number;
+  healthState: 'live_ready' | 'fixture_ready' | 'blocked';
+  failureState: null | 'missing_env' | 'missing_fixture';
 }
 
 function hasConfigValue(key: string): boolean {
@@ -38,14 +40,20 @@ export async function getConnectorStatuses(): Promise<ConnectorStatus[]> {
           .filter((group) => !group.some((key) => hasConfigValue(key)))
           .map((group) => group.join('|')),
       ];
+      const fixtureAvailable = existsSync(connector.fixturePath);
+      const liveReady = missingEnv.length === 0;
+      const healthState = liveReady ? 'live_ready' : fixtureAvailable ? 'fixture_ready' : 'blocked';
+      const failureState = liveReady ? null : missingEnv.length > 0 ? 'missing_env' : 'missing_fixture';
       return {
         id: connector.id,
         displayName: connector.displayName,
         kind: connector.kind,
-        fixtureAvailable: existsSync(connector.fixturePath),
-        liveReady: missingEnv.length === 0,
+        fixtureAvailable,
+        liveReady,
         missingEnv,
         documentCount: documentCounts.get(connector.id) ?? 0,
+        healthState,
+        failureState,
       };
     });
   } finally {
