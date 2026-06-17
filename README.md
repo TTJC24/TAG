@@ -1,6 +1,8 @@
 # Scoreboard
 
-Live operations scoreboard integrating Acumatica and Pipedrive with certified KPI logic and exception monitoring.
+Read-only operations scoreboard scaffold for Acumatica and Pipedrive KPI logic, certification candidates, and exception monitoring.
+
+Promotion note: this repo is a KPI/control-spec feeder for TractionOS. Do not treat it as a standalone live production dashboard or certified financial system until `docs/tractionos-promotion-evidence-ledger.md` records production mappings, validation artifacts, freshness evidence, read-only/no-writeback proof, and owner approval.
 
 ## Purpose
 

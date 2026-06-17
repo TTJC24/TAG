@@ -26,6 +26,8 @@ Do not port anything into TractionOS until each item has:
 - owner/action display rule where applicable,
 - and a validation or reconciliation method.
 
+Promotion evidence must be recorded in `docs/tractionos-promotion-evidence-ledger.md` or a linked successor ledger before any Scoreboard item is treated as live, certified, or TractionOS-ready.
+
 ## First TractionOS Consumption Slice
 
 The first slice should be:
@@ -38,3 +40,5 @@ The first slice should be:
 ## Archive Rule
 
 Do not archive this repo until the v1 KPI/control definitions are implemented or linked from TractionOS and the source mappings are captured in a durable place.
+
+Do not archive this repo until owner approval is recorded and the read-only/no-writeback boundary is preserved in the destination.
