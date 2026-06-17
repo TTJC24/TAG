@@ -8,8 +8,8 @@ const required: Record<string, string[]> = {
   'docs/live-readiness-ledger.md': [
     'live readiness status: blocked',
     'safe configured environment: missing',
-    '`bun run smoke`: not recorded',
-    '`bun run smoke:api`: not recorded',
+    '`bun run smoke`: local fixture-mode smoke passes',
+    '`bun run smoke:api`: local fixture-mode API smoke passes',
     'live source freshness check: missing',
     'bounded live-read proof: missing',
     'production API token/deployment proof: missing',
@@ -21,7 +21,8 @@ const required: Record<string, string[]> = {
     'Do not promote live Company Brain',
   ],
   'docs/source-lifecycle-and-provenance.md': [
-    'Current gap: deeper `smoke`, `smoke:api`, live source freshness against configured systems, and production environment verification still need a safe configured environment.',
+    'Current gap: live source freshness against configured systems and production environment verification still need a safe configured environment.',
+    'Local fixture-mode `smoke` and `smoke:api` now prove seeded fixture/domain/API behavior',
     'live configured source checks still need safe env verification',
     'source failures produce sanitized operator-facing states',
     'live readiness checks perform bounded reads only',

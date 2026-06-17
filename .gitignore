@@ -14,3 +14,7 @@ fixtures/**/snapshots/
 fixtures/**/real-*
 web/dist/
 .cache/
+.tmp/
+.company-brain-store.json
+.company-brain-procurement.json
+.company-brain-procurement-actions.json

@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import { config } from '../config.ts';
 import { app } from '../api/app.ts';
+import { connectors, listConnectorIds } from '../sources/registry.ts';
+import { runIngestion } from '../ingest/run.ts';
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
@@ -13,6 +15,18 @@ function authHeaders(extra?: HeadersInit): HeadersInit {
   };
 }
 
+async function seedFixtureIndex(): Promise<void> {
+  for (const spec of Object.values(connectors)) {
+    const source = await spec.build({ dryRun: true });
+    await runIngestion(spec.id, spec.displayName, source, {
+      dryRun: false,
+      noEmbed: true,
+      ingestedVia: 'api-smoke',
+      quiet: true,
+    });
+  }
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     throw new Error(`Expected HTTP 2xx, got ${res.status}: ${await res.text()}`);
@@ -21,6 +35,8 @@ async function json<T>(res: Response): Promise<T> {
 }
 
 async function main(): Promise<void> {
+  const expectedConnectors = listConnectorIds();
+  await seedFixtureIndex();
   const health = await json<{ ok: boolean }>(await app.request('/health'));
   assert(health.ok, 'Health endpoint did not return ok');
 
@@ -28,18 +44,22 @@ async function main(): Promise<void> {
   assert(unauthorized.status === 401, `Expected unauthorized status, got ${unauthorized.status}`);
 
   const connectorData = await json<{
-    connectors: Array<{ id: string; fixtureAvailable: boolean; documentCount: number }>;
+    connectors: Array<{ id: string; fixtureAvailable: boolean; documentCount: number; healthState: string }>;
   }>(await app.request('/connectors/status', { headers: authHeaders() }));
-  assert(connectorData.connectors.length === 10, `Expected 10 connectors, got ${connectorData.connectors.length}`);
+  assert(
+    connectorData.connectors.length === expectedConnectors.length,
+    `Expected ${expectedConnectors.length} connectors, got ${connectorData.connectors.length}`,
+  );
   for (const id of ['supermemory-fs', 'supermemory-blcs', 'supermemory-usa', 'supermemory-shared']) {
     assert(connectorData.connectors.some((connector) => connector.id === id), `Missing ${id} connector`);
   }
   for (const connector of connectorData.connectors) {
-    if (connector.id.startsWith('supermemory-')) {
-      continue;
-    } else {
+    if (connector.fixtureAvailable) {
       assert(connector.fixtureAvailable, `${connector.id} fixture is unavailable`);
       assert(connector.documentCount > 0, `${connector.id} has no indexed fixture docs`);
+    } else {
+      assert(connector.healthState === 'blocked', `${connector.id} without fixture should remain blocked`);
+      assert(connector.documentCount === 0, `${connector.id} without fixture should not have indexed docs`);
     }
   }
 

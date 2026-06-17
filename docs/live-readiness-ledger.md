@@ -6,8 +6,8 @@ This ledger records the evidence required before Company Brain can be treated as
 
 - live readiness status: blocked
 - safe configured environment: missing
-- `bun run smoke`: not recorded
-- `bun run smoke:api`: not recorded
+- `bun run smoke`: local fixture-mode smoke passes
+- `bun run smoke:api`: local fixture-mode API smoke passes
 - live source freshness check: missing
 - bounded live-read proof: missing
 - production API token/deployment proof: missing
@@ -22,6 +22,7 @@ The current CI/local baseline proves fixture and contract behavior:
 - connector health/freshness classification,
 - citation metadata evaluation,
 - answer behavior evaluation,
+- local fixture-mode smoke and API smoke,
 - TypeScript typecheck.
 
 This is not the same as proving live source freshness or production API readiness.
@@ -35,8 +36,8 @@ This is not the same as proving live source freshness or production API readines
 | live source freshness | source freshness reviewed for fresh/recent/stale/unknown states against configured systems | missing |
 | bounded live reads | Pipedrive, M365, Acumatica, and other live connectors use capped/read-only requests | missing |
 | sanitized failure states | auth/rate-limit/source-unavailable failures expose sanitized env-name/status details only | missing |
-| API smoke | `bun run smoke:api` against the intended API URL/token | missing |
-| local/domain smoke | `bun run smoke` in the intended safe env | missing |
+| API smoke | `bun run smoke:api` against the intended API URL/token | local fixture-mode smoke passes; safe-env deployed API smoke missing |
+| local/domain smoke | `bun run smoke` in the intended safe env | local fixture-mode smoke passes; safe-env smoke missing |
 | downstream consumer | TractionOS or another approved consumer reads Company Brain health without leaking private data | missing |
 | rollback plan | rollback or disable plan for live connector/API promotion | missing |
 
@@ -49,6 +50,7 @@ Allowed:
 - source-health classification contract,
 - citation and answer evaluation baseline,
 - API contract ready for safe-env smoke.
+- local fixture-mode smoke/API smoke baseline.
 
 Blocked:
 

@@ -95,7 +95,7 @@ Minimum health signals:
 
 `bun run eval:citations` now enforces two related baselines. First, fixture search hits must preserve protocol-shaped `source_uri` through the JSON search adapter. Second, representative cited answers must include non-empty citation slug/source ID/protocol-shaped source URI, stay within expected source systems, and render freshness cues such as received/start timestamps for recency-sensitive mail and calendar answers. Ambiguous answers must not return authoritative citations.
 
-Current gap: deeper `smoke`, `smoke:api`, live source freshness against configured systems, and production environment verification still need a safe configured environment.
+Current gap: live source freshness against configured systems and production environment verification still need a safe configured environment. Local fixture-mode `smoke` and `smoke:api` now prove seeded fixture/domain/API behavior, but they do not prove live source freshness.
 
 `docs/live-readiness-ledger.md` is the release ledger for that gap. `bun run live-readiness:check` keeps the blocked live-readiness boundary visible in CI until safe-env smoke/API/source-freshness evidence is recorded.
 

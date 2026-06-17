@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { hybridSearch as upstreamHybridSearch } from 'gbrain/search/hybrid';
 import type { SearchResult } from 'gbrain/types';
 
@@ -23,15 +24,18 @@ interface JsonStore {
   pages: StorePage[];
 }
 
-const STORE_PATH = '.company-brain-store.json';
+function storePath(): string {
+  return process.env.COMPANY_BRAIN_STORE_PATH || '.company-brain-store.json';
+}
 
 function emptyStore(): JsonStore {
   return { sources: [], pages: [] };
 }
 
 function readStore(): JsonStore {
-  if (!existsSync(STORE_PATH)) return emptyStore();
-  const parsed = JSON.parse(readFileSync(STORE_PATH, 'utf8')) as Partial<JsonStore>;
+  const path = storePath();
+  if (!existsSync(path)) return emptyStore();
+  const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<JsonStore>;
   return {
     sources: Array.isArray(parsed.sources) ? parsed.sources as JsonStore['sources'] : [],
     pages: Array.isArray(parsed.pages) ? parsed.pages as StorePage[] : [],
@@ -39,7 +43,14 @@ function readStore(): JsonStore {
 }
 
 function writeStore(store: JsonStore): void {
-  writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
+  const path = storePath();
+  const directory = dirname(path);
+  if (directory && directory !== '.') {
+    mkdirSync(directory, { recursive: true });
+  }
+  const tmpPath = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmpPath, JSON.stringify(store, null, 2));
+  renameSync(tmpPath, path);
 }
 
 function titleFromContent(content: string, fallback: string): string {

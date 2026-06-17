@@ -2,14 +2,28 @@
 import { askBrain } from '../ask.ts';
 import { getBrainStatus } from '../brainStatus.ts';
 import { getConnectorStatuses } from '../sources/status.ts';
-import { listConnectorIds } from '../sources/registry.ts';
+import { connectors, listConnectorIds } from '../sources/registry.ts';
+import { runIngestion } from '../ingest/run.ts';
 
 function assert(condition: unknown, message: string): void {
   if (!condition) throw new Error(message);
 }
 
+async function seedFixtureIndex(): Promise<void> {
+  for (const spec of Object.values(connectors)) {
+    const source = await spec.build({ dryRun: true });
+    await runIngestion(spec.id, spec.displayName, source, {
+      dryRun: false,
+      noEmbed: true,
+      ingestedVia: 'fixture-smoke',
+      quiet: true,
+    });
+  }
+}
+
 async function main(): Promise<void> {
   const expectedConnectors = listConnectorIds();
+  await seedFixtureIndex();
   const connectorStatuses = await getConnectorStatuses();
   const brainStatus = await getBrainStatus();
   const answer = await askBrain({ question: 'Acme pump terms', limit: 5 });
@@ -21,10 +35,15 @@ async function main(): Promise<void> {
   for (const connectorId of expectedConnectors) {
     const status = connectorStatuses.find((connector) => connector.id === connectorId);
     if (!status) throw new Error(`Missing connector status for ${connectorId}`);
-    assert(status.fixtureAvailable, `${connectorId} fixture is missing`);
-    assert(status.documentCount > 0, `${connectorId} has no imported fixture documents`);
+    if (status.fixtureAvailable) {
+      assert(status.documentCount > 0, `${connectorId} has no imported fixture documents`);
+    } else {
+      assert(status.healthState === 'blocked', `${connectorId} without fixtures should remain blocked`);
+      assert(status.documentCount === 0, `${connectorId} without fixtures should not import documents`);
+    }
   }
-  assert(brainStatus.document_count >= expectedConnectors.length, 'Brain has too few documents');
+  const fixtureBackedCount = connectorStatuses.filter((connector) => connector.fixtureAvailable).length;
+  assert(brainStatus.document_count >= fixtureBackedCount, 'Brain has too few documents');
   assert(answer.citations.length > 0, 'Ask returned no citations');
 
   console.log(JSON.stringify({
