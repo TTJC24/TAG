@@ -70,6 +70,28 @@ function assertNoCitation(answer: BrainAnswer, pattern: RegExp, message: string)
   assert(!leaked, `${message}\nCitation: ${leaked?.title ?? leaked?.slug}`);
 }
 
+function isProtocolUri(value: string): boolean {
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+
+function assertCitationProvenance(answer: BrainAnswer, context: string): void {
+  for (const citation of answer.citations) {
+    assert(citation.slug.trim().length > 0, `${context}: citation slug is required`);
+    assert(citation.source_id.trim().length > 0, `${context}: citation source_id is required`);
+    assert(citation.source_uri !== null, `${context}: citation source_uri is required for ${citation.slug}`);
+    if (citation.source_uri !== null) {
+      assert(
+        citation.source_uri.trim().length > 0,
+        `${context}: citation source_uri cannot be blank for ${citation.slug}`,
+      );
+      assert(
+        isProtocolUri(citation.source_uri),
+        `${context}: citation source_uri must be protocol-shaped for ${citation.slug}, got ${citation.source_uri}`,
+      );
+    }
+  }
+}
+
 const askCases: AskExpectation[] = [
   {
     name: 'customer shorthand resolves terms directly',
@@ -1182,6 +1204,7 @@ async function runAskCases(): Promise<EvalResult[]> {
     }
     const answer = await askBrain({ question: testCase.question, limit: 8 });
     testCase.assert(answer);
+    assertCitationProvenance(answer, testCase.name);
     results.push({ name: testCase.name, ok: true });
   }
   return results;
@@ -1204,10 +1227,13 @@ async function runAgentCase(): Promise<{ name: string; ok: true }> {
   assertText(response.answer, /ACME Barricades LC/i, 'procurement agent answer did not preserve requested customer');
   assertText(response.answer, /wedge anchors/i, 'procurement agent answer did not preserve requested line item');
   assertNotText(response.answer, /National Power|Superior Fence|Ring Power/i, 'procurement agent answer leaked unrelated search result');
+  assertCitationProvenance(response.answer, 'procurement chat plans actions without writes');
   return { name: 'procurement chat plans actions without writes', ok: true };
 }
 
 async function main(): Promise<void> {
+  process.env.COMPANY_BRAIN_NOW_UTC ??= '2026-05-30T12:00:00Z';
+
   // Regression preflight: validate fixtures before any setup or case runs.
   // Lives outside the `cases` array so the pass/skipped/total tally is
   // unchanged when fixtures are clean. Any fixture issue fails the eval

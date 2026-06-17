@@ -786,7 +786,7 @@ async function recentCollaborationHits(
   limit: number,
 ): Promise<SearchResult[]> {
   const pages = await readSourcePages(engine, profile.sourceIds);
-  const now = Date.now();
+  const now = currentTimeMs();
   const upcoming = isUpcomingQuestion(question);
   const dateWindow = dateWindowForQuestion(question, now);
   return pages
@@ -1445,6 +1445,12 @@ function entityTerms(question: string, profile: IntentProfile): string[] {
     'who',
     'what',
     'where',
+    'with',
+    'from',
+    'to',
+    'for',
+    'about',
+    'any',
     'us',
     'call',
     'calls',
@@ -1624,6 +1630,15 @@ function isRecentQuestion(question: string): boolean {
 
 function isUpcomingQuestion(question: string): boolean {
   return /\b(upcoming|next|future)\b/i.test(question);
+}
+
+function currentTimeMs(): number {
+  const override = process.env.COMPANY_BRAIN_NOW_UTC;
+  if (override) {
+    const timestamp = Date.parse(override);
+    if (!Number.isNaN(timestamp)) return timestamp;
+  }
+  return Date.now();
 }
 
 function dateWindowForQuestion(question: string, now = Date.now()): { start: number; end: number } | null {
