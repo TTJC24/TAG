@@ -8,6 +8,7 @@ ENV_FILE="$APP_ROOT/infra/.env"
 HOSTNAME="${COMPANY_BRAIN_HOSTNAME:-brain.blcsops.com}"
 AUTH_CHECK_EMAIL="${AUTH_CHECK_EMAIL:-verify-static-beta@company-brain.local}"
 ACCESS_REQUIRED_MARKER="${ACCESS_REQUIRED_MARKER:-Company Brain Access Required}"
+BETA_ROUTES="${BETA_ROUTES:-/ /search.html /search-index.json /customer/ /contact/ /deal/ /activity/ /order/ /invoice/ /item/ /vendor/ /rep/}"
 
 log() {
   printf '[verify-static-beta] %s\n' "$*"
@@ -49,16 +50,16 @@ origin_body="$(docker run --rm --network company-brain-net curlimages/curl:8.10.
 printf '%s' "$origin_body" | grep -q "$ACCESS_REQUIRED_MARKER" ||
   fail "origin / without Cloudflare Access header did not render the branded access-required page"
 
-log "checking origin serves content with Cloudflare Access header"
-docker exec company-brain-static wget -qO- --tries=1 --timeout=5 \
-  --header="Cf-Access-Authenticated-User-Email: $AUTH_CHECK_EMAIL" \
-  http://127.0.0.1:8080/ >/dev/null
-docker exec company-brain-static wget -qO- --tries=1 --timeout=5 \
-  --header="Cf-Access-Authenticated-User-Email: $AUTH_CHECK_EMAIL" \
-  http://127.0.0.1:8080/search-index.json >/dev/null
+log "checking origin serves beta routes with Cloudflare Access header"
+for path in $BETA_ROUTES; do
+  docker exec company-brain-static wget -qO- --tries=1 --timeout=5 \
+    --header="Cf-Access-Authenticated-User-Email: $AUTH_CHECK_EMAIL" \
+    "http://127.0.0.1:8080$path" >/dev/null
+  log "origin authorized http://company-brain-static:8080$path returned HTTP 200"
+done
 
 log "checking public hostname does not serve unauthenticated content"
-for path in / /search.html /search-index.json; do
+for path in $BETA_ROUTES; do
   status="$(curl -sS -o /tmp/company-brain-public-check-body -w '%{http_code}' --max-time 20 "https://$HOSTNAME$path")"
   if [ "$status" = "200" ]; then
     fail "public https://$HOSTNAME$path returned 200 without Access authentication"
@@ -70,7 +71,7 @@ for path in / /search.html /search-index.json; do
 done
 
 log "checking public hostname rejects forged Cloudflare Access header"
-for path in / /search.html /search-index.json; do
+for path in $BETA_ROUTES; do
   status="$(curl -sS -o /tmp/company-brain-public-check-body -w '%{http_code}' --max-time 20 \
     -H 'Cf-Access-Authenticated-User-Email: forged@example.com' \
     "https://$HOSTNAME$path")"
