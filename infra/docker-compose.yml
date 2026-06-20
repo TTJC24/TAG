@@ -56,6 +56,8 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.bun
+      args:
+        COMPANY_BRAIN_GIT_COMMIT: ${COMPANY_BRAIN_GIT_COMMIT:-}
     restart: unless-stopped
     depends_on:
       company-brain-postgres:
@@ -108,6 +110,8 @@ services:
     build:
       context: ..
       dockerfile: infra/Dockerfile.bun
+      args:
+        COMPANY_BRAIN_GIT_COMMIT: ${COMPANY_BRAIN_GIT_COMMIT:-}
     restart: unless-stopped
     depends_on:
       company-brain-postgres:

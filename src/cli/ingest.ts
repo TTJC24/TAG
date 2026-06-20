@@ -16,21 +16,33 @@ const KNOWN_INGEST_FLAGS = new Set([
   '--quiet',
 ]);
 
-function parseCap(args: string[]): number | undefined {
-  const envCap = process.env.ACUMATICA_INGEST_CAP ?? process.env.npm_config_cap;
-  let raw = envCap;
+function parsePositiveIntFlag(args: string[], flag: string, envNames: string[]): number | undefined {
+  let raw: string | undefined;
+  for (const envName of envNames) {
+    raw = process.env[envName];
+    if (raw !== undefined && raw !== '') break;
+  }
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
-    if (arg === '--cap') raw = args[i + 1];
-    if (arg?.startsWith('--cap=')) raw = arg.slice('--cap='.length);
+    if (arg === flag) raw = args[i + 1];
+    if (arg?.startsWith(`${flag}=`)) raw = arg.slice(`${flag}=`.length);
   }
   if (raw === undefined || raw === '') return undefined;
-  const cap = Number(raw);
-  if (!Number.isInteger(cap) || cap <= 0) {
-    console.error(`invalid --cap value '${raw}'. Expected a positive integer.`);
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0 || (flag !== '--skip' && value === 0)) {
+    const expected = flag === '--skip' ? 'a non-negative integer' : 'a positive integer';
+    console.error(`invalid ${flag} value '${raw}'. Expected ${expected}.`);
     process.exit(2);
   }
-  return cap;
+  return value;
+}
+
+function parseCap(args: string[]): number | undefined {
+  return parsePositiveIntFlag(args, '--cap', ['ACUMATICA_INGEST_CAP', 'npm_config_cap']);
+}
+
+function parseSkip(args: string[]): number | undefined {
+  return parsePositiveIntFlag(args, '--skip', ['ACUMATICA_INGEST_SKIP', 'npm_config_skip']);
 }
 
 function parseArgs(argv: string[]): {
@@ -42,6 +54,7 @@ function parseArgs(argv: string[]): {
   summaryOnly: boolean;
   quiet: boolean;
   cap?: number;
+  skip?: number;
 } {
   const args = argv.slice(2);
   if (args.length === 0 || args[0] === '-h' || args[0] === '--help') {
@@ -58,7 +71,9 @@ function parseArgs(argv: string[]): {
     a.startsWith('--') &&
     !KNOWN_INGEST_FLAGS.has(a) &&
     a !== '--cap' &&
-    !a.startsWith('--cap=')
+    !a.startsWith('--cap=') &&
+    a !== '--skip' &&
+    !a.startsWith('--skip=')
   ));
   if (unknown.length > 0) {
     console.error(
@@ -81,14 +96,15 @@ function parseArgs(argv: string[]): {
     summaryOnly,
     quiet,
     cap: parseCap(args),
+    skip: parseSkip(args),
   };
 }
 
 async function main(): Promise<void> {
-  const { sourceId, dryRun, noEmbed, fixtures, live, summaryOnly, quiet, cap } = parseArgs(process.argv);
+  const { sourceId, dryRun, noEmbed, fixtures, live, summaryOnly, quiet, cap, skip } = parseArgs(process.argv);
   const spec = getConnector(sourceId);
   const useFixtures = fixtures || (dryRun && !live);
-  const source = await spec.build({ dryRun: useFixtures, cap });
+  const source = await spec.build({ dryRun: useFixtures, cap, skip });
   const result = await runIngestion(spec.id, spec.displayName, source, {
     dryRun,
     noEmbed,

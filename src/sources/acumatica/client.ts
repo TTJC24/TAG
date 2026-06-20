@@ -148,10 +148,10 @@ function normalizeBaseUrl(value: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-async function listCapped(branch: string | undefined, entity: string, max: number): Promise<ContractRow[]> {
+async function listCapped(branch: string | undefined, entity: string, max: number, startSkip = 0): Promise<ContractRow[]> {
   const rows: ContractRow[] = [];
   const top = Math.min(100, max);
-  for (let skip = 0; rows.length < max; skip += top) {
+  for (let skip = startSkip; rows.length < max; skip += top) {
     const sep = entity.includes('?') ? '&' : '?';
     const page = await get<ContractRow[]>(branch, `${entity}${sep}$top=${top}&$skip=${skip}`);
     rows.push(...page);
@@ -160,9 +160,9 @@ async function listCapped(branch: string | undefined, entity: string, max: numbe
   return rows.slice(0, max);
 }
 
-async function listOptional(branch: string | undefined, entity: string, max: number): Promise<ContractRow[]> {
+async function listOptional(branch: string | undefined, entity: string, max: number, startSkip = 0): Promise<ContractRow[]> {
   try {
-    return await listCapped(branch, entity, max);
+    return await listCapped(branch, entity, max, startSkip);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/\s(404|405):/.test(msg) || msg.includes(' 404:') || msg.includes(' 405:')) {
@@ -243,6 +243,7 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
 export interface FetchAcumaticaSnapshotOptions {
   entity?: EntityCode;
   cap?: number;
+  skip?: number;
 }
 
 export async function fetchAcumaticaSnapshot(options: FetchAcumaticaSnapshotOptions = {}): Promise<AcumaticaSnapshot> {
@@ -250,12 +251,14 @@ export async function fetchAcumaticaSnapshot(options: FetchAcumaticaSnapshotOpti
   const branch = entity ? entityBranch(entity) : undefined;
   const envCap = Number(process.env.ACUMATICA_INGEST_CAP ?? '');
   const cap = options.cap ?? (Number.isInteger(envCap) && envCap > 0 ? envCap : Math.min(config.ACUMATICA_MAX_ITEMS, 100));
-  const customers = await listCapped(branch, 'Customer', cap);
-  const items = await listCapped(branch, 'StockItem', cap);
-  const vendors = await listCapped(branch, 'Vendor', cap);
-  const orders = await listCapped(branch, 'SalesOrder', cap);
-  const invoices = await listCapped(branch, 'SalesInvoice', cap);
-  const reps = await listOptional(branch, 'SalesPerson', cap);
+  const envSkip = Number(process.env.ACUMATICA_INGEST_SKIP ?? '');
+  const skip = options.skip ?? (Number.isInteger(envSkip) && envSkip >= 0 ? envSkip : 0);
+  const customers = await listCapped(branch, 'Customer', cap, skip);
+  const items = await listCapped(branch, 'StockItem', cap, skip);
+  const vendors = await listCapped(branch, 'Vendor', cap, skip);
+  const orders = await listCapped(branch, 'SalesOrder', cap, skip);
+  const invoices = await listCapped(branch, 'SalesInvoice', cap, skip);
+  const reps = await listOptional(branch, 'SalesPerson', cap, skip);
   return {
     customers: customers.map((r) => toEntity('customer', r)),
     items: items.map((r) => toEntity('item', r)),

@@ -275,6 +275,31 @@ Failure behavior:
 - If `pagegen` fails, the previous static snapshot is restored.
 - Logs are written to `/opt/company-brain/logs/pipedrive-refresh-YYYYMMDD.log`.
 
+
+### Acumatica read-only batch ingest
+
+Acumatica ingest is read-only and intentionally manual. It is not part of the
+scheduled Pipedrive refresh. Use capped, offset batches so large endpoints can
+be resumed without re-reading the first page range forever.
+
+```bash
+cd /opt/company-brain/repo/infra
+
+# First 1,000 rows per Acumatica entity for each scoped branch connector:
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run ingest acumatica-fs --live --no-embed --quiet --cap=1000 --skip=0
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run ingest acumatica-blcs --live --no-embed --quiet --cap=1000 --skip=0
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run ingest acumatica-usa --live --no-embed --quiet --cap=1000 --skip=0
+
+# Continue with --skip=1000, --skip=2000, ... until an offset emits 0 records.
+```
+
+The branch connectors use the same Acumatica tenant/login and pass the scoped
+branch code per request. Do not schedule Acumatica until a human validates the
+static output and source scoping.
+
 ### Tail logs
 
 ```bash
@@ -308,10 +333,11 @@ docker compose down --remove-orphans   # also clean stale company-brain-* contai
 ```bash
 cd /opt/company-brain/repo
 git pull --ff-only origin main
+export COMPANY_BRAIN_GIT_COMMIT=$(git rev-parse --short HEAD)
 cd infra
-docker compose build              # rebuild company-brain-bun image
-docker compose up -d              # rolling restart only the changed services
-docker image prune -f             # reclaim space
+docker compose --env-file /opt/company-brain/infra/.env build # rebuild with build metadata
+docker compose --env-file /opt/company-brain/infra/.env up -d # rolling restart only the changed services
+docker image prune -f                                  # reclaim space
 ```
 
 ### Rotate Postgres passwords

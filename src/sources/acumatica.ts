@@ -120,11 +120,11 @@ class AcumaticaSource implements IngestionSource {
   async stop(): Promise<void> {}
 }
 
-async function loadSnapshot(dryRun: boolean, entity?: EntityCode, cap?: number): Promise<AcumaticaSnapshot> {
+async function loadSnapshot(dryRun: boolean, entity?: EntityCode, cap?: number, skip?: number): Promise<AcumaticaSnapshot> {
   if (dryRun) {
     return normalizeSnapshot(JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as Partial<AcumaticaSnapshot>);
   }
-  return await fetchAcumaticaSnapshot({ entity, cap });
+  return await fetchAcumaticaSnapshot({ entity, cap, skip });
 }
 
 function normalizeSnapshot(snapshot: Partial<AcumaticaSnapshot>): AcumaticaSnapshot {
@@ -147,8 +147,8 @@ export function createAcumaticaConnector(id = SOURCE_ID, displayName = 'Acumatic
     kind: SOURCE_KIND,
     fixturePath: FIXTURE_PATH,
     requiredEnv,
-    async build({ dryRun, cap }) {
-      const snapshot = await loadSnapshot(dryRun, entity, cap);
+    async build({ dryRun, cap, skip }) {
+      const snapshot = await loadSnapshot(dryRun, entity, cap, skip);
       return new AcumaticaSource(id, snapshot);
     },
   };
