@@ -46,7 +46,10 @@ non-namespaced Docker resource.
 **No Company Brain host ports are published.** All external traffic enters via
 cloudflared. Postgres and the guarded SQL query service stay private on the
 `company-brain-net` Docker network. The public hostname routes only to the
-static nginx service.
+static nginx service. Static nginx also fails closed at the origin: content
+requests require the `Cf-Access-Authenticated-User-Email` header injected by
+Cloudflare Access. `/healthz` is the only unauthenticated container health
+endpoint.
 
 ## One-shot setup (run on the droplet)
 
@@ -172,9 +175,10 @@ Bring up the internal static service:
 cd /opt/company-brain/repo/infra
 docker compose --env-file /opt/company-brain/infra/.env up -d company-brain-static
 docker compose --env-file /opt/company-brain/infra/.env ps company-brain-static
-docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1:8080/ >/dev/null
-docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1:8080/search.html >/dev/null
-docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1:8080/search-index.json >/dev/null
+docker exec company-brain-static wget -qO- --tries=1 --timeout=3 http://127.0.0.1:8080/healthz >/dev/null
+docker exec company-brain-static wget -qO- --tries=1 --timeout=3 \
+  --header='Cf-Access-Authenticated-User-Email: verify@company-brain.local' \
+  http://127.0.0.1:8080/ >/dev/null
 ```
 
 Create the Cloudflare Tunnel token:
@@ -223,6 +227,17 @@ https://brain.<your-domain>/activity/
 To verify Access gating, open the hostname from a browser/session that is not
 authorized by the Access policy. It should show Cloudflare Access login or deny
 the request before reaching nginx.
+
+From the droplet, run the live beta verifier:
+
+```bash
+cd /opt/company-brain/repo/infra
+./verify-static-beta.sh
+```
+
+This checks that unauthenticated public requests do not receive HTTP 200 and
+that the origin serves content only when the Cloudflare Access authenticated-user
+header is present.
 
 ### Scheduled Pipedrive refresh
 

@@ -81,8 +81,13 @@ test -d "$DIST_DIR/deal"
 test -d "$DIST_DIR/activity"
 
 if docker compose --env-file "$ENV_FILE" ps company-brain-static >/dev/null 2>&1; then
-  docker exec company-brain-static wget -qO- --tries=1 --timeout=5 http://127.0.0.1:8080/ >/dev/null
-  docker exec company-brain-static wget -qO- --tries=1 --timeout=5 http://127.0.0.1:8080/search-index.json >/dev/null
+  docker exec company-brain-static wget -qO- --tries=1 --timeout=5 http://127.0.0.1:8080/healthz >/dev/null
+  docker exec company-brain-static wget -qO- --tries=1 --timeout=5 \
+    --header='Cf-Access-Authenticated-User-Email: refresh-check@company-brain.local' \
+    http://127.0.0.1:8080/ >/dev/null
+  docker exec company-brain-static wget -qO- --tries=1 --timeout=5 \
+    --header='Cf-Access-Authenticated-User-Email: refresh-check@company-brain.local' \
+    http://127.0.0.1:8080/search-index.json >/dev/null
 fi
 
 log "refresh complete"

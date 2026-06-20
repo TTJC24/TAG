@@ -8,7 +8,9 @@ Static, read-only internal operating directory built on
 Initial public beta is the v3 static site:
 
 - public surface: generated HTML under `/opt/company-brain/dist`
-- access: Cloudflare Tunnel + Cloudflare Access
+- access: Cloudflare Tunnel + Cloudflare Access, with an origin-side nginx
+  guard that refuses content unless Cloudflare Access injects
+  `Cf-Access-Authenticated-User-Email`
 - data currently shown: Pipedrive plus capped read-only Acumatica validation data
 - refresh: scheduled Pipedrive ingest + pagegen every 4 hours
 - guarded: `static:check` must pass before a generated snapshot is accepted
@@ -100,6 +102,17 @@ docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-i
 The check verifies required files/directories, build metadata, search index
 integrity, self-contained search assets, existing search result URLs, and that
 listing/search titles do not expose raw HTML markup.
+
+Live beta verification:
+
+```bash
+cd /opt/company-brain/repo/infra
+./verify-static-beta.sh
+```
+
+The verifier checks compose service state, the static contract, nginx health,
+origin denial without the Cloudflare Access header, origin success with the
+header, and confirms the public hostname does not serve unauthenticated content.
 
 ## Acumatica read-only readiness
 
