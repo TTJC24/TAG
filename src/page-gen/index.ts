@@ -135,7 +135,7 @@ function buildSearchIndex(buckets: ClassifiedBuckets, generatedAt: Date): Search
 
 function gitCommitShort(): string | null {
   const envCommit = process.env.COMPANY_BRAIN_GIT_COMMIT?.trim();
-  if (envCommit) return envCommit;
+  if (envCommit && /^[0-9a-f]{7,40}$/i.test(envCommit)) return envCommit;
 
   const result = spawnSync('git', ['rev-parse', '--short', 'HEAD'], {
     encoding: 'utf8',

@@ -57,7 +57,7 @@ pagegen:
 ```bash
 cd /opt/company-brain/repo/infra
 docker compose --env-file /opt/company-brain/infra/.env build \
-  --build-arg COMPANY_BRAIN_GIT_COMMIT=$(git -C /opt/company-brain/repo rev-parse --short HEAD) \
+  --build-arg=COMPANY_BRAIN_GIT_COMMIT="$(git -C /opt/company-brain/repo rev-parse --short HEAD)" \
   company-brain-ingest
 ```
 
