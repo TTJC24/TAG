@@ -19,6 +19,17 @@ fail() {
   exit 1
 }
 
+
+assert_no_host_ports() {
+  container="$1"
+  ports="$(docker port "$container" 2>/dev/null || true)"
+
+  if [ -n "$ports" ]; then
+    fail "$container has host ports published: $ports"
+  fi
+
+  log "$container has no published host ports"
+}
 assert_access_required_body() {
   body_file="$1"
   context="$2"
@@ -31,7 +42,12 @@ assert_access_required_body() {
 cd "$INFRA_DIR"
 
 log "checking compose services"
-docker compose --env-file "$ENV_FILE" ps company-brain-postgres company-brain-static company-brain-cloudflared
+docker compose --env-file "$ENV_FILE" ps company-brain-postgres company-brain-query company-brain-static company-brain-cloudflared
+
+log "checking company-brain services do not publish host ports"
+for container in company-brain-postgres company-brain-query company-brain-static company-brain-cloudflared; do
+  assert_no_host_ports "$container"
+done
 
 log "checking generated static contract"
 docker compose --env-file "$ENV_FILE" run --rm company-brain-ingest \
