@@ -53,4 +53,15 @@ for path in / /search.html /search-index.json; do
   log "public https://$HOSTNAME$path returned HTTP $status"
 done
 
+log "checking public hostname rejects forged Cloudflare Access header"
+for path in / /search.html /search-index.json; do
+  status="$(curl -sS -o /tmp/company-brain-public-check-body -w '%{http_code}' --max-time 20 \
+    -H 'Cf-Access-Authenticated-User-Email: forged@example.com' \
+    "https://$HOSTNAME$path")"
+  if [ "$status" = "200" ]; then
+    fail "public https://$HOSTNAME$path returned 200 with a forged Access email header"
+  fi
+  log "public forged-header https://$HOSTNAME$path returned HTTP $status"
+done
+
 log "PASS"

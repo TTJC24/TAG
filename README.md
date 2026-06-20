@@ -112,7 +112,8 @@ cd /opt/company-brain/repo/infra
 
 The verifier checks compose service state, the static contract, nginx health,
 origin denial without the Cloudflare Access header, origin success with the
-header, and confirms the public hostname does not serve unauthenticated content.
+header, and confirms the public hostname does not serve unauthenticated content
+or accept a forged Access email header.
 
 ## Acumatica read-only readiness
 
