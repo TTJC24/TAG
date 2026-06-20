@@ -111,16 +111,30 @@ async function login(): Promise<void> {
   );
 }
 
-async function get<T>(branch: string, endpoint: string): Promise<T> {
+function requestHeaders(branch: string | undefined): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    Cookie: sessionCookie ?? '',
+  };
+  if (branch) headers['PX-CbApiBranch'] = branch;
+  return headers;
+}
+
+async function get<T>(branch: string | undefined, endpoint: string): Promise<T> {
   await ensureSession();
   const base = normalizeBaseUrl(requireEnv('ACUMATICA_BASE_URL'));
-  const res = await fetch(`${base}/entity/Default/${config.ACUMATICA_ENDPOINT_VERSION}/${endpoint}`, {
-    headers: {
-      Accept: 'application/json',
-      Cookie: sessionCookie ?? '',
-      'PX-CbApiBranch': branch,
-    },
-  });
+  const url = `${base}/entity/Default/${config.ACUMATICA_ENDPOINT_VERSION}/${endpoint}`;
+  let res = await fetch(url, { headers: requestHeaders(branch) });
+
+  if (res.status === 401) {
+    // A cached Acumatica session can expire independently of the local cache.
+    // Do one fresh login + one GET retry, then fail. This avoids retry loops
+    // that could contribute to API login-limit issues.
+    clearCachedSession();
+    await login();
+    res = await fetch(url, { headers: requestHeaders(branch) });
+  }
+
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) clearCachedSession();
     const text = await res.text();
@@ -134,7 +148,7 @@ function normalizeBaseUrl(value: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
 }
 
-async function listCapped(branch: string, entity: string, max: number): Promise<ContractRow[]> {
+async function listCapped(branch: string | undefined, entity: string, max: number): Promise<ContractRow[]> {
   const rows: ContractRow[] = [];
   const top = Math.min(100, max);
   for (let skip = 0; rows.length < max; skip += top) {
@@ -146,13 +160,13 @@ async function listCapped(branch: string, entity: string, max: number): Promise<
   return rows.slice(0, max);
 }
 
-async function listOptional(branch: string, entity: string, max: number): Promise<ContractRow[]> {
+async function listOptional(branch: string | undefined, entity: string, max: number): Promise<ContractRow[]> {
   try {
     return await listCapped(branch, entity, max);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/\s(404|405):/.test(msg) || msg.includes(' 404:') || msg.includes(' 405:')) {
-      console.warn(`[acumatica] optional endpoint ${entity} unavailable for branch ${branch}; skipping`);
+      console.warn(`[acumatica] optional endpoint ${entity} unavailable for branch ${branch ?? 'cross-branch'}; skipping`);
       return [];
     }
     throw err;
@@ -233,7 +247,7 @@ export interface FetchAcumaticaSnapshotOptions {
 
 export async function fetchAcumaticaSnapshot(options: FetchAcumaticaSnapshotOptions = {}): Promise<AcumaticaSnapshot> {
   const entity = options.entity;
-  const branch = entity ? entityBranch(entity) : entityBranch('FS');
+  const branch = entity ? entityBranch(entity) : undefined;
   const envCap = Number(process.env.ACUMATICA_INGEST_CAP ?? '');
   const cap = options.cap ?? (Number.isInteger(envCap) && envCap > 0 ? envCap : Math.min(config.ACUMATICA_MAX_ITEMS, 100));
   const customers = await listCapped(branch, 'Customer', cap);

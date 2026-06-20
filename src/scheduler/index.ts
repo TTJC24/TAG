@@ -14,7 +14,7 @@ const DEFAULT_SCHEDULE: ScheduleEntry[] = [
   { sourceId: 'm365-mail', cron: '*/15 * * * *' },
   { sourceId: 'm365-sharepoint', cron: '0 */2 * * *' },
   { sourceId: 'm365-teams', cron: '*/20 * * * *' },
-  { sourceId: 'acumatica', cron: '0 * * * *' },
+  // Acumatica remains manual/capped until branch-scoped ERP data is QA'd for scheduling.
   { sourceId: 'pipedrive', cron: '*/30 * * * *' },
 ];
 
