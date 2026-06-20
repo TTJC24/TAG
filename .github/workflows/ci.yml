@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_DB: company_brain
           POSTGRES_USER: company_brain
@@ -57,6 +57,15 @@ jobs:
 
       - name: Validate live readiness boundary
         run: bun run live-readiness:check
+
+      - name: Generate and validate static fixture site
+        run: |
+          bun run static:seed-fixtures
+          PAGEGEN_OUT_DIR=.tmp/company-brain-static-dist bun run pagegen
+          bun run static:check --dist=.tmp/company-brain-static-dist --min-search-entries=1 --expect-build-commit
+        env:
+          COMPANY_BRAIN_ENGINE: postgres
+          COMPANY_BRAIN_GIT_COMMIT: ${{ github.sha }}
 
       - name: Run fixture-mode smoke
         run: bun run smoke

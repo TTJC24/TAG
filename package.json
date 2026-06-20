@@ -15,6 +15,7 @@
     "source-isolation:check": "bun run src/cli/source-isolation-check.ts",
     "live-readiness:check": "bun run src/cli/live-readiness-check.ts",
     "static:check": "bun run src/cli/static-site-check.ts",
+    "static:seed-fixtures": "bun run src/cli/static-fixture-seed.ts",
     "doctor": "bun run src/cli/doctor.ts",
     "status": "bun run src/cli/status.ts",
     "smoke": "bun run src/cli/smoke.ts",
