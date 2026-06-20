@@ -62,6 +62,13 @@ if ! docker compose --env-file "$ENV_FILE" run --rm company-brain-ingest bun run
   exit 1
 fi
 
+log "checking static output contract"
+if ! docker compose --env-file "$ENV_FILE" run --rm company-brain-ingest \
+  bun run static:check --dist=/app/dist --min-search-entries=1 --expect-build-commit; then
+  restore_backup
+  exit 1
+fi
+
 rm -rf "$BACKUP_DIR"
 
 log "verifying static output"

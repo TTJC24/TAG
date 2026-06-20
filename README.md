@@ -45,11 +45,15 @@ cd /opt/company-brain/repo/infra
 docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run ingest pipedrive-fs --no-embed
 docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run ingest pipedrive-blcs-usa --no-embed
 docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run pagegen
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run static:check --dist=/app/dist --min-search-entries=1 --expect-build-commit
 docker compose --env-file /opt/company-brain/infra/.env restart company-brain-static
 ```
 
 The refresh script is failure-safe: if ingest fails, it exits before pagegen so
-the existing static snapshot is not wiped.
+the existing static snapshot is not wiped. It also runs `bun run static:check`
+after pagegen; if the generated site fails the static contract, the previous
+snapshot is restored.
 
 After code changes, rebuild the Bun image with the current commit stamped into
 pagegen:
@@ -77,6 +81,18 @@ python3 -m json.tool /opt/company-brain/dist/build-meta.json
 
 It includes the generated timestamp, build commit, search entry count, section
 counts, source counts, and pagegen duration.
+
+Static contract check:
+
+```bash
+cd /opt/company-brain/repo/infra
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run static:check --dist=/app/dist --min-search-entries=1 --expect-build-commit
+```
+
+The check verifies required files/directories, build metadata, search index
+integrity, self-contained search assets, existing search result URLs, and that
+listing/search titles do not expose raw HTML markup.
 
 ## Acumatica read-only readiness
 
