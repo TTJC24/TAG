@@ -373,6 +373,10 @@ It connects to Postgres as `company_brain_reader` (read-only) via the
 existing `QUERY_DATABASE_URL` -- the ingest container inherits that env
 var from `.env`.
 
+For large full ERP snapshots, the compose service sets
+`PAGEGEN_STATEMENT_TIMEOUT_MS=0` so the read-only `SELECT` can load the full
+static corpus without Postgres canceling the statement mid-build.
+
 ### Manual page generation
 
 ```bash

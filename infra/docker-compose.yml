@@ -93,6 +93,7 @@ services:
       SCHEDULER_DRY_RUN: ${SCHEDULER_DRY_RUN:-false}
       SCHEDULER_NO_EMBED: ${SCHEDULER_NO_EMBED:-false}
       SCHEDULER_SOURCES: ${SCHEDULER_SOURCES:-}
+      PAGEGEN_STATEMENT_TIMEOUT_MS: ${PAGEGEN_STATEMENT_TIMEOUT_MS:-0}
     volumes:
       # Page generator output target (Phase 2B). Cloudflare Pages publish is a
       # separate `wrangler pages deploy ./dist` step run from the host.
