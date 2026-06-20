@@ -4,6 +4,25 @@ Company Brain v1 is a read-only internal operating directory: static generated H
 
 This is v3. It supersedes both HANDOFF_V2.md and HANDOFF_V2_1.md. v2 and v2.1 are preserved as historical context only; do NOT build against them. v3 is canonical going forward.
 
+## Current beta implementation note (June 2026)
+
+This document is the v3 product boundary, but several early implementation
+details below are historical. The live initial beta currently serves the
+generated static directory from `company-brain-static` (nginx) through
+`company-brain-cloudflared` to `https://brain.blcsops.com`. It does **not**
+deploy `/dist` to Cloudflare Pages or Wrangler. The Cloudflare Tunnel routes
+only to `company-brain-static:8080`; it does not route to
+`company-brain-query:4317`, Postgres, `/ask`, React/Vite, Teams bot, or any
+writeback surface.
+
+The current beta safety gates are:
+
+- `bun run static:check` validates generated static output.
+- `infra/refresh-pipedrive-static.sh` restores the previous snapshot if pagegen
+  or the static contract fails.
+- CI runs `static:seed-fixtures`, `pagegen`, and `static:check` against a
+  pgvector Postgres service so every v3 surface is generated before merge.
+
 ## 0. Thesis and core decision
 
 Company Brain v1 is a read-only internal operating directory. It is not an agent. It is not a writeback platform. It is not a chat product. The team needs to look up customers, sales orders, invoices, vendors, items, and reps with source-backed freshness metadata, and a small number of power users need to run safe read-only SQL against the same store. That is the entire product.
@@ -29,16 +48,16 @@ The ingest side is unchanged from v2.1. The 15 existing connectors under `src/so
 
 What is new is downstream of the store and consists of exactly two services:
 
-1. A **page generator** -- a Bun script that reads from Postgres, renders one HTML page per logical entity (customer, sales order, invoice, vendor, item, rep), plus an index and `search-index.json`, into `/dist`. It runs on the same cron schedule as ingest (or immediately after), is stateless, and produces a fully static directory. Output is committed-free; the deploy step pushes `/dist` to Cloudflare Pages via Wrangler.
-2. A **guarded SQL query service** -- a minimal HTTP service (Hono or plain Bun.serve) exposing `POST /query` and `GET /query/schema`. It opens a connection as a dedicated read-only Postgres role, wraps each request in `BEGIN; SET TRANSACTION READ ONLY; SET LOCAL statement_timeout = '5s'; ...; COMMIT;`, caps rows at 100 default / 500 hard, and returns `{columns, rows, rowCount, durationMs, truncated}`. It logs to a local operational log (query text, Cf-Access identity, timestamp, duration, row count, ok/err) -- explicitly an operational usage log, not an ERP audit log. The sample query library ships as a static JSON file rendered into the query page (no separate endpoint).
+1. A **page generator** -- a Bun script that reads from Postgres, renders one HTML page per logical entity (customer, sales order, invoice, vendor, item, rep, deal, contact, activity), plus an index and `search-index.json`, into `/opt/company-brain/dist`. It runs after the scheduled Pipedrive refresh, is stateless, and produces a fully static directory. The beta serves that directory from the internal `company-brain-static` nginx container through Cloudflare Tunnel; there is no Cloudflare Pages/Wrangler deploy in the live path.
+2. A **guarded SQL query service** -- implemented and kept private on the Docker network. It is not routed through Cloudflare Tunnel for the public beta. Normal team users only see the static site.
 
 ### Auth
 
-Cloudflare Access sits in front of **every surface**: the static Pages deployment and the SQL query service. The identity provider is Entra (Microsoft Entra ID), the same tenant the M365 connectors already authenticate against, so users sign in with the work identity they already have. Access policies live at the Cloudflare zone level; the query service trusts the `Cf-Access-Authenticated-User-Email` and `Cf-Access-Jwt-Assertion` headers for its usage log and verifies the JWT signature against Cloudflare's JWKS on each request. No app-level role table exists in v1; Access groups are the only gate.
+Cloudflare Access sits in front of the public beta hostname. The identity provider is Entra (Microsoft Entra ID), the same tenant the M365 connectors already authenticate against, so users sign in with the work identity they already have. Access policies live at the Cloudflare zone level. The beta hostname routes only to the static site.
 
 ### Hosting
 
-Everything server-side runs on the existing DigitalOcean droplet `jerry-data` (NYC1, Ubuntu 24.04, 8 GB / 160 GB at `142.93.196.10`), strictly isolated under the `/opt/company-brain/` namespace and the `company-brain` Docker Compose project. The droplet already hosts Jerry and Hermes; Company Brain shares the host but lives in a distinct directory tree, network, container namespace, and database (`company_brain`) so nothing it does can touch jerry-* or hermes-* services. The stack runs as four Docker services on a private `company-brain-net` bridge: `company-brain-postgres` (Postgres 16-alpine, bind-mounted data under `/opt/company-brain/postgres-data/`), `company-brain-ingest` (Bun running `src/scheduler/index.ts`), `company-brain-query` (Bun.serve on internal `:4317`), and `company-brain-cloudflared` (official `cloudflare/cloudflared` image). A Cloudflare Tunnel exposes ONLY the query service hostname; the box publishes no host ports for Postgres or the query service, so jerry-* and hermes-* keep their existing port bindings. The page generator does not need to be exposed at all -- it writes to a local `/opt/company-brain/dist/` and `wrangler pages deploy` pushes outbound. See `infra/README.md` for the full isolation contract, bring-up runbook, and day-2 operations.
+Everything server-side runs on the existing DigitalOcean droplet `jerry-data` (NYC1, Ubuntu 24.04, 8 GB / 160 GB at `142.93.196.10`), strictly isolated under the `/opt/company-brain/` namespace and the `company-brain` Docker Compose project. The droplet already hosts Jerry and Hermes; Company Brain shares the host but lives in a distinct directory tree, network, container namespace, and database (`company_brain`) so nothing it does can touch jerry-* or hermes-* services. The stack runs on a private `company-brain-net` bridge: `company-brain-postgres` (`pgvector/pgvector:pg16`, bind-mounted data under `/opt/company-brain/postgres-data/`), `company-brain-ingest`, `company-brain-query` (internal `:4317` only), `company-brain-static` (nginx serving `/opt/company-brain/dist`), and `company-brain-cloudflared` (official `cloudflare/cloudflared` image). A Cloudflare Tunnel exposes only `company-brain-static:8080`; the box publishes no host ports for Postgres, query, or static nginx. See `infra/README.md` for the full isolation contract, bring-up runbook, and day-2 operations.
 
 ### What is not there
 
@@ -47,16 +66,16 @@ No Hono `/ask` endpoint. No LLM query routing. No Microsoft Bot Framework, no Te
 ### Flow
 
 ```
-connectors --> Postgres (gbrain pages/raw_data) --> page-generator --> /dist --> Cloudflare Pages --> team (via Cf Access + Entra)
+connectors --> Postgres (gbrain pages/raw_data) --> page-generator --> /opt/company-brain/dist --> company-brain-static --> Cloudflare Tunnel + Access --> team
 
-power user --> Cloudflare Access (Entra SSO) --> SQL service (read-only txn, 5s timeout, 500-row cap) --> read-only DB user --> Postgres
+power user SQL path --> deferred/private; company-brain-query is not exposed in public beta
 ```
 
 Both arrows terminating at Postgres hit the same database; the page generator uses the normal app role (read-only is sufficient for it too, but it shares the ingest role for simplicity), while the SQL service uses a separate role with `GRANT SELECT` only -- detailed in the Security section.
 
 ## 2. Static pages
 
-Static pages are the daily browse surface. After every ingest cycle, a page generator reads from `pages` (filtered by `frontmatter->>'acumatica_kind'` and the equivalent Pipedrive discriminator) and emits a fresh `/dist` tree, which is pushed to Cloudflare Pages. There is no server runtime in the page path: the team hits a URL behind Cloudflare Access and Entra, and the browser gets pre-rendered HTML.
+Static pages are the daily browse surface. After every accepted ingest cycle, a page generator reads from `pages` and emits a fresh `/opt/company-brain/dist` tree. The internal nginx container serves that directory through Cloudflare Tunnel and Access. There is no app server, query service, LLM runtime, or writeback in the page path: the team hits a URL behind Cloudflare Access and Entra, and the browser gets pre-rendered HTML plus local client-side search.
 
 ### Entities that get pages
 
@@ -72,7 +91,7 @@ One page per record for each of:
 | Rep | `/rep/<id>.html` | rep records joined from customer/order pages |
 | Index | `/index.html` | the search landing page (see section 3) |
 
-The generator runs as a Bun script after `src/ingest/run.ts` completes a cycle. It writes the full `/dist` tree on every run; no incremental diffing in v1. Cloudflare Pages handles the deploy.
+The generator runs as a Bun script after accepted refresh jobs. It writes the full `/opt/company-brain/dist` tree on every run; no incremental diffing in v1. `bun run static:check` validates the generated snapshot before the refresh script discards the previous backup.
 
 ### Required fields on every page
 
@@ -795,10 +814,10 @@ Four weeks, sequential. Each week has one shippable artifact. Phase 0C delta-syn
 
 ### Week 2 -- Freshness + static site
 
-- **Work.** Fix `src/sources/acumatica/client.ts:207` and `src/sources/m365/graph.ts:276`: replace silent `now()` fallbacks with the upstream-provided timestamp; when the upstream genuinely has none, write `null` to `metadata.upstream_updated_at` and set a `freshness_unknown` flag so the page can render a warning. Build `src/generate/` -- a Bun script that reads `pages` filtered by `frontmatter->>'acumatica_kind'` and `source_kind`, renders one HTML file per record into `/dist/<type>/<id>.html`, plus index pages per type. Emit `/dist/search-index.json` (lunr.js shape: `{ type, id, title, aliases, url, last_refreshed, rep, customer, entity, order_no, invoice_no, vendor, item_no }`). Wire `wrangler pages deploy dist/` into a GitHub Action triggered after each nightly ingest.
-- **Gate.** Cloudflare Pages URL behind Access serves a customer page, an invoice page, and a search page that finds a known customer by name and by Acumatica ID. Pages with missing `upstream_updated_at` render the freshness warning. Generator run time under 5 minutes on a full corpus.
-- **Rollback.** Cloudflare Pages keeps prior deploys; `wrangler pages deployment list` + promote the previous one. The freshness-fallback code changes are behind a feature flag (`FRESHNESS_STRICT=1` env var); flip it off to restore old behavior if a connector starts emitting null timestamps en masse.
-- **Training/handoff.** Team-wide email: "the new directory lives at `https://brain.<domain>`, sign in with your Entra account, this is read-only, refreshes nightly". Tim: how to trigger a manual regen (`bun run generate && wrangler pages deploy dist/`).
+- **Work.** Fix `src/sources/acumatica/client.ts:207` and `src/sources/m365/graph.ts:276`: replace silent `now()` fallbacks with the upstream-provided timestamp; when the upstream genuinely has none, write `null` to `metadata.upstream_updated_at` and set a `freshness_unknown` flag so the page can render a warning. Build `src/page-gen/` -- a Bun script that reads `pages`, renders one HTML file per record into `/opt/company-brain/dist/<type>/<id>.html`, plus index pages per type. Emit `/opt/company-brain/dist/search-index.json` and `/opt/company-brain/dist/build-meta.json`. Serve `/opt/company-brain/dist` through `company-brain-static` and Cloudflare Tunnel.
+- **Gate.** `https://brain.blcsops.com` behind Access serves a customer page, an invoice page, and a search page that finds known records by name and ID. `bun run static:check --dist=/app/dist --min-search-entries=1 --expect-build-commit` passes through the compose service path. Pages with missing upstream timestamps render the freshness state. Generator run time stays under 5 minutes on the current corpus.
+- **Rollback.** `infra/refresh-pipedrive-static.sh` copies the prior `dist` snapshot before pagegen and restores it if pagegen or `static:check` fails. Static nginx is restarted only after the generated snapshot passes.
+- **Training/handoff.** Team-wide email: "the new directory lives at `https://brain.blcsops.com`, sign in with your work account, this is read-only, refreshes every 4 hours". Tim: how to trigger a manual regen via the Docker Compose commands in `README.md`.
 
 ### Week 3 -- Guarded SQL endpoint
 

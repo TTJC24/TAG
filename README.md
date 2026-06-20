@@ -1,15 +1,22 @@
 # company-brain
 
-Production-shaped company knowledge platform built on
-[`garrytan/gbrain`](https://github.com/garrytan/gbrain). Successor to the
-bounded evaluation in `gbrain-eval`.
+Static, read-only internal operating directory built on
+[`garrytan/gbrain`](https://github.com/garrytan/gbrain).
 
 ## Status
 
-v1 in-progress. Direct-write ingestion using the Play B workaround for
-upstream issue [#1522](https://github.com/garrytan/gbrain/issues/1522).
+Initial public beta is the v3 static site:
 
-New here? Jump to [Quickstart](#quickstart-fixture-only-60-seconds).
+- public surface: generated HTML under `/opt/company-brain/dist`
+- access: Cloudflare Tunnel + Cloudflare Access
+- data currently shown: Pipedrive plus capped read-only Acumatica validation data
+- refresh: scheduled Pipedrive ingest + pagegen every 4 hours
+- guarded: `static:check` must pass before a generated snapshot is accepted
+
+Not part of the beta surface: React/Vite, `/ask`, Teams bot, LLM runtime,
+writeback, public SQL/query service, or public Postgres.
+
+New here? Start with [Production v3 static site](#production-v3-static-site).
 
 ## Production v3 static site
 
@@ -207,8 +214,9 @@ Rollback/cleanup notes:
 
 ## Quickstart (fixture-only, ~60 seconds)
 
-This path takes you from a fresh clone to a cited answer using only stub
-fixtures — no M365, Acumatica, or Pipedrive credentials needed.
+This path is for local development of the legacy answer/retrieval stack using
+stub fixtures. It is not the public beta surface. The public beta is the static
+site described above.
 
 ```bash
 # 1) Env: fill DATABASE_URL, ZEROENTROPY_API_KEY, ANTHROPIC_API_KEY only.
@@ -217,12 +225,12 @@ cp .env.example .env
 # 2) Install deps.
 bun install
 
-# 3) Start Postgres 16 (skip if you already have one on :5432).
+# 3) Start pgvector-compatible Postgres (skip if you already have one on :5432).
 docker run -d --name company-brain-pg \
   -e POSTGRES_PASSWORD=company_brain \
   -e POSTGRES_USER=company_brain \
   -e POSTGRES_DB=company_brain \
-  -p 5432:5432 postgres:16
+  -p 5432:5432 pgvector/pgvector:pg16
 
 # 4) Load every connector's stub fixtures in one shot.
 bun run ingest:fixtures
@@ -243,8 +251,11 @@ If anything misbehaves, run `bun run doctor` first.
   `IngestionEvent`s. A shared runner threads provenance
   (`source_id` / `source_kind` / `source_uri` / `ingested_via`) into
   `importFromContent` directly, bypassing the broken `ingest_capture` path.
-- **Surfaces**: Query CLI, HTTP API (Hono), Web UI (Vite SPA), Scheduler
-  (`node-cron`).
+- **Beta surface**: Static generated HTML + client-side search behind
+  Cloudflare Access.
+- **Non-beta developer surfaces**: Query CLI, legacy HTTP API, Vite SPA, and
+  answer/eval tooling remain in the repo for salvage/regression work but are
+  not exposed in production beta.
 
 ## Connectors (v1)
 
@@ -269,27 +280,31 @@ bun run ingest acumatica --dry-run
 ## Prerequisites
 
 - [Bun](https://bun.sh) >= 1.3 (matches `bun-types` in `package.json`; this project does not run on Node)
-- Docker (for the Postgres 16 container shown below — or an existing Postgres 16 instance you can point `DATABASE_URL` at)
+- Docker (for the pgvector-compatible Postgres container shown below — or an
+  existing pgvector Postgres instance you can point `DATABASE_URL` at)
 - ZeroEntropy API key (embeddings) and Anthropic API key (LLM)
 
-## Running
+## Legacy Local Dev
 
 ```bash
+# This is for local developer work on non-beta surfaces. It is not how the
+# production static beta is served.
+
 # 1) One-time setup
 cp .env.example .env   # fill in real values as you go
 bun install
 docker run -d --name company-brain-pg -e POSTGRES_PASSWORD=company_brain \
   -e POSTGRES_USER=company_brain -e POSTGRES_DB=company_brain \
-  -p 5432:5432 postgres:16
+  -p 5432:5432 pgvector/pgvector:pg16
 bun run ingest m365-calendar --dry-run
 
-# 2) Start servers (each is long-running — run in its own terminal)
-bun run api          # long-running; run in its own terminal
-bun run web:dev      # long-running; run in its own terminal
-bun run scheduler    # long-running; run in its own terminal
+# 2) Optional legacy/dev servers (each is long-running — run in its own terminal)
+bun run api          # legacy local HTTP API
+bun run web:dev      # legacy Vite SPA
+bun run scheduler    # local scheduler experiments
 ```
 
-### Web UI
+### Legacy Web UI
 
 `bun run web:dev` starts the Vite dev server at
 <http://localhost:5173>. It requires `bun run api` running in a second
@@ -300,11 +315,13 @@ the other.
 
 ## Common scripts
 
-Beyond the long-running servers above, the following one-shot scripts are the
-ones you'll reach for day-to-day:
+For beta operations, prefer the Docker Compose commands in
+[Production v3 static site](#production-v3-static-site). For development and
+regression work, these one-shot scripts are useful:
 
 - `bun run ingest:fixtures` — load every connector's stub fixtures in one
-  shot. The fastest way to populate a fresh database.
+  shot for the configured engine. By default this uses the local JSON engine;
+  Postgres importer behavior is covered separately by current CI gates.
 - `bun run ask "Acme pump terms"` — ask a natural-language question against
   the ingested corpus and stream the answer (with citations) on stdout.
 - `bun run search "<query>"` — run a hybrid search and print ranked matches
@@ -315,6 +332,9 @@ ones you'll reach for day-to-day:
 - `bun run smoke` — end-to-end check (ingest fixtures → ask → assert cited
   answer).
 - `bun run smoke:api` — same end-to-end check, but via the HTTP API.
+- `bun run static:seed-fixtures` — seed one representative Postgres row for
+  each v3 static surface in CI/local static checks.
+- `bun run static:check` — validate a generated static site contract.
 - `bun run eval:answers` — answer-quality regression suite; run before merging
   retrieval or prompt changes.
 - `bun run fixtures:check` — verify that every connector's stub fixtures parse

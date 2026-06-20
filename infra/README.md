@@ -322,8 +322,9 @@ docker compose up -d --no-deps company-brain-ingest company-brain-query
 
 The page generator (`src/page-gen/index.ts`) renders the brain's
 `public.pages` rows into a static site under `/opt/company-brain/dist/`.
-No server runtime is required to view the output -- open `dist/index.html`
-in a browser, or push the folder to Cloudflare Pages.
+No application runtime is required in the page path. The live beta serves this
+directory through the internal `company-brain-static` nginx container and
+Cloudflare Tunnel.
 
 The generator runs INSIDE the `company-brain-ingest` container so it
 shares the same image and the bind mount to `/opt/company-brain/dist/`.
@@ -352,23 +353,22 @@ docker compose exec company-brain-ingest bun run pagegen
 ls /opt/company-brain/dist
 ```
 
-### Publishing to Cloudflare Pages (deferred)
+### Serving through Cloudflare Tunnel
 
-Today this is a manual step from your local machine OR the droplet, using
-the Wrangler CLI:
+The live beta does not use Cloudflare Pages or Wrangler. After pagegen and
+`static:check` pass, restart the static container so nginx serves the current
+snapshot:
 
 ```bash
-# One-time: install wrangler
-npm i -g wrangler
-wrangler login
-
-# Each publish:
-scp -r root@142.93.196.10:/opt/company-brain/dist ./dist-snapshot
-wrangler pages deploy ./dist-snapshot --project-name company-brain
+cd /opt/company-brain/repo/infra
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest bun run pagegen
+docker compose --env-file /opt/company-brain/infra/.env run --rm company-brain-ingest \
+  bun run static:check --dist=/app/dist --min-search-entries=1 --expect-build-commit
+docker compose --env-file /opt/company-brain/infra/.env restart company-brain-static
 ```
 
-Eventually this gets wrapped in a host cron after each ingest cycle. Not
-in scope for v1.
+The scheduled Pipedrive refresh script performs the same pagegen/check flow and
+restores the previous snapshot if the generated site fails validation.
 
 ### Generated layout
 
@@ -419,7 +419,7 @@ These belong elsewhere and are intentionally NOT scaffolded here:
 
 - `src/page-gen/` — the page renderer itself (Week 2B)
 - `src/query/server.ts` — the SQL service implementation (Week 3)
-- `wrangler.toml` — Cloudflare Pages deploy config (separate `web-dist/`
-  repo or Pages project)
+- Cloudflare Pages/Wrangler deploy config — the live beta uses Cloudflare
+  Tunnel to `company-brain-static:8080`
 - Host firewall hardening — assumed already handled per the droplet's
   existing posture for Jerry / Hermes
