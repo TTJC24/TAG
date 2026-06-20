@@ -154,6 +154,7 @@ services:
       # /healthz stays open for Docker health checks; content paths require
       # Cf-Access-Authenticated-User-Email.
       - ./nginx/static.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/access-required.html:/etc/nginx/company-brain/access-required.html:ro
     networks:
       - company-brain-net
     # Intentionally NO `ports:` block. Cloudflared reaches this service over
