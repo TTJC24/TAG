@@ -7,6 +7,7 @@ INFRA_DIR="$REPO_DIR/infra"
 ENV_FILE="$APP_ROOT/infra/.env"
 HOSTNAME="${COMPANY_BRAIN_HOSTNAME:-brain.blcsops.com}"
 AUTH_CHECK_EMAIL="${AUTH_CHECK_EMAIL:-verify-static-beta@company-brain.local}"
+ACCESS_REQUIRED_MARKER="${ACCESS_REQUIRED_MARKER:-Company Brain Access Required}"
 
 log() {
   printf '[verify-static-beta] %s\n' "$*"
@@ -15,6 +16,15 @@ log() {
 fail() {
   printf '[verify-static-beta] ERROR: %s\n' "$*" >&2
   exit 1
+}
+
+assert_access_required_body() {
+  body_file="$1"
+  context="$2"
+
+  if ! grep -q "$ACCESS_REQUIRED_MARKER" "$body_file"; then
+    fail "$context did not render the branded access-required page"
+  fi
 }
 
 cd "$INFRA_DIR"
@@ -31,10 +41,13 @@ docker exec company-brain-static wget -qO- --tries=1 --timeout=5 \
   http://127.0.0.1:8080/healthz >/dev/null
 
 log "checking origin denies unauthenticated static content"
-if docker exec company-brain-static wget -qO- --tries=1 --timeout=5 \
-  http://127.0.0.1:8080/ >/dev/null 2>&1; then
+origin_status="$(docker run --rm --network company-brain-net curlimages/curl:8.10.1 -sS -o /dev/null -w '%{http_code}' --max-time 10 http://company-brain-static:8080/)"
+if [ "$origin_status" = "200" ]; then
   fail "origin served / without Cloudflare Access header"
 fi
+origin_body="$(docker run --rm --network company-brain-net curlimages/curl:8.10.1 -sS --max-time 10 http://company-brain-static:8080/)"
+printf '%s' "$origin_body" | grep -q "$ACCESS_REQUIRED_MARKER" ||
+  fail "origin / without Cloudflare Access header did not render the branded access-required page"
 
 log "checking origin serves content with Cloudflare Access header"
 docker exec company-brain-static wget -qO- --tries=1 --timeout=5 \
@@ -50,6 +63,9 @@ for path in / /search.html /search-index.json; do
   if [ "$status" = "200" ]; then
     fail "public https://$HOSTNAME$path returned 200 without Access authentication"
   fi
+  if [ "$path" = "/" ]; then
+    assert_access_required_body /tmp/company-brain-public-check-body "public https://$HOSTNAME/"
+  fi
   log "public https://$HOSTNAME$path returned HTTP $status"
 done
 
@@ -60,6 +76,9 @@ for path in / /search.html /search-index.json; do
     "https://$HOSTNAME$path")"
   if [ "$status" = "200" ]; then
     fail "public https://$HOSTNAME$path returned 200 with a forged Access email header"
+  fi
+  if [ "$path" = "/" ]; then
+    assert_access_required_body /tmp/company-brain-public-check-body "public forged-header https://$HOSTNAME/"
   fi
   log "public forged-header https://$HOSTNAME$path returned HTTP $status"
 done
