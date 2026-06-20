@@ -1,21 +1,21 @@
-# Company Brain v3 — DigitalOcean droplet `jerry-data` deployment.
+# Company Brain v3 - DigitalOcean droplet `jerry-data` deployment.
 #
 # STRICT ISOLATION CONTRACT
 #   - Docker Compose project name: company-brain (set via `name:` below)
 #   - All containers, volumes, and the network share the `company-brain-` prefix
-#   - No host port published — external traffic enters via cloudflared only
+#   - No host port published - external traffic enters via cloudflared only
 #   - All persistent paths under /opt/company-brain/ on the host
 #   - DOES NOT touch jerry-* or hermes-* services on the same droplet
 #
 # OPERATIONS
-#   cd /opt/company-brain/infra
-#   docker compose up -d
-#   docker compose ps                          # health check
-#   docker compose logs -f company-brain-query # tail the query service
-#   docker compose down                        # stop ALL company-brain services
+#   cd /opt/company-brain/repo/infra
+#   docker compose --env-file /opt/company-brain/infra/.env up -d
+#   docker compose --env-file /opt/company-brain/infra/.env ps # health check
+#   docker compose --env-file /opt/company-brain/infra/.env logs -f company-brain-static
+#   docker compose --env-file /opt/company-brain/infra/.env down # stop ALL company-brain services
 #
 # DO NOT use generic Compose commands like `docker stop $(docker ps -q)` on this
-# host — that would also stop Jerry / Hermes. Always pass `-p company-brain` or
+# host - that would also stop Jerry / Hermes. Always pass `-p company-brain` or
 # `cd` into this directory so the project filter is applied.
 
 name: company-brain
@@ -64,7 +64,7 @@ services:
       # Ingest pool uses the WRITE-capable role
       DATABASE_URL: postgres://company_brain_ingest:${POSTGRES_INGEST_PASSWORD}@company-brain-postgres:5432/company_brain
       COMPANY_BRAIN_ENGINE: postgres
-      # Connector credentials — passed through from /opt/company-brain/infra/.env
+      # Connector credentials - passed through from /opt/company-brain/infra/.env
       ZEROENTROPY_API_KEY: ${ZEROENTROPY_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       M365_TENANT_ID: ${M365_TENANT_ID:-}
@@ -128,8 +128,8 @@ services:
       - /opt/company-brain/logs:/app/logs
     networks:
       - company-brain-net
-    # No host port. cloudflared routes brain.<domain> -> company-brain-query:4317
-    # over the docker network.
+    # No host port. This service remains private on company-brain-net.
+    # The v3 public beta routes cloudflared to company-brain-static only.
     command: ["bun", "run", "src/query/server.ts"]
     healthcheck:
       # /health performs a `SELECT 1` against the reader pool. On boot, the
