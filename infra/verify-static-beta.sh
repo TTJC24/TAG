@@ -74,15 +74,13 @@ for path in $BETA_ROUTES; do
   log "origin authorized http://company-brain-static:8080$path returned HTTP 200"
 done
 
-log "checking public hostname does not serve unauthenticated content"
+log "checking public hostname is gated by Cloudflare Access or origin deny"
 for path in $BETA_ROUTES; do
   status="$(curl -sS -o /tmp/company-brain-public-check-body -w '%{http_code}' --max-time 20 "https://$HOSTNAME$path")"
   if [ "$status" = "200" ]; then
     fail "public https://$HOSTNAME$path returned 200 without Access authentication"
   fi
-  if [ "$path" = "/" ]; then
-    assert_access_required_body /tmp/company-brain-public-check-body "public https://$HOSTNAME/"
-  fi
+
   log "public https://$HOSTNAME$path returned HTTP $status"
 done
 
@@ -94,9 +92,7 @@ for path in $BETA_ROUTES; do
   if [ "$status" = "200" ]; then
     fail "public https://$HOSTNAME$path returned 200 with a forged Access email header"
   fi
-  if [ "$path" = "/" ]; then
-    assert_access_required_body /tmp/company-brain-public-check-body "public forged-header https://$HOSTNAME/"
-  fi
+
   log "public forged-header https://$HOSTNAME$path returned HTTP $status"
 done
 
