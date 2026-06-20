@@ -110,10 +110,61 @@ cd /opt/company-brain/repo/infra
 ./verify-static-beta.sh
 ```
 
-The verifier checks compose service state, the static contract, nginx health,
-origin denial without the Cloudflare Access header, origin success with the
-header, and confirms the public hostname does not serve unauthenticated content
-or accept a forged Access email header.
+The verifier checks compose service state, confirms Company Brain services do
+not publish host ports, runs the static contract, checks nginx health, verifies
+origin denial without the Cloudflare Access header, verifies every major beta
+route works with the header, and confirms the public hostname does not serve
+unauthenticated content or accept a forged Access email header.
+
+### Authenticated browser QA
+
+The server-side verifier cannot prove a real allowed-user browser session
+through Cloudflare Access. Before inviting the wider team, an approved user
+should complete this manual pass from desktop and phone browsers:
+
+```text
+https://brain.blcsops.com/
+https://brain.blcsops.com/search.html
+https://brain.blcsops.com/customer/
+https://brain.blcsops.com/contact/
+https://brain.blcsops.com/deal/
+https://brain.blcsops.com/activity/
+https://brain.blcsops.com/order/
+https://brain.blcsops.com/invoice/
+https://brain.blcsops.com/item/
+https://brain.blcsops.com/vendor/
+https://brain.blcsops.com/rep/
+```
+
+Search smoke terms:
+
+```text
+CWR
+Ring
+Potts
+Mobile scan
+Utility
+Big League
+invoice
+sales order
+vendor
+```
+
+Pass conditions:
+
+- Cloudflare Access login is required before data is visible.
+- An approved user can sign in and load the homepage, search, and every major
+  section above.
+- Search results and section listings show human-readable names, not raw HTML
+  tags or JSON-looking clutter.
+- Mobile header/nav stays readable and does not wrap into broken fragments.
+- Detail pages keep raw source payloads inside collapsed raw-data sections.
+- The footer/status panel shows a recent `Last refreshed` value, a build commit,
+  and nonzero section counts.
+- Pages load quickly enough for normal internal use.
+
+If any pass condition fails, keep the beta private and fix the specific static
+rendering, Access policy, or refresh issue before team rollout.
 
 ## Acumatica read-only readiness
 
