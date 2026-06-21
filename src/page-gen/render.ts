@@ -99,9 +99,10 @@ const TYPE_LABELS: Record<string, { single: string; plural: string }> = {
   deal: { single: 'Deal', plural: 'Deals' },
   contact: { single: 'Contact', plural: 'Contacts' },
   activity: { single: 'Activity', plural: 'Activities' },
+  financial: { single: 'Financial Record', plural: 'Financials' },
 };
 
-const NAV_TYPES = ['customer', 'deal', 'contact', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep'] as const;
+const NAV_TYPES = ['customer', 'deal', 'contact', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep', 'financial'] as const;
 
 export interface BuildMeta {
   generatedAt: string;
@@ -518,7 +519,7 @@ function systemOfRecordFor(type: string, entity: ClassifiedEntity): string {
   //   rep -> Pipedrive (when wired); otherwise N/A
   //   anything else -> the entity's own sourceSystem
   if (entity.sourceKind === 'pipedrive') return 'Pipedrive';
-  if (['customer', 'order', 'invoice', 'item', 'vendor'].includes(type)) return 'Acumatica';
+  if (['customer', 'order', 'invoice', 'item', 'vendor', 'financial'].includes(type)) return 'Acumatica';
   if (type === 'rep') return entity.sourceSystem;
   return entity.sourceSystem;
 }

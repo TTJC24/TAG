@@ -45,7 +45,7 @@ import {
 } from './render.ts';
 
 const OUT_DIR = process.env.PAGEGEN_OUT_DIR ?? 'dist';
-const TYPES = ['customer', 'deal', 'contact', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep'] as const;
+const TYPES = ['customer', 'deal', 'contact', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep', 'financial'] as const;
 
 interface SearchIndexEntry {
   type: string;
@@ -88,6 +88,7 @@ function bucketFor(buckets: ClassifiedBuckets, type: string): ClassifiedEntity[]
     case 'deal': return buckets.deals;
     case 'contact': return buckets.contacts;
     case 'activity': return buckets.activities;
+    case 'financial': return buckets.financials;
     default: return [];
   }
 }
@@ -239,7 +240,7 @@ async function main(): Promise<void> {
       `invoices=${buckets.invoices.length} items=${buckets.items.length} ` +
       `vendors=${buckets.vendors.length} reps=${buckets.reps.length} ` +
       `deals=${buckets.deals.length} contacts=${buckets.contacts.length} ` +
-      `activities=${buckets.activities.length} ` +
+      `activities=${buckets.activities.length} financials=${buckets.financials.length} ` +
       `other=${buckets.other.length}`,
   );
 

@@ -184,6 +184,18 @@ type ContractRow = {
   InventoryID?: { value?: string };
   Description?: { value?: string };
   SalespersonID?: { value?: string };
+  AccountCD?: { value?: string };
+  AccountID?: { value?: string };
+  LedgerID?: { value?: string };
+  BatchNbr?: { value?: string };
+  ClassID?: { value?: string };
+  ReceiptNbr?: { value?: string };
+  PaymentRef?: { value?: string };
+  CashAccountCD?: { value?: string };
+  TaxID?: { value?: string };
+  TaxZoneID?: { value?: string };
+  TaxCategoryID?: { value?: string };
+  FinancialYear?: { value?: string };
   Name?: { value?: string };
   LastModifiedDateTime?: { value?: string };
   [k: string]: unknown;
@@ -218,6 +230,18 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
     fieldValue(row, 'ReferenceNbr') ||
     fieldValue(row, 'InventoryID') ||
     fieldValue(row, 'SalespersonID') ||
+    fieldValue(row, 'AccountCD') ||
+    fieldValue(row, 'AccountID') ||
+    fieldValue(row, 'LedgerID') ||
+    fieldValue(row, 'BatchNbr') ||
+    fieldValue(row, 'ClassID') ||
+    fieldValue(row, 'ReceiptNbr') ||
+    fieldValue(row, 'PaymentRef') ||
+    fieldValue(row, 'CashAccountCD') ||
+    fieldValue(row, 'TaxID') ||
+    fieldValue(row, 'TaxZoneID') ||
+    fieldValue(row, 'TaxCategoryID') ||
+    fieldValue(row, 'FinancialYear') ||
     `row-${Math.random().toString(36).slice(2, 10)}`;
   const name =
     fieldValue(row, 'CustomerName') ||
@@ -229,6 +253,18 @@ function toEntity(kind: AcumaticaEntity['kind'], row: ContractRow): AcumaticaEnt
     fieldValue(row, 'VendorID') ||
     fieldValue(row, 'InventoryID') ||
     fieldValue(row, 'SalespersonID') ||
+    fieldValue(row, 'AccountCD') ||
+    fieldValue(row, 'AccountID') ||
+    fieldValue(row, 'LedgerID') ||
+    fieldValue(row, 'BatchNbr') ||
+    fieldValue(row, 'ClassID') ||
+    fieldValue(row, 'ReceiptNbr') ||
+    fieldValue(row, 'PaymentRef') ||
+    fieldValue(row, 'CashAccountCD') ||
+    fieldValue(row, 'TaxID') ||
+    fieldValue(row, 'TaxZoneID') ||
+    fieldValue(row, 'TaxCategoryID') ||
+    fieldValue(row, 'FinancialYear') ||
     id;
   // v3 freshness contract (Phase 2): when LastModifiedDateTime is missing from
   // the upstream row, surface empty rather than pretending the row was just
@@ -244,6 +280,9 @@ export interface FetchAcumaticaSnapshotOptions {
   entity?: EntityCode;
   cap?: number;
   skip?: number;
+  includeOperational?: boolean;
+  includeFinancial?: boolean;
+  financialKinds?: string[];
 }
 
 export async function fetchAcumaticaSnapshot(options: FetchAcumaticaSnapshotOptions = {}): Promise<AcumaticaSnapshot> {
@@ -253,12 +292,45 @@ export async function fetchAcumaticaSnapshot(options: FetchAcumaticaSnapshotOpti
   const cap = options.cap ?? (Number.isInteger(envCap) && envCap > 0 ? envCap : Math.min(config.ACUMATICA_MAX_ITEMS, 100));
   const envSkip = Number(process.env.ACUMATICA_INGEST_SKIP ?? '');
   const skip = options.skip ?? (Number.isInteger(envSkip) && envSkip >= 0 ? envSkip : 0);
-  const customers = await listCapped(branch, 'Customer', cap, skip);
-  const items = await listCapped(branch, 'StockItem', cap, skip);
-  const vendors = await listCapped(branch, 'Vendor', cap, skip);
-  const orders = await listCapped(branch, 'SalesOrder', cap, skip);
-  const invoices = await listCapped(branch, 'SalesInvoice', cap, skip);
-  const reps = await listOptional(branch, 'SalesPerson', cap, skip);
+  const includeOperational = options.includeOperational ?? true;
+  const includeFinancial = options.includeFinancial ?? false;
+  const financialKinds = new Set((options.financialKinds ?? []).map((kind) => kind.toLowerCase()));
+  const customers = includeOperational ? await listCapped(branch, 'Customer', cap, skip) : [];
+  const items = includeOperational ? await listCapped(branch, 'StockItem', cap, skip) : [];
+  const vendors = includeOperational ? await listCapped(branch, 'Vendor', cap, skip) : [];
+  const orders = includeOperational ? await listCapped(branch, 'SalesOrder', cap, skip) : [];
+  const invoices = includeOperational ? await listCapped(branch, 'SalesInvoice', cap, skip) : [];
+  const reps = includeOperational ? await listOptional(branch, 'SalesPerson', cap, skip) : [];
+  const financialSpecs: Array<[string, string]> = [
+    ['account', 'Account'],
+    ['ledger', 'Ledger'],
+    ['financial-period', 'FinancialPeriod'],
+    ['currency', 'Currency'],
+    ['journal-transaction', 'JournalTransaction'],
+    ['ar-payment', 'Payment'],
+    ['customer-class', 'CustomerClass'],
+    ['customer-payment-method', 'CustomerPaymentMethod'],
+    ['ap-bill', 'Bill'],
+    ['ap-check', 'Check'],
+    ['vendor-class', 'VendorClass'],
+    ['purchase-receipt', 'PurchaseReceipt'],
+    ['purchase-order', 'PurchaseOrder'],
+    ['cash-transaction', 'CashTransaction'],
+    ['tax-zone', 'TaxZone'],
+    ['tax-category', 'TaxCategory'],
+    ['tax', 'Tax'],
+  ];
+  const financials: AcumaticaEntity[] = [];
+  if (includeFinancial) {
+    for (const [label, endpoint] of financialSpecs) {
+      if (financialKinds.size > 0 && !financialKinds.has(label)) continue;
+      const rows = await listOptional(branch, endpoint, cap, skip);
+      financials.push(...rows.map((r) => {
+        const entity = toEntity('financial', r);
+        return { ...entity, id: `${label}:${entity.id}`, name: `${label}: ${entity.name}`, body: { financial_kind: label, endpoint, ...entity.body } };
+      }));
+    }
+  }
   return {
     customers: customers.map((r) => toEntity('customer', r)),
     items: items.map((r) => toEntity('item', r)),
@@ -266,5 +338,6 @@ export async function fetchAcumaticaSnapshot(options: FetchAcumaticaSnapshotOpti
     orders: orders.map((r) => toEntity('order', r)),
     invoices: invoices.map((r) => toEntity('invoice', r)),
     reps: reps.map((r) => toEntity('rep', r)),
+    financials,
   };
 }

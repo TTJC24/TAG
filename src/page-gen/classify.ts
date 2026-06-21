@@ -29,6 +29,7 @@ export type EntityType =
   | 'deal'
   | 'contact'
   | 'activity'
+  | 'financial'
   | 'other';
 
 export interface ClassifiedEntity {
@@ -77,6 +78,7 @@ export interface ClassifiedBuckets {
   deals: ClassifiedEntity[];
   contacts: ClassifiedEntity[];
   activities: ClassifiedEntity[];
+  financials: ClassifiedEntity[];
   /** Anything that doesn't map to the six v3 surfaces. Surfaced in search
    *  but not rendered as a dedicated page in v1. */
   other: ClassifiedEntity[];
@@ -214,6 +216,7 @@ function classifyType(page: RawPage, fm: Record<string, unknown>): EntityType {
   if (acumaticaKind === 'item') return 'item';
   if (acumaticaKind === 'vendor') return 'vendor';
   if (acumaticaKind === 'rep' || acumaticaKind === 'salesperson') return 'rep';
+  if (acumaticaKind === 'financial') return 'financial';
   const pipedriveKind = getString(fm, 'pipedrive_kind');
   if (pipedriveKind === 'organization') return 'customer';
   if (pipedriveKind === 'person') return 'contact';
@@ -314,6 +317,7 @@ export function classifyAll(pages: readonly RawPage[]): ClassifiedBuckets {
     deals: [],
     contacts: [],
     activities: [],
+    financials: [],
     other: [],
   };
   const acumaticaSeen = new Map<string, ClassifiedEntity>();
@@ -350,6 +354,7 @@ function pushToBucket(buckets: ClassifiedBuckets, c: ClassifiedEntity): void {
     case 'deal': buckets.deals.push(c); break;
     case 'contact': buckets.contacts.push(c); break;
     case 'activity': buckets.activities.push(c); break;
+    case 'financial': buckets.financials.push(c); break;
     default: buckets.other.push(c); break;
   }
 }
@@ -371,6 +376,7 @@ function bucketListFor(buckets: ClassifiedBuckets, type: EntityType): Classified
     case 'deal': return buckets.deals;
     case 'contact': return buckets.contacts;
     case 'activity': return buckets.activities;
+    case 'financial': return buckets.financials;
     default: return buckets.other;
   }
 }

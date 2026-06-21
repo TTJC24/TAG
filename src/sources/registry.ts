@@ -7,6 +7,39 @@ import { acumaticaConnector, createAcumaticaConnector } from './acumatica.ts';
 import { createPipedriveConnector, pipedriveConnector } from './pipedrive.ts';
 import { supermemoryConnectors } from './supermemory.ts';
 
+
+const acumaticaFinancialKinds = [
+  'account',
+  'ledger',
+  'financial-period',
+  'currency',
+  'journal-transaction',
+  'ar-payment',
+  'customer-class',
+  'customer-payment-method',
+  'ap-bill',
+  'ap-check',
+  'vendor-class',
+  'purchase-receipt',
+  'purchase-order',
+  'cash-transaction',
+  'tax-zone',
+  'tax-category',
+  'tax',
+] as const;
+
+const acumaticaFinancialConnectors = Object.fromEntries(
+  acumaticaFinancialKinds.map((kind) => [
+    `acumatica-financial-${kind}`,
+    createAcumaticaConnector(
+      `acumatica-financial-${kind}`,
+      `Acumatica ERP - Financials - ${kind}`,
+      undefined,
+      { includeFinancial: true, includeOperational: false, financialKinds: [kind] },
+    ),
+  ]),
+);
+
 export const connectors: Record<string, ConnectorSpec> = {
   [m365CalendarConnector.id]: m365CalendarConnector,
   [m365MailConnector.id]: m365MailConnector,
@@ -16,6 +49,8 @@ export const connectors: Record<string, ConnectorSpec> = {
   'acumatica-fs': createAcumaticaConnector('acumatica-fs', 'Acumatica ERP - FS', 'FS'),
   'acumatica-blcs': createAcumaticaConnector('acumatica-blcs', 'Acumatica ERP - BLC', 'BLCS'),
   'acumatica-usa': createAcumaticaConnector('acumatica-usa', 'Acumatica ERP - USA', 'USA'),
+  'acumatica-financial': createAcumaticaConnector('acumatica-financial', 'Acumatica ERP - Financials', undefined, { includeFinancial: true, includeOperational: false }),
+  ...acumaticaFinancialConnectors,
   [pipedriveConnector.id]: pipedriveConnector,
   'pipedrive-fs': createPipedriveConnector('pipedrive-fs', 'Pipedrive CRM - FS', 'PIPEDRIVE_API_TOKEN_FS', 'PIPEDRIVE_COMPANY_DOMAIN_FS'),
   'pipedrive-blcs-usa': createPipedriveConnector('pipedrive-blcs-usa', 'Pipedrive CRM - BLCS/USA', 'PIPEDRIVE_API_TOKEN_BLCS_USA', 'PIPEDRIVE_COMPANY_DOMAIN_BLCS_USA'),
