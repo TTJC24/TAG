@@ -35,6 +35,7 @@ import { classifyFreshness } from './freshness.ts';
 import {
   entityHref,
   renderEntityDetail,
+  renderCfoDashboard,
   renderHome,
   renderSearchPage,
   renderTypeListing,
@@ -264,13 +265,18 @@ async function main(): Promise<void> {
     renderHome(buckets, generatedAt, pages.length, buildMeta),
     'utf8',
   );
-  // Search shell
+  // Search shell + CFO snapshot
   await writeFile(
     path.join(absOutDir, 'search.html'),
     renderSearchPage(generatedAt, buildMeta),
     'utf8',
   );
-  log('wrote index.html + search.html');
+  await writeFile(
+    path.join(absOutDir, 'cfo.html'),
+    renderCfoDashboard(buckets, generatedAt, buildMeta),
+    'utf8',
+  );
+  log('wrote index.html + search.html + cfo.html');
 
   // Per-type listings + per-record details
   let totalPagesWritten = 0;
@@ -307,6 +313,11 @@ async function main(): Promise<void> {
   await writeFile(
     path.join(absOutDir, 'search.html'),
     renderSearchPage(generatedAt, buildMeta),
+    'utf8',
+  );
+  await writeFile(
+    path.join(absOutDir, 'cfo.html'),
+    renderCfoDashboard(buckets, generatedAt, buildMeta),
     'utf8',
   );
 

@@ -8,7 +8,7 @@ ENV_FILE="$APP_ROOT/infra/.env"
 HOSTNAME="${COMPANY_BRAIN_HOSTNAME:-brain.blcsops.com}"
 AUTH_CHECK_EMAIL="${AUTH_CHECK_EMAIL:-verify-static-beta@company-brain.local}"
 ACCESS_REQUIRED_MARKER="${ACCESS_REQUIRED_MARKER:-Company Brain Access Required}"
-BETA_ROUTES="${BETA_ROUTES:-/ /search.html /search-index.json /customer/ /contact/ /deal/ /activity/ /order/ /invoice/ /item/ /vendor/ /rep/}"
+BETA_ROUTES="${BETA_ROUTES:-/ /cfo.html /search.html /search-index.json /customer/ /contact/ /deal/ /activity/ /order/ /invoice/ /item/ /vendor/ /rep/ /financial/}"
 
 log() {
   printf '[verify-static-beta] %s\n' "$*"

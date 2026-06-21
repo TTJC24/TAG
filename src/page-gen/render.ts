@@ -128,10 +128,10 @@ interface LayoutOpts {
 }
 
 function layout(opts: LayoutOpts, contentHtml: string): string {
-  const nav = (['index', ...NAV_TYPES] as const)
+  const nav = (['index', 'cfo', ...NAV_TYPES] as const)
     .map((slot) => {
-      const href = slot === 'index' ? '/' : `/${slot}/`;
-      const label = slot === 'index' ? 'Home' : (TYPE_LABELS[slot]?.plural ?? slot);
+      const href = slot === 'index' ? '/' : slot === 'cfo' ? '/cfo.html' : `/${slot}/`;
+      const label = slot === 'index' ? 'Home' : slot === 'cfo' ? 'CFO' : (TYPE_LABELS[slot]?.plural ?? slot);
       const isActive = opts.active === slot ? ' aria-current="page"' : '';
       return `<a href="${escapeHtml(href)}"${isActive}>${escapeHtml(label)}</a>`;
     })
@@ -669,6 +669,304 @@ function renderRelatedLists(
   </section>`;
 }
 
+
+// ---------------------------------------------------------------------------
+// CFO dashboard
+// ---------------------------------------------------------------------------
+interface CfoMoneyBucket {
+  count: number;
+  amount: number;
+}
+
+interface CfoMonthlyAmount {
+  month: string;
+  amount: number;
+}
+
+function parseMoneyValue(value: string | undefined): number {
+  if (!value) return 0;
+  const clean = cleanVisibleText(value)
+    .replace(/\$/g, '')
+    .replace(/,/g, '')
+    .trim();
+  if (!clean || clean === '{}') return 0;
+  const negative = /^\(.*\)$/.test(clean);
+  const n = Number(clean.replace(/[()]/g, ''));
+  if (!Number.isFinite(n)) return 0;
+  return negative ? -n : n;
+}
+
+function firstMoney(fields: Record<string, string>, keys: string[]): number {
+  for (const key of keys) {
+    const n = parseMoneyValue(fields[key]);
+    if (n !== 0) return n;
+  }
+  return 0;
+}
+
+function parseCfoDate(value: string | undefined): Date | null {
+  if (!value || cleanVisibleText(value) === '{}') return null;
+  const ms = Date.parse(cleanVisibleText(value));
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+function monthKey(d: Date | null): string | null {
+  if (!d) return null;
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+function cfoBranch(entity: ClassifiedEntity): string {
+  return visible(entity.fields.BranchID ?? entity.fields.Branch ?? entity.sourceInstance, 'Tenant');
+}
+
+function addBucket(map: Map<string, CfoMoneyBucket>, key: string, amount: number): void {
+  const current = map.get(key) ?? { count: 0, amount: 0 };
+  current.count += 1;
+  current.amount += amount;
+  map.set(key, current);
+}
+
+function addMonth(map: Map<string, number>, key: string | null, amount: number): void {
+  if (!key) return;
+  map.set(key, (map.get(key) ?? 0) + amount);
+}
+
+function formatCurrencyAmount(value: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value);
+}
+
+function formatPlainNumber(value: number): string {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+}
+
+function moneyStat(label: string, value: number, sub: string): string {
+  return `<div class="cfo-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatCurrencyAmount(value))}</strong><small>${escapeHtml(sub)}</small></div>`;
+}
+
+function countStat(label: string, value: number, sub: string): string {
+  return `<div class="cfo-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(formatPlainNumber(value))}</strong><small>${escapeHtml(sub)}</small></div>`;
+}
+
+function moneyRows(map: Map<string, CfoMoneyBucket>, limit = 12): string {
+  const rows = Array.from(map.entries())
+    .sort((a, b) => Math.abs(b[1].amount) - Math.abs(a[1].amount))
+    .slice(0, limit);
+  if (rows.length === 0) return '<tr><td colspan="3" class="muted">No records.</td></tr>';
+  return rows.map(([label, bucket]) => `<tr><th>${escapeHtml(label)}</th><td>${bucket.count.toLocaleString()}</td><td>${escapeHtml(formatCurrencyAmount(bucket.amount))}</td></tr>`).join('\n');
+}
+
+function monthlyRows(months: CfoMonthlyAmount[]): string {
+  if (months.length === 0) return '<tr><td colspan="2" class="muted">No dated records.</td></tr>';
+  return months.map((row) => `<tr><th>${escapeHtml(row.month)}</th><td>${escapeHtml(formatCurrencyAmount(row.amount))}</td></tr>`).join('\n');
+}
+
+export function renderCfoDashboard(
+  buckets: ClassifiedBuckets,
+  generatedAt: Date,
+  buildMeta?: BuildMeta,
+): string {
+  const invoices = buckets.invoices;
+  const orders = buckets.orders;
+  const financials = buckets.financials;
+  const byFinancialKind = new Map<string, ClassifiedEntity[]>();
+  for (const entity of financials) {
+    const kind = visible(entity.fields.financial_kind, 'unknown');
+    const list = byFinancialKind.get(kind) ?? [];
+    list.push(entity);
+    byFinancialKind.set(kind, list);
+  }
+
+  let invoiceAmount = 0;
+  let invoiceBalance = 0;
+  let overdueBalance = 0;
+  let dueSoonBalance = 0;
+  let closedInvoiceAmount = 0;
+  const invoiceByBranch = new Map<string, CfoMoneyBucket>();
+  const arAging = new Map<string, CfoMoneyBucket>([
+    ['Current/not due', { count: 0, amount: 0 }],
+    ['1-30 days overdue', { count: 0, amount: 0 }],
+    ['31-60 days overdue', { count: 0, amount: 0 }],
+    ['61-90 days overdue', { count: 0, amount: 0 }],
+    ['90+ days overdue', { count: 0, amount: 0 }],
+    ['No due date', { count: 0, amount: 0 }],
+  ]);
+  const revenueByMonth = new Map<string, number>();
+  const nowMs = generatedAt.getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  for (const invoice of invoices) {
+    const amount = firstMoney(invoice.fields, ['Amount', 'DetailTotal', 'ControlTotal']);
+    const balance = firstMoney(invoice.fields, ['Balance', 'OpenBalance', 'UnpaidBalance']);
+    const dueDate = parseCfoDate(invoice.fields.DueDate);
+    const invoiceDate = parseCfoDate(invoice.fields.Date ?? invoice.fields.CreatedDate);
+    invoiceAmount += amount;
+    invoiceBalance += balance;
+    if (visible(invoice.fields.Status).toLowerCase() === 'closed') closedInvoiceAmount += amount;
+    addBucket(invoiceByBranch, cfoBranch(invoice), amount);
+    addMonth(revenueByMonth, monthKey(invoiceDate), amount);
+
+    if (balance > 0) {
+      if (!dueDate) {
+        addBucket(arAging, 'No due date', balance);
+      } else {
+        const days = Math.floor((nowMs - dueDate.getTime()) / dayMs);
+        if (days <= 0) {
+          addBucket(arAging, 'Current/not due', balance);
+          if (days >= -30) dueSoonBalance += balance;
+        } else if (days <= 30) {
+          overdueBalance += balance;
+          addBucket(arAging, '1-30 days overdue', balance);
+        } else if (days <= 60) {
+          overdueBalance += balance;
+          addBucket(arAging, '31-60 days overdue', balance);
+        } else if (days <= 90) {
+          overdueBalance += balance;
+          addBucket(arAging, '61-90 days overdue', balance);
+        } else {
+          overdueBalance += balance;
+          addBucket(arAging, '90+ days overdue', balance);
+        }
+      }
+    }
+  }
+
+  let orderTotal = 0;
+  let openOrderTotal = 0;
+  const orderByBranch = new Map<string, CfoMoneyBucket>();
+  for (const order of orders) {
+    const total = firstMoney(order.fields, ['ControlTotal', 'OrderTotal', 'Amount', 'DetailTotal']);
+    const status = visible(order.fields.Status).toLowerCase();
+    orderTotal += total;
+    addBucket(orderByBranch, cfoBranch(order), total);
+    if (!['closed', 'completed', 'cancelled', 'canceled'].includes(status)) openOrderTotal += total;
+  }
+
+  const arPayments = byFinancialKind.get('ar-payment') ?? [];
+  const apBills = byFinancialKind.get('ap-bill') ?? [];
+  const apChecks = byFinancialKind.get('ap-check') ?? [];
+  const journals = byFinancialKind.get('journal-transaction') ?? [];
+  let arPaymentTotal = 0;
+  let arUnapplied = 0;
+  const arPaymentByBranch = new Map<string, CfoMoneyBucket>();
+  for (const payment of arPayments) {
+    const amount = firstMoney(payment.fields, ['PaymentAmount', 'Amount', 'OrigDocAmt']);
+    arPaymentTotal += amount;
+    arUnapplied += firstMoney(payment.fields, ['UnappliedBalance', 'Balance']);
+    addBucket(arPaymentByBranch, cfoBranch(payment), amount);
+  }
+
+  let apBillTotal = 0;
+  let apOpenTotal = 0;
+  const apBillByBranch = new Map<string, CfoMoneyBucket>();
+  for (const bill of apBills) {
+    const amount = firstMoney(bill.fields, ['Amount', 'Balance', 'OrigDocAmt', 'DetailTotal']);
+    const balance = firstMoney(bill.fields, ['Balance', 'UnpaidBalance', 'Amount']);
+    apBillTotal += amount;
+    apOpenTotal += Math.max(balance, 0);
+    addBucket(apBillByBranch, cfoBranch(bill), amount);
+  }
+
+  let apPaymentTotal = 0;
+  const apCheckByBranch = new Map<string, CfoMoneyBucket>();
+  for (const check of apChecks) {
+    const amount = firstMoney(check.fields, ['PaymentAmount', 'Amount']);
+    apPaymentTotal += amount;
+    addBucket(apCheckByBranch, cfoBranch(check), amount);
+  }
+
+  const journalByModule = new Map<string, CfoMoneyBucket>();
+  const journalByBranch = new Map<string, CfoMoneyBucket>();
+  for (const journal of journals) {
+    addBucket(journalByModule, visible(journal.fields.Module, 'Unknown'), 0);
+    addBucket(journalByBranch, cfoBranch(journal), 0);
+  }
+
+  const lastTwelve = Array.from(revenueByMonth.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-12)
+    .map(([month, amount]) => ({ month, amount }));
+
+  const financialKindRows = Array.from(byFinancialKind.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([kind, list]) => `<tr><th>${escapeHtml(kind)}</th><td>${list.length.toLocaleString()}</td></tr>`)
+    .join('\n');
+
+  const content = `
+    <section class="page-heading">
+      <p class="breadcrumbs"><a href="/">Home</a> &rsaquo; <span>CFO</span></p>
+      <h1>CFO Snapshot</h1>
+      <p class="lede">Read-only financial analysis from landed Acumatica and Pipedrive records. These numbers are directional operating analytics, with source records preserved underneath; they are not a substitute for audited financial statements.</p>
+    </section>
+
+    <section class="cfo-grid">
+      ${moneyStat('Invoice amount indexed', invoiceAmount, `${invoices.length.toLocaleString()} invoices`)}
+      ${moneyStat('Open AR balance', invoiceBalance, 'from invoice Balance fields')}
+      ${moneyStat('Overdue AR', overdueBalance, 'positive balances past DueDate')}
+      ${moneyStat('Open order exposure', openOrderTotal, 'orders not closed/completed/cancelled')}
+      ${moneyStat('AR payments indexed', arPaymentTotal, `${arPayments.length.toLocaleString()} payment records`)}
+      ${moneyStat('AP bills indexed', apBillTotal, `${apBills.length.toLocaleString()} bill records`)}
+      ${moneyStat('Open AP proxy', apOpenTotal, 'best-effort from AP bill balances')}
+      ${moneyStat('AP checks/payments', apPaymentTotal, `${apChecks.length.toLocaleString()} check/payment records`)}
+      ${countStat('Journal batches indexed', journals.length, 'posted/unposted journal transaction headers')}
+    </section>
+
+    <section class="cfo-callout">
+      <h2>CFO read</h2>
+      <p><strong>Liquidity pressure proxy:</strong> open AR minus open AP is ${escapeHtml(formatCurrencyAmount(invoiceBalance - apOpenTotal))}. Treat this as an operating signal only; cash account balances and formal trial balance endpoints are not yet published into the brain.</p>
+      <p><strong>Collection focus:</strong> overdue AR is ${escapeHtml(formatCurrencyAmount(overdueBalance))}; AR due within 30 days is ${escapeHtml(formatCurrencyAmount(dueSoonBalance))}.</p>
+      <p><strong>Revenue coverage:</strong> indexed invoices total ${escapeHtml(formatCurrencyAmount(invoiceAmount))}; closed invoice amount is ${escapeHtml(formatCurrencyAmount(closedInvoiceAmount))}. Use Acumatica reports for final GAAP/period close numbers until report/GI endpoints are added.</p>
+    </section>
+
+    <div class="cfo-two-col">
+      <section>
+        <h2>AR aging</h2>
+        <table class="entity-fields cfo-table"><thead><tr><th>Bucket</th><th>Count</th><th>Balance</th></tr></thead><tbody>${moneyRows(arAging, 10)}</tbody></table>
+      </section>
+      <section>
+        <h2>Invoices by branch</h2>
+        <table class="entity-fields cfo-table"><thead><tr><th>Branch</th><th>Count</th><th>Amount</th></tr></thead><tbody>${moneyRows(invoiceByBranch)}</tbody></table>
+      </section>
+      <section>
+        <h2>Last 12 invoice months</h2>
+        <table class="entity-fields cfo-table"><thead><tr><th>Month</th><th>Amount</th></tr></thead><tbody>${monthlyRows(lastTwelve)}</tbody></table>
+      </section>
+      <section>
+        <h2>Orders by branch</h2>
+        <table class="entity-fields cfo-table"><thead><tr><th>Branch</th><th>Count</th><th>Total</th></tr></thead><tbody>${moneyRows(orderByBranch)}</tbody></table>
+      </section>
+      <section>
+        <h2>AP bills by branch</h2>
+        <table class="entity-fields cfo-table"><thead><tr><th>Branch</th><th>Count</th><th>Amount</th></tr></thead><tbody>${moneyRows(apBillByBranch)}</tbody></table>
+      </section>
+      <section>
+        <h2>AP checks by branch</h2>
+        <table class="entity-fields cfo-table"><thead><tr><th>Branch</th><th>Count</th><th>Amount</th></tr></thead><tbody>${moneyRows(apCheckByBranch)}</tbody></table>
+      </section>
+      <section>
+        <h2>Journal batches by module</h2>
+        <table class="entity-fields cfo-table"><thead><tr><th>Module</th><th>Count</th><th>Amount</th></tr></thead><tbody>${moneyRows(journalByModule)}</tbody></table>
+      </section>
+      <section>
+        <h2>Financial records indexed</h2>
+        <table class="entity-fields cfo-table"><thead><tr><th>Kind</th><th>Count</th></tr></thead><tbody>${financialKindRows || '<tr><td colspan="2" class="muted">No financial records indexed.</td></tr>'}</tbody></table>
+      </section>
+    </div>
+
+    <section class="cfo-callout cfo-limits">
+      <h2>What is still missing for true CFO close-pack quality</h2>
+      <ul>
+        <li>Formal P&amp;L, balance sheet, and trial balance endpoints are not published in the current Acumatica Default endpoint.</li>
+        <li>Cash account/subaccount report access is not yet available, so cash position is not authoritative here.</li>
+        <li>Margins require line-level cost/COGS detail; this snapshot only has the landed header/record fields.</li>
+        <li>All values are read-only static snapshots. Always use Acumatica as the system of record for period close, tax, audit, and banking decisions.</li>
+      </ul>
+      <p><a href="/financial/">Browse financial records</a> · <a href="/invoice/">Invoices</a> · <a href="/order/">Orders</a> · <a href="/search.html">Search source records</a></p>
+    </section>
+  `;
+
+  return layout({ title: 'CFO Snapshot', generatedAt, active: 'cfo', buildMeta }, content);
+}
+
 // ---------------------------------------------------------------------------
 // Search page (shell + client-side search)
 // ---------------------------------------------------------------------------
@@ -739,6 +1037,39 @@ h3 { margin: 1.5rem 0 0.5rem; font-size: 1.05rem; }
 .muted { color: var(--muted); }
 .mono { font-family: "SFMono-Regular", Menlo, Consolas, monospace; font-size: 0.9em; }
 .count { color: var(--muted); font-weight: normal; font-size: 0.9em; }
+
+.cfo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.9rem;
+  margin: 1.25rem 0;
+}
+.cfo-stat {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.9rem 1rem;
+}
+.cfo-stat span { display: block; color: var(--muted); font-size: 0.85rem; }
+.cfo-stat strong { display: block; font-size: 1.35rem; margin: 0.2rem 0; }
+.cfo-stat small { color: var(--muted); }
+.cfo-callout {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  margin: 1.25rem 0;
+}
+.cfo-callout h2 { margin-top: 0; }
+.cfo-two-col {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.25rem;
+  align-items: start;
+}
+.cfo-two-col section { min-width: 0; }
+.cfo-table th, .cfo-table td { white-space: nowrap; }
+.cfo-limits ul { margin-bottom: 0.75rem; }
 
 .home-grid {
   display: grid;
@@ -1428,6 +1759,7 @@ function bucketFor(buckets: ClassifiedBuckets, type: string): ClassifiedEntity[]
     case 'deal': return buckets.deals;
     case 'contact': return buckets.contacts;
     case 'activity': return buckets.activities;
+    case 'financial': return buckets.financials;
     default: return [];
   }
 }

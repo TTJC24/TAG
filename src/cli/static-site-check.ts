@@ -23,8 +23,8 @@ interface BuildMeta {
   countsBySource?: unknown;
 }
 
-const REQUIRED_FILES = ['index.html', 'search.html', 'search.js', 'search-index.json', 'build-meta.json'];
-const REQUIRED_DIRS = ['customer', 'contact', 'deal', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep'];
+const REQUIRED_FILES = ['index.html', 'cfo.html', 'search.html', 'search.js', 'search-index.json', 'build-meta.json'];
+const REQUIRED_DIRS = ['customer', 'contact', 'deal', 'activity', 'order', 'invoice', 'item', 'vendor', 'rep', 'financial'];
 const RAW_MARKUP_TITLE_PATTERNS = [
   /<\s*br\b/i,
   /<\s*a\b/i,
