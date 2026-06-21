@@ -150,16 +150,42 @@ function parseDate(value: unknown): Date | null {
   return new Date(ms);
 }
 
-function sourceInstanceFor(sourceId: string): string {
-  if (sourceId === 'acumatica-fs') return 'FS';
-  if (sourceId === 'acumatica-blcs') return 'BLC';
-  if (sourceId === 'acumatica-usa') return 'USA';
+function sourceInstanceFor(sourceId: string, sourceKind: string, fields: Record<string, string>): string {
+  if (sourceKind === 'acumatica') return acumaticaScopeFor(fields);
   if (sourceId === 'pipedrive-fs') return 'FS';
   if (sourceId === 'pipedrive-blcs-usa') return 'BLCS/USA';
   if (sourceId.endsWith('-fs')) return 'FS';
   if (sourceId.endsWith('-blcs')) return 'BLCS';
   if (sourceId.endsWith('-usa')) return 'USA';
   return sourceId;
+}
+
+function acumaticaScopeFor(fields: Record<string, string>): string {
+  const candidates = [
+    fields['Branch'],
+    fields['BranchID'],
+    fields['CustomerID'],
+    fields['OrderNbr'],
+    fields['ReferenceNbr'],
+    fields['VendorID'],
+    fields['SalespersonID'],
+    fields['WarehouseID'],
+  ];
+  for (const candidate of candidates) {
+    const scope = acumaticaScopeFromValue(candidate);
+    if (scope) return scope;
+  }
+  return 'Tenant';
+}
+
+function acumaticaScopeFromValue(value: string | undefined): string | null {
+  if (!value) return null;
+  const raw = cleanVisibleText(value).toUpperCase();
+  if (!raw || raw === '{}') return null;
+  if (/^(FS|FSC|FSV|FSINV|FSSO|FASTENING)/.test(raw)) return 'FS';
+  if (/^(BLC|BLCS|BLV|BLINV|BLSO|BIG LEAGUE|BL\b)/.test(raw)) return 'BLC';
+  if (/^(USA|USV|USAINV|USSO|UTILITY)/.test(raw)) return 'USA';
+  return null;
 }
 
 /**
@@ -263,7 +289,7 @@ export function classifyPage(page: RawPage): ClassifiedEntity {
     type: classifyType(page, fm),
     title: entityTitle(page, fm, fields),
     sourceSystem,
-    sourceInstance: sourceInstanceFor(page.source_id),
+    sourceInstance: sourceInstanceFor(page.source_id, sourceKind, fields),
     entityKind: getString(fm, 'pipedrive_kind') ?? getString(fm, 'acumatica_kind'),
     sourceKind,
     sourceUri: getString(fm, 'source_uri'),
@@ -290,22 +316,63 @@ export function classifyAll(pages: readonly RawPage[]): ClassifiedBuckets {
     activities: [],
     other: [],
   };
+  const acumaticaSeen = new Map<string, ClassifiedEntity>();
   for (const p of pages) {
     const c = classifyPage(p);
-    switch (c.type) {
-      case 'customer': buckets.customers.push(c); break;
-      case 'order': buckets.orders.push(c); break;
-      case 'invoice': buckets.invoices.push(c); break;
-      case 'item': buckets.items.push(c); break;
-      case 'vendor': buckets.vendors.push(c); break;
-      case 'rep': buckets.reps.push(c); break;
-      case 'deal': buckets.deals.push(c); break;
-      case 'contact': buckets.contacts.push(c); break;
-      case 'activity': buckets.activities.push(c); break;
-      default: buckets.other.push(c); break;
+    const key = acumaticaDedupeKey(c);
+    const existing = key ? acumaticaSeen.get(key) : undefined;
+    if (existing) {
+      if (c.pageUpdatedAt > existing.pageUpdatedAt) {
+        replaceInBucket(buckets, existing, c);
+        acumaticaSeen.set(key!, c);
+      }
+      continue;
     }
+    if (key) acumaticaSeen.set(key, c);
+    pushToBucket(buckets, c);
   }
   return buckets;
+}
+
+function acumaticaDedupeKey(entity: ClassifiedEntity): string | null {
+  if (entity.sourceKind !== 'acumatica') return null;
+  return `${entity.type}:${entity.id}`;
+}
+
+function pushToBucket(buckets: ClassifiedBuckets, c: ClassifiedEntity): void {
+  switch (c.type) {
+    case 'customer': buckets.customers.push(c); break;
+    case 'order': buckets.orders.push(c); break;
+    case 'invoice': buckets.invoices.push(c); break;
+    case 'item': buckets.items.push(c); break;
+    case 'vendor': buckets.vendors.push(c); break;
+    case 'rep': buckets.reps.push(c); break;
+    case 'deal': buckets.deals.push(c); break;
+    case 'contact': buckets.contacts.push(c); break;
+    case 'activity': buckets.activities.push(c); break;
+    default: buckets.other.push(c); break;
+  }
+}
+
+function replaceInBucket(buckets: ClassifiedBuckets, oldEntity: ClassifiedEntity, newEntity: ClassifiedEntity): void {
+  const list = bucketListFor(buckets, oldEntity.type);
+  const index = list.indexOf(oldEntity);
+  if (index >= 0) list[index] = newEntity;
+}
+
+function bucketListFor(buckets: ClassifiedBuckets, type: EntityType): ClassifiedEntity[] {
+  switch (type) {
+    case 'customer': return buckets.customers;
+    case 'order': return buckets.orders;
+    case 'invoice': return buckets.invoices;
+    case 'item': return buckets.items;
+    case 'vendor': return buckets.vendors;
+    case 'rep': return buckets.reps;
+    case 'deal': return buckets.deals;
+    case 'contact': return buckets.contacts;
+    case 'activity': return buckets.activities;
+    default: return buckets.other;
+  }
 }
 
 /**
