@@ -77,11 +77,15 @@ lockfile, checks formatting, type-checks every workspace package, runs the
 feature suite against a clean PostgreSQL 16 database (including all
 migrations), and builds the workspace.
 
-Branch protection on `main` requires `verify` and requires the head branch to
-be up to date before merge. Treat either setting disappearing as a control
-failure. The gate was proved after installation with a throwaway pull request
-containing a deliberate type error: GitHub reported `verify` as failed and
-`mergeStateStatus: BLOCKED`; the pull request was then closed without merge.
+The `verify` workflow is green, but it is not yet a merge gate. GitHub rejected
+the `main` protection request with `403` because private-repository branch
+protection is unavailable on the repository's current plan. Do not describe CI
+as enforced until an administrator upgrades the plan (or deliberately makes
+the repository public), requires the exact `verify` check with strict
+up-to-date branches and admin enforcement, and proves the gate with a
+deliberately failing throwaway pull request. The proof must show GitHub
+reporting the failing check and blocking merge; close the pull request without
+merging afterward.
 
 ## Observe
 

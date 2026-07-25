@@ -54,9 +54,10 @@ and preserves one trace ID through intake, worker transition, and audit.
 
 GitHub Actions runs formatting, workspace type checks, the feature suite
 against a clean PostgreSQL 16 database, and the production build in the
-`verify` job. The `main` branch requires that exact check and requires branches
-to be current before merge; see [the runbook](docs/runbook.md) for the
-enforcement proof.
+`verify` job. Making that check a merge gate remains blocked until this private
+repository is upgraded to a GitHub plan that supports branch protection (or is
+deliberately made public). See [the runbook](docs/runbook.md) for the exact
+required settings and current evidence.
 
 ## Documentation
 
