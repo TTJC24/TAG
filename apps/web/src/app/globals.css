@@ -645,6 +645,69 @@ textarea {
   border-color: #e1c17f;
 }
 
+.approvalResolutionForm {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.approvalResolutionForm label {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.approvalResolutionForm textarea {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  padding: 10px;
+  resize: vertical;
+}
+
+.resolutionList {
+  display: grid;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.resolutionList li {
+  align-items: center;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: space-between;
+  padding: 14px 2px;
+}
+
+.resolutionList li:first-child {
+  border-top: 0;
+}
+
+.resolutionList li > div {
+  display: grid;
+  gap: 5px;
+}
+
+.resolutionList li > div:last-child {
+  justify-items: end;
+}
+
+.resolutionList small {
+  color: var(--muted);
+}
+
+.status.approved {
+  background: #e2f3e9;
+  color: #1e6740;
+}
+
+.status.rejected {
+  background: #f8e5e1;
+  color: #8f3528;
+}
+
 .auditList {
   display: grid;
 }

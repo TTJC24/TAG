@@ -63,29 +63,51 @@ pnpm test:smoke
 
 The feature test owns only the
 `operating-layer-feature-test_feature-test-postgres` volume and always tears it
-down. It covers successful intake, duplicate/conflicting idempotency keys,
-typed agent output, approval routing, entity authorization/RLS, database
+down. It covers successful intake, seven-day idempotency retention and reaping,
+typed agent output, declarative policy equivalence and activation controls,
+internal approve/reject resolution, entity authorization/RLS, database
 transition enforcement, task-status projection drift, safe runtime identity,
 audit immutability and chain verification/tamper detection, trace equality,
 and retry exhaustion.
 
 ## Continuous integration and merge gate
 
-`.github/workflows/ci.yml` runs one required job named `verify` for pull
+`.github/workflows/ci.yml` runs one check named `verify` for pull
 requests targeting `main` and pushes to `main`. It installs from the frozen
 lockfile, checks formatting, type-checks every workspace package, runs the
 feature suite against a clean PostgreSQL 16 database (including all
 migrations), and builds the workspace.
 
-The `verify` workflow is green, but it is not yet a merge gate. GitHub rejected
-the `main` protection request with `403` because private-repository branch
-protection is unavailable on the repository's current plan. Do not describe CI
-as enforced until an administrator upgrades the plan (or deliberately makes
-the repository public), requires the exact `verify` check with strict
-up-to-date branches and admin enforcement, and proves the gate with a
-deliberately failing throwaway pull request. The proof must show GitHub
-reporting the failing check and blocking merge; close the pull request without
-merging afterward.
+### Accepted single-committer exception
+
+Strict hosted branch protection is waived only while this repository has
+exactly one human committer and is not a dependency for other work. The team
+still uses pull requests: do not push directly to `main`, and do not merge a PR
+unless its exact `verify` check is green.
+
+The exception ends immediately when either condition occurs:
+
+1. a second human receives commit access; or
+2. another repository, deployment, or team begins depending on this repository.
+
+At that trigger, a repository administrator must enable strict protection on
+`main` (and any other default PR target) in one settings change:
+
+1. Open **Settings → Branches → Add branch protection rule**.
+2. Set the branch name pattern to `main`.
+3. Enable **Require a pull request before merging**.
+4. Enable **Require status checks to pass before merging**.
+5. Select the check with the exact name **`verify`**.
+6. Enable **Require branches to be up to date before merging**.
+7. Enable **Do not allow bypassing the above settings** (including
+   administrators), then save.
+
+Immediately prove the gate rather than trusting the setting: open a throwaway
+PR that deliberately fails typecheck or formatting, wait for `verify` to fail,
+confirm GitHub disables merge, and close the PR without merging. Then open a
+passing PR and confirm the normal path. If the plan still returns `403` for
+private-repository protection, upgrade the plan before the trigger condition
+is allowed to persist.
 
 ## Observe
 
@@ -99,6 +121,11 @@ merging afterward.
 - Failed/exhausted outbox work appears in the executive queue.
 - PostgreSQL is authoritative for outbox attempts and workflow completion.
   Redis or process restarts do not decide either.
+- The worker runs the bounded idempotency reaper at startup and every 15
+  minutes. Reaper runs are recorded in `idempotency_reaper_runs`; failure only
+  delays cleanup because PostgreSQL expiry remains authoritative.
+- Approval outcomes are internal facts. A `completed` approval workflow does
+  not imply that any external system was changed.
 
 ## Recover local services
 

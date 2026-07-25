@@ -8,6 +8,10 @@ The canonical schema is the ordered set of forward-only migrations:
 - `infrastructure/migrations/0003_phase1_closeout.sql` adds the task-status
   projection guard, safe runtime role boundary, and narrow worker claim
   function.
+- `infrastructure/migrations/0004_phase2_approval_resolution.sql` adds
+  versioned idempotency retention, immutable declarative approval policy,
+  guarded activation, approval resolution history, and terminal
+  approve/reject transitions.
 
 ## Ownership
 
@@ -26,7 +30,11 @@ Organization
   -> Task <-> SourceRecord
   -> Workflow -> WorkflowTransition
               -> Recommendation -> RecommendationSource -> SourceRecordVersion
-              -> Approval -> Action -> ActionVerification
+              -> Approval -> ApprovalResolution
+                          -> Action -> ActionVerification
+  -> ApprovalPolicyVersion -> ApprovalPolicyRule
+                           -> ApprovalPolicyActivation
+  -> IdempotencyRetentionPolicyVersion -> IdempotencyKey
   -> AgentRun -> PromptVersion
   -> ConnectorSyncRun
   -> AuditStream -> AuditEvent
@@ -41,6 +49,12 @@ Organization
 - A workflow transition is unique by command ID and workflow version.
 - Workflow state changes use optimistic version checks.
 - An approval binds to a payload hash and policy version.
+- A policy version and its rules are immutable; only the guarded binding
+  function can activate a version.
+- A new policy version requires a distinct requester and activator; a
+  previously activated version may be restored by one authorized actor.
+- Approval resolution is an immutable fact and may update the approval
+  projection only through `resolve_approval_workflow()`.
 - An action has an organization-scoped idempotency key.
 - Prompt content is versioned; terminal agent outputs cannot be overwritten and retries remain separately identifiable.
 - Audit events are append-only for the application role and chain by
@@ -50,7 +64,7 @@ Organization
   transactionally guarded projection and must match at commit.
 - State mutation, audit append, and outbox append occur in one database transaction.
 
-## Implemented Phase 1 controls
+## Implemented controls
 
 - explicit application-role organization context and forced row-level security;
 - an allow-listed transition graph and transactional transition function;
@@ -60,10 +74,15 @@ Organization
 - PostgreSQL-owned outbox leases, bounded attempts, errors, and dead-letter status.
 - runtime boot rejection for superuser, `BYPASSRLS`, or protected-table-owner
   identities.
+- immutable seven-day retention-policy versions and snapshotted expiries;
+- bounded, recorded reaper batches using `FOR UPDATE SKIP LOCKED`;
+- immutable approval-policy versions/rules with guarded organization bindings;
+- internal approve/reject resolution with policy/actor/reason/trace history.
 
 ## Deferred schema decisions
 
-- approved retention/deletion implementation;
+- organization-wide retention and deletion policy beyond idempotency replay
+  records;
 - embedding dimensions and vector indexes;
 - cross-entity record-link model;
 - financial threshold/policy tables;

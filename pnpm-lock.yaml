@@ -245,6 +245,10 @@ importers:
         version: 3.2.7(@types/node@24.13.3)(tsx@4.23.1)
 
   packages/workflows:
+    dependencies:
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: "catalog:"

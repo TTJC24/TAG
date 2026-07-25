@@ -99,7 +99,7 @@ try {
   );
 
   const healthResponse = await waitFor("http://localhost:3301/health");
-  const homeResponse = await waitFor("http://localhost:3300");
+  await waitFor("http://localhost:3300");
   const health = await readJson(healthResponse);
   const idempotencyKey = `process-smoke-${crypto.randomUUID()}`;
   const issue = await readJson(
@@ -114,8 +114,11 @@ try {
       body: JSON.stringify({
         organizationId: "10000000-0000-4000-8000-000000000001",
         title: "Process smoke test operational follow-up",
-        description: "Internal test issue for process-level validation.",
-        retentionClassification: "operational",
+        description:
+          "A $125,000 receivable needs internal approval before follow-up.",
+        financialExposure: 125000,
+        financialExposureCurrency: "USD",
+        retentionClassification: "financial_support",
       }),
     }),
   );
@@ -137,24 +140,68 @@ try {
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  if (
-    !["completed", "awaiting_approval"].includes(
-      detail?.workflows[0]?.current_state,
-    )
-  ) {
-    throw new Error("worker did not finish the smoke-test workflow");
+  if (detail?.workflows[0]?.current_state !== "awaiting_approval") {
+    throw new Error("worker did not route the smoke-test workflow to approval");
   }
 
-  const [intakeResponse, taskResponse] = await Promise.all([
+  const pendingTaskResponse = await fetch(
+    `http://localhost:3300/tasks/${issue.taskId}?organizationId=10000000-0000-4000-8000-000000000001`,
+  );
+  const pendingTaskHtml = await pendingTaskResponse.text();
+  if (
+    !pendingTaskResponse.ok ||
+    !pendingTaskHtml.includes("Approve internally")
+  ) {
+    throw new Error("task detail did not render the approval control");
+  }
+
+  const approvalId = detail.approvals[0]?.id;
+  if (!approvalId) {
+    throw new Error("approval-pending workflow has no approval record");
+  }
+  const resolutionReason = "Approved by the process smoke test.";
+  const resolution = await readJson(
+    await fetch(`http://localhost:3301/v1/approvals/${approvalId}/resolution`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": `process-smoke-approval-${crypto.randomUUID()}`,
+        "x-dev-user-email": "approver@local.operating-layer",
+        "x-trace-id": idempotencyKey,
+      },
+      body: JSON.stringify({
+        organizationId: "10000000-0000-4000-8000-000000000001",
+        decision: "approved",
+        reason: resolutionReason,
+      }),
+    }),
+  );
+  if (resolution.workflowState !== "completed") {
+    throw new Error("approval resolution did not reach completed");
+  }
+
+  const [homeResponse, intakeResponse, taskResponse] = await Promise.all([
+    fetch("http://localhost:3300"),
     fetch("http://localhost:3300/issues/new"),
     fetch(
       `http://localhost:3300/tasks/${issue.taskId}?organizationId=10000000-0000-4000-8000-000000000001`,
     ),
   ]);
-  if (!intakeResponse.ok || !taskResponse.ok) {
+  if (!homeResponse.ok || !intakeResponse.ok || !taskResponse.ok) {
     throw new Error(
-      `web routes failed: intake=${intakeResponse.status}, task=${taskResponse.status}`,
+      `web routes failed: home=${homeResponse.status}, intake=${intakeResponse.status}, task=${taskResponse.status}`,
     );
+  }
+  const [homeHtml, taskHtml] = await Promise.all([
+    homeResponse.text(),
+    taskResponse.text(),
+  ]);
+  if (
+    !homeHtml.includes("Recent approval outcomes") ||
+    !taskHtml.includes(resolutionReason) ||
+    !taskHtml.includes("Approval resolution")
+  ) {
+    throw new Error("resolved approval was not visible in the web UI");
   }
 
   console.log(
@@ -162,7 +209,8 @@ try {
       {
         apiHealth: health.status,
         taskId: issue.taskId,
-        workflowState: detail.workflows[0].current_state,
+        workflowState: resolution.workflowState,
+        approvalDecision: resolution.decision,
         recommendationCount: detail.recommendations.length,
         auditEventCount: detail.auditHistory.length,
         executivePageStatus: homeResponse.status,

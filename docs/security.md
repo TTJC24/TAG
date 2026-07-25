@@ -1,6 +1,6 @@
 # Security and Control Model
 
-Status: Approved for Phase 1 with provisional role assignments
+Status: Approved through Phase 2 slice one with provisional role assignments
 Date: 2026-07-25
 
 ## Security objectives
@@ -41,19 +41,23 @@ Every request evaluates:
 
 No endpoint infers organization access from a request body alone. Repository methods require an authorization scope. Batch operations enumerate exact targets and never hide affected records.
 
-### Initial risk policy
+### Active declarative risk policy
 
-| Risk | Capability                                  | Phase 1 behavior                                                |
-| ---- | ------------------------------------------- | --------------------------------------------------------------- |
-| 0    | read, summarize, classify                   | automatic, logged                                               |
-| 1    | draft communication                         | draft only, logged                                              |
-| 2    | create/update internal operating-layer task | allowed by permission, logged                                   |
-| 3    | update CRM                                  | adapter absent; approval required in a later phase              |
-| 4    | send external message                       | adapter absent; approval required in a later phase              |
-| 5    | financial/ERP write                         | prohibited in Phase 1; explicit approval and verification later |
-| 6    | payment, journal, customer/vendor master    | prohibited                                                      |
+| Risk | Capability                                  | Current behavior                                                    |
+| ---- | ------------------------------------------- | ------------------------------------------------------------------- |
+| 0    | read, summarize, classify                   | automatic, logged                                                   |
+| 1    | draft communication                         | draft only, logged                                                  |
+| 2    | create/update internal operating-layer task | allowed by permission, logged                                       |
+| 3    | update CRM                                  | adapter absent; approval required in a later phase                  |
+| 4    | send external message                       | adapter absent; approval required in a later phase                  |
+| 5    | financial/ERP write                         | prohibited; explicit approval and verification require later review |
+| 6    | payment, journal, customer/vendor master    | prohibited                                                          |
 
-Agent output never raises its own permission. Policy code determines the effective risk and approval rule.
+Agent output never raises its own permission. Immutable, organization-scoped
+policy data interpreted by one typed evaluator determines the effective risk
+and approval rule. A new policy version requires two distinct actors to
+activate; restoration of an already approved version is a separately audited
+single-actor break-glass path.
 
 Model output is always treated as hostile input. It must pass a typed runtime
 schema, citation-scope checks, confidence bounds, and policy evaluation before
@@ -72,6 +76,12 @@ An approval binds to:
 - expiration time when configured.
 
 Changing the payload invalidates the approval. A requester may not satisfy a two-person approval rule. Execution verifies that authorization, approval, payload hash, and target version are still current. Post-action verification is a separate recorded event.
+
+The implemented approval-resolution slice supports one authorized human
+approve/reject decision for the seeded policy. It records actor, reason,
+immutable policy-version ID/content hash, resulting state, and the workflow's
+root trace. It never executes an external action. Multi-approver collection is
+not implemented even though the policy schema can represent the requirement.
 
 ## Audit integrity
 
@@ -150,7 +160,7 @@ API and worker startup fails closed when `current_user` is a superuser, has
 claim jobs only through the narrow `claim_outbox_job` security-definer
 function and process each claimed job under an explicit organization scope.
 
-## Explicit Phase 1 prohibitions
+## Explicit prohibitions
 
 - no Acumatica, accounting, payment, journal, customer-master, or vendor-master writes;
 - no external communication sends;

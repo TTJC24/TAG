@@ -35,6 +35,17 @@ interface QueueResponse {
     failedJobs: number;
   };
   tasks: QueueTask[];
+  recentResolutions: Array<{
+    id: string;
+    taskId: string;
+    taskTitle: string;
+    decision: "approved" | "rejected";
+    reason: string;
+    resultingWorkflowState: string;
+    policyVersionId: string;
+    resolverName: string;
+    resolvedAt: string;
+  }>;
   jobFailures: Array<{
     id: string;
     topic: string;
@@ -227,6 +238,37 @@ export default async function ExecutiveQueuePage({
           </div>
         )}
       </section>
+
+      {queue.recentResolutions.length > 0 ? (
+        <section className="panel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Closed approval loop</p>
+              <h2>Recent approval outcomes</h2>
+            </div>
+          </div>
+          <ul className="resolutionList">
+            {queue.recentResolutions.map((resolution) => (
+              <li key={resolution.id}>
+                <div>
+                  <Link
+                    href={`/tasks/${resolution.taskId}?organizationId=${selectedOrganizationId}`}
+                  >
+                    {resolution.taskTitle}
+                  </Link>
+                  <small>{resolution.reason}</small>
+                </div>
+                <div>
+                  <span className={`status ${resolution.decision}`}>
+                    {resolution.decision}
+                  </span>
+                  <small>{resolution.resolverName}</small>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {queue.jobFailures.length > 0 ? (
         <section className="panel failurePanel">

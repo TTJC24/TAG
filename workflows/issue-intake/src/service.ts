@@ -1,9 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  appendAuditEvent,
-  canonicalJson,
-  sha256,
-} from "@operating-layer/audit";
+import { appendAuditEvent, sha256 } from "@operating-layer/audit";
 import {
   withOrganizationScope,
   type DatabaseClient,
@@ -15,6 +11,11 @@ import {
   type ManualIssueInput,
 } from "@operating-layer/schemas";
 import { DomainError } from "./errors.js";
+import {
+  claimIdempotentCommand,
+  completeIdempotentCommand,
+  ensureIdempotencyKey,
+} from "./idempotency.js";
 import {
   requireOrganizationPermission,
   type ApplicationPrincipal,
@@ -30,18 +31,6 @@ export interface CreateManualIssueCommand {
   input: ManualIssueInput;
   idempotencyKey: string;
   context: RequestContext;
-}
-
-function ensureIdempotencyKey(value: string): string {
-  const normalized = value.trim();
-  if (normalized.length < 8 || normalized.length > 200) {
-    throw new DomainError(
-      400,
-      "invalid_idempotency_key",
-      "Idempotency-Key must contain 8 to 200 characters",
-    );
-  }
-  return normalized;
 }
 
 async function transitionWorkflow(
@@ -110,57 +99,18 @@ export async function createManualIssue(
       organizationIds: [input.organizationId],
     },
     async (client) => {
-      const claim = await client.query(
-        `INSERT INTO idempotency_keys (
-           organization_id,
-           scope,
-           idempotency_key,
-           request_hash,
-           status
-         )
-         VALUES ($1, 'manual_issue_intake', $2, $3, 'claimed')
-         ON CONFLICT DO NOTHING
-         RETURNING idempotency_key`,
-        [input.organizationId, idempotencyKey, requestHash],
-      );
-
-      if (claim.rowCount === 0) {
-        const existingResult = await client.query<{
-          request_hash: string;
-          status: string;
-          response_reference: string | null;
-        }>(
-          `SELECT request_hash, status, response_reference
-           FROM idempotency_keys
-           WHERE organization_id = $1
-             AND scope = 'manual_issue_intake'
-             AND idempotency_key = $2
-           FOR UPDATE`,
-          [input.organizationId, idempotencyKey],
-        );
-        const existing = existingResult.rows[0];
-        if (!existing || existing.request_hash !== requestHash) {
-          throw new DomainError(
-            409,
-            "idempotency_key_conflict",
-            "The idempotency key was already used with a different request",
-          );
-        }
-        if (existing.status === "completed" && existing.response_reference) {
-          const response = JSON.parse(
-            existing.response_reference,
-          ) as IssueIntakeResponse;
-          return {
-            ...response,
-            duplicate: true,
-            traceId: command.context.traceId,
-          };
-        }
-        throw new DomainError(
-          409,
-          "request_in_progress",
-          "A request with this idempotency key is already in progress",
-        );
+      const claim = await claimIdempotentCommand<IssueIntakeResponse>(client, {
+        organizationId: input.organizationId,
+        scope: "manual_issue_intake",
+        idempotencyKey,
+        requestHash,
+      });
+      if (claim.kind === "replay") {
+        return {
+          ...claim.response,
+          duplicate: true,
+          traceId: claim.response.traceId,
+        };
       }
 
       const sourceSystemResult = await client.query<{ id: string }>(
@@ -185,9 +135,7 @@ export async function createManualIssue(
       const sourceVersionId = randomUUID();
       const taskId = randomUUID();
       const workflowId = randomUUID();
-      const externalId = `manual:${sha256(
-        `${input.organizationId}:${idempotencyKey}`,
-      ).slice(0, 40)}`;
+      const externalId = `manual:${taskId}`;
       const now = new Date().toISOString();
       const rawPayload = {
         schemaVersion: "manual-issue.v1",
@@ -386,7 +334,7 @@ export async function createManualIssue(
           workflowId,
           `postgresql://operating_layer/workflows/${workflowId}`,
           sha256({ workflowId, command: "classify" }),
-          `${idempotencyKey}:classify`,
+          `${taskId}:classify`,
           command.context.traceId,
           command.principal.userId,
           command.context.requestId,
@@ -401,20 +349,13 @@ export async function createManualIssue(
         traceId: command.context.traceId,
       };
 
-      await client.query(
-        `UPDATE idempotency_keys
-         SET status = 'completed', response_reference = $4, updated_at = now()
-         WHERE organization_id = $1
-           AND scope = 'manual_issue_intake'
-           AND idempotency_key = $2
-           AND request_hash = $3`,
-        [
-          input.organizationId,
-          idempotencyKey,
-          requestHash,
-          canonicalJson(response),
-        ],
-      );
+      await completeIdempotentCommand(client, {
+        organizationId: input.organizationId,
+        scope: "manual_issue_intake",
+        idempotencyKey,
+        requestHash,
+        response,
+      });
 
       return response;
     },
@@ -480,7 +421,7 @@ export async function getExecutiveQueue(
            LIMIT 1
          ) recommendation ON true
          WHERE task.organization_id = $1
-           AND task.status NOT IN ('completed', 'cancelled')
+           AND task.status NOT IN ('completed', 'rejected', 'cancelled')
          ORDER BY
            CASE task.priority
              WHEN 'P0' THEN 0
@@ -506,6 +447,27 @@ export async function getExecutiveQueue(
          WHERE organization_id = $1
            AND status IN ('failed', 'dead_letter')
          ORDER BY created_at DESC
+         LIMIT 20`,
+        [organizationId],
+      );
+      const recentResolutionsResult = await client.query(
+        `SELECT
+           resolution.id,
+           resolution.decision,
+           resolution.reason,
+           resolution.resulting_workflow_state AS "resultingWorkflowState",
+           resolution.policy_version_id AS "policyVersionId",
+           resolution.resolved_at AS "resolvedAt",
+           resolution.task_id AS "taskId",
+           task.title AS "taskTitle",
+           resolver.name AS "resolverName"
+         FROM approval_resolutions resolution
+         JOIN tasks task
+           ON task.id = resolution.task_id
+          AND task.organization_id = resolution.organization_id
+         JOIN users resolver ON resolver.id = resolution.resolved_by_user_id
+         WHERE resolution.organization_id = $1
+         ORDER BY resolution.resolved_at DESC
          LIMIT 20`,
         [organizationId],
       );
@@ -543,6 +505,7 @@ export async function getExecutiveQueue(
         overdue,
         blocked,
         approvalPending,
+        recentResolutions: recentResolutionsResult.rows,
         jobFailures: failuresResult.rows,
       };
     },
@@ -641,6 +604,18 @@ export async function getTaskDetail(
          ORDER BY approval.requested_at`,
         [taskId, organizationId],
       );
+      const approvalResolutions = await client.query(
+        `SELECT
+           resolution.*,
+           resolver.name AS resolver_name,
+           resolver.email AS resolver_email
+         FROM approval_resolutions resolution
+         JOIN users resolver ON resolver.id = resolution.resolved_by_user_id
+         WHERE resolution.task_id = $1
+           AND resolution.organization_id = $2
+         ORDER BY resolution.resolved_at`,
+        [taskId, organizationId],
+      );
       const audits = await client.query(
         `SELECT
            id,
@@ -674,6 +649,7 @@ export async function getTaskDetail(
         transitions: transitions.rows,
         recommendations: recommendations.rows,
         approvals: approvals.rows,
+        approvalResolutions: approvalResolutions.rows,
         auditHistory: audits.rows,
       };
     },

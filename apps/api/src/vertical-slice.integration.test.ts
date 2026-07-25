@@ -10,8 +10,14 @@ import {
   type DatabasePool,
 } from "@operating-layer/db";
 import {
+  activateApprovalPolicy,
+  createApprovalPolicyVersion,
   drainOutbox,
+  loadActiveApprovalPolicy,
   processNextOutboxJob,
+  reapExpiredIdempotencyKeys,
+  requestApprovalPolicyActivation,
+  resolveApplicationPrincipal,
 } from "@operating-layer/issue-intake";
 import { buildApi } from "./server.js";
 
@@ -20,6 +26,9 @@ const fsiId = "10000000-0000-4000-8000-000000000002";
 const blcsOperatorId = "20000000-0000-4000-8000-000000000003";
 const blcsOperatorEmail = "operator@local.operating-layer";
 const fsiOperatorEmail = "fsi-operator@local.operating-layer";
+const adminEmail = "admin@local.operating-layer";
+const executiveEmail = "executive@local.operating-layer";
+const approverEmail = "approver@local.operating-layer";
 
 describe("Phase 1 manual issue vertical slice", () => {
   let adminPool: DatabasePool;
@@ -27,6 +36,7 @@ describe("Phase 1 manual issue vertical slice", () => {
   let app: Awaited<ReturnType<typeof buildApi>>;
   let createdTaskId: string;
   let createdWorkflowId: string;
+  let createdApprovalId: string;
 
   beforeAll(async () => {
     const databaseUrl = process.env.DATABASE_URL_TEST;
@@ -142,7 +152,12 @@ describe("Phase 1 manual issue vertical slice", () => {
         risk_level: number;
         requires_approval: boolean;
       }>;
-      approvals: Array<{ status: string }>;
+      approvals: Array<{
+        id: string;
+        status: string;
+        policy_version_id: string;
+        policy_content_hash: string;
+      }>;
       auditHistory: Array<{ eventType: string; eventHash: string }>;
     }>();
     expect(detailBody.task).toMatchObject({
@@ -169,6 +184,11 @@ describe("Phase 1 manual issue vertical slice", () => {
       requires_approval: true,
     });
     expect(detailBody.approvals[0]?.status).toBe("pending");
+    expect(detailBody.approvals[0]?.policy_version_id).toBe(
+      "62000000-0000-4000-8000-000000000001",
+    );
+    expect(detailBody.approvals[0]?.policy_content_hash).toHaveLength(64);
+    createdApprovalId = detailBody.approvals[0]!.id;
     expect(detailBody.auditHistory.length).toBeGreaterThanOrEqual(5);
     expect(
       detailBody.auditHistory.every((event) => event.eventHash.length === 64),
@@ -542,5 +562,529 @@ describe("Phase 1 manual issue vertical slice", () => {
         attempts: 2,
       }),
     );
+  });
+
+  it("retains idempotency results for seven days and reaps without racing replay", async () => {
+    const idempotencyKey = `retention-${randomUUID()}`;
+    const payload = {
+      organizationId: blcsId,
+      title: "Retention boundary test issue",
+      description: "Create a controlled issue for idempotency retention proof.",
+      retentionClassification: "operational",
+    };
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/issues",
+      headers: {
+        "x-dev-user-email": blcsOperatorEmail,
+        "idempotency-key": idempotencyKey,
+        "x-trace-id": "trace-retention-first",
+      },
+      payload,
+    });
+    expect(first.statusCode, first.body).toBe(202);
+    const firstBody = first.json<{ taskId: string }>();
+
+    const withinWindow = await app.inject({
+      method: "POST",
+      url: "/v1/issues",
+      headers: {
+        "x-dev-user-email": blcsOperatorEmail,
+        "idempotency-key": idempotencyKey,
+      },
+      payload,
+    });
+    expect(withinWindow.statusCode).toBe(200);
+    expect(withinWindow.json()).toMatchObject({
+      taskId: firstBody.taskId,
+      duplicate: true,
+    });
+
+    const retention = await adminPool.query<{
+      retention_seconds_snapshot: number;
+      retained_seconds: string;
+    }>(
+      `SELECT
+         retention_seconds_snapshot,
+         extract(epoch FROM (expires_at - terminal_at))::text
+           AS retained_seconds
+       FROM operating_layer.idempotency_keys
+       WHERE organization_id = $1
+         AND scope = 'manual_issue_intake'
+         AND idempotency_key = $2`,
+      [blcsId, idempotencyKey],
+    );
+    expect(retention.rows[0]).toMatchObject({
+      retention_seconds_snapshot: 604800,
+      retained_seconds: "604800.000000",
+    });
+
+    await adminPool.query(
+      `UPDATE operating_layer.idempotency_keys
+       SET
+         terminal_at = now() - interval '8 days',
+         expires_at = now() - interval '1 day'
+       WHERE organization_id = $1
+         AND scope = 'manual_issue_intake'
+         AND idempotency_key = $2`,
+      [blcsId, idempotencyKey],
+    );
+
+    const replayLock = await pool.connect();
+    try {
+      await replayLock.query("BEGIN");
+      await replayLock.query("SET LOCAL ROLE operating_layer_app");
+      await replayLock.query(
+        "SELECT set_config('app.organization_ids', $1, true)",
+        [`{${blcsId}}`],
+      );
+      await replayLock.query("SELECT set_config('app.user_id', $1, true)", [
+        blcsOperatorId,
+      ]);
+      await replayLock.query(
+        "SET LOCAL search_path TO operating_layer, public",
+      );
+      await replayLock.query(
+        `SELECT idempotency_key
+         FROM idempotency_keys
+         WHERE organization_id = $1
+           AND scope = 'manual_issue_intake'
+           AND idempotency_key = $2
+         FOR UPDATE`,
+        [blcsId, idempotencyKey],
+      );
+
+      const skipped = await reapExpiredIdempotencyKeys(
+        pool,
+        "trace-reaper-skips-replay-lock",
+      );
+      expect(skipped.deletedCount).toBe(0);
+    } finally {
+      await replayLock.query("ROLLBACK");
+      replayLock.release();
+    }
+
+    const reaped = await reapExpiredIdempotencyKeys(
+      pool,
+      "trace-reaper-expired",
+    );
+    expect(reaped.deletedCount).toBe(1);
+
+    const afterExpiry = await app.inject({
+      method: "POST",
+      url: "/v1/issues",
+      headers: {
+        "x-dev-user-email": blcsOperatorEmail,
+        "idempotency-key": idempotencyKey,
+        "x-trace-id": "trace-retention-new-intent",
+      },
+      payload,
+    });
+    expect(afterExpiry.statusCode, afterExpiry.body).toBe(202);
+    expect(afterExpiry.json()).toMatchObject({
+      duplicate: false,
+    });
+    expect(afterExpiry.json<{ taskId: string }>().taskId).not.toBe(
+      firstBody.taskId,
+    );
+  });
+
+  it("enforces two-person policy activation, permits one-person revert, and audits changes", async () => {
+    const adminPrincipal = await resolveApplicationPrincipal(pool, {
+      issuer: "local",
+      subject: "test-admin",
+      email: adminEmail,
+    });
+    const executivePrincipal = await resolveApplicationPrincipal(pool, {
+      issuer: "local",
+      subject: "test-executive",
+      email: executiveEmail,
+    });
+    const activeV1 = await withOrganizationScope(
+      pool,
+      { userId: adminPrincipal.userId, organizationIds: [blcsId] },
+      (client) => loadActiveApprovalPolicy(client, blcsId),
+    );
+    const ruleDrafts = activeV1.rules.map(({ id: _ignored, ...rule }) => rule);
+    const v2 = await createApprovalPolicyVersion(pool, {
+      principal: adminPrincipal,
+      organizationId: blcsId,
+      versionNumber: 2,
+      humanLabel: "phase1-v1-data-test-v2",
+      description: "Behavior-equivalent activation-control fixture",
+      supersedesVersionId: activeV1.id,
+      rules: ruleDrafts,
+    });
+    const request = await requestApprovalPolicyActivation(pool, {
+      principal: adminPrincipal,
+      organizationId: blcsId,
+      policyVersionId: v2.policyVersionId,
+      reason: "Exercise two-person activation",
+      commandId: `request-v2-${randomUUID()}`,
+      context: {
+        traceId: "trace-policy-request-v2",
+        requestId: "request-policy-v2",
+      },
+    });
+
+    await expect(
+      activateApprovalPolicy(pool, {
+        principal: adminPrincipal,
+        organizationId: blcsId,
+        policyVersionId: v2.policyVersionId,
+        activationRequestId: request.activationRequestId,
+        reason: "Author cannot self-activate",
+        commandId: `activate-self-${randomUUID()}`,
+        context: {
+          traceId: "trace-policy-self-activate",
+          requestId: "request-policy-self-activate",
+        },
+      }),
+    ).rejects.toThrow(/two distinct actors|author cannot activate/);
+
+    const v3 = await createApprovalPolicyVersion(pool, {
+      principal: adminPrincipal,
+      organizationId: blcsId,
+      versionNumber: 3,
+      humanLabel: "phase1-v1-data-test-v3",
+      description: "Single-actor activation rejection fixture",
+      supersedesVersionId: v2.policyVersionId,
+      rules: ruleDrafts,
+    });
+    await expect(
+      activateApprovalPolicy(pool, {
+        principal: executivePrincipal,
+        organizationId: blcsId,
+        policyVersionId: v3.policyVersionId,
+        reason: "Missing second-actor request must fail",
+        commandId: `activate-no-request-${randomUUID()}`,
+        context: {
+          traceId: "trace-policy-no-request",
+          requestId: "request-policy-no-request",
+        },
+      }),
+    ).rejects.toThrow(/second-actor request/);
+
+    const activated = await activateApprovalPolicy(pool, {
+      principal: executivePrincipal,
+      organizationId: blcsId,
+      policyVersionId: v2.policyVersionId,
+      activationRequestId: request.activationRequestId,
+      reason: "Second actor approves behavior-equivalent version",
+      commandId: `activate-v2-${randomUUID()}`,
+      context: {
+        traceId: "trace-policy-activate-v2",
+        requestId: "request-policy-activate-v2",
+      },
+    });
+    expect(activated).toMatchObject({
+      activatedPolicyVersionId: v2.policyVersionId,
+      previousPolicyVersionId: activeV1.id,
+      activationMode: "new_version",
+      bindingVersion: 2,
+    });
+
+    const activationAudit = await adminPool.query<{
+      trace_id: string;
+      activation_id: string;
+    }>(
+      `SELECT
+         trace_id,
+         metadata ->> 'activationId' AS activation_id
+       FROM operating_layer.audit_events
+       WHERE organization_id = $1
+         AND event_type = 'approval_policy.activated'
+         AND metadata ->> 'activationId' = $2`,
+      [blcsId, activated.activationId],
+    );
+    expect(activationAudit.rows[0]).toEqual({
+      trace_id: "trace-policy-activate-v2",
+      activation_id: activated.activationId,
+    });
+
+    const reverted = await activateApprovalPolicy(pool, {
+      principal: executivePrincipal,
+      organizationId: blcsId,
+      policyVersionId: activeV1.id,
+      reason: "Break-glass restore of previously approved policy",
+      commandId: `revert-v1-${randomUUID()}`,
+      context: {
+        traceId: "trace-policy-revert-v1",
+        requestId: "request-policy-revert-v1",
+      },
+    });
+    expect(reverted).toMatchObject({
+      activatedPolicyVersionId: activeV1.id,
+      previousPolicyVersionId: v2.policyVersionId,
+      activationMode: "revert",
+      bindingVersion: 3,
+    });
+  });
+
+  it("approves once, reaches terminal state, removes pending work, and preserves the root trace", async () => {
+    const crossOrgApi = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${createdApprovalId}/resolution`,
+      headers: {
+        "x-dev-user-email": fsiOperatorEmail,
+        "idempotency-key": `cross-org-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: blcsId,
+        decision: "approved",
+        reason: "Unauthorized cross-organization attempt",
+      },
+    });
+    expect(crossOrgApi.statusCode).toBe(403);
+
+    const crossOrgRows = await withOrganizationScope(
+      pool,
+      {
+        userId: "20000000-0000-4000-8000-000000000004",
+        organizationIds: [fsiId],
+      },
+      async (client) => {
+        const result = await client.query(
+          `SELECT id
+           FROM approvals
+           WHERE id = $1`,
+          [createdApprovalId],
+        );
+        return result.rowCount;
+      },
+    );
+    expect(crossOrgRows).toBe(0);
+
+    const idempotencyKey = `approve-${randomUUID()}`;
+    const approved = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${createdApprovalId}/resolution`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": idempotencyKey,
+        "x-trace-id": "trace-approval-http-request",
+      },
+      payload: {
+        organizationId: blcsId,
+        decision: "approved",
+        reason: "Facts and cited balance support the internal next step.",
+      },
+    });
+    expect(approved.statusCode, approved.body).toBe(202);
+    const approvedBody = approved.json<{
+      resolutionId: string;
+      workflowState: string;
+      duplicate: boolean;
+      traceId: string;
+      policyVersionId: string;
+    }>();
+    expect(approvedBody).toMatchObject({
+      workflowState: "completed",
+      duplicate: false,
+      traceId: "trace-feature-intake",
+      policyVersionId: "62000000-0000-4000-8000-000000000001",
+    });
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${createdApprovalId}/resolution`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": idempotencyKey,
+      },
+      payload: {
+        organizationId: blcsId,
+        decision: "approved",
+        reason: "Facts and cited balance support the internal next step.",
+      },
+    });
+    expect(duplicate.statusCode).toBe(200);
+    expect(duplicate.json()).toMatchObject({
+      resolutionId: approvedBody.resolutionId,
+      duplicate: true,
+      workflowState: "completed",
+    });
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/tasks/${createdTaskId}?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    expect(detail.statusCode).toBe(200);
+    const detailBody = detail.json<{
+      task: { status: string };
+      workflows: Array<{
+        current_state: string;
+        approval_status: string;
+      }>;
+      approvals: Array<{
+        status: string;
+        decision_reason: string;
+        decided_by_user_id: string;
+      }>;
+      approvalResolutions: Array<{
+        id: string;
+        decision: string;
+        reason: string;
+        resolver_name: string;
+        resulting_workflow_state: string;
+        trace_id: string;
+      }>;
+      auditHistory: Array<{
+        eventType: string;
+        traceId: string;
+        metadata: { resolutionId?: string };
+      }>;
+    }>();
+    expect(detailBody.task.status).toBe("completed");
+    expect(detailBody.workflows[0]).toMatchObject({
+      current_state: "completed",
+      approval_status: "approved",
+    });
+    expect(detailBody.approvals[0]).toMatchObject({
+      status: "approved",
+      decided_by_user_id: "20000000-0000-4000-8000-000000000005",
+    });
+    expect(detailBody.approvalResolutions).toContainEqual(
+      expect.objectContaining({
+        id: approvedBody.resolutionId,
+        decision: "approved",
+        resulting_workflow_state: "completed",
+        trace_id: "trace-feature-intake",
+      }),
+    );
+    const resolutionAudits = detailBody.auditHistory.filter(
+      (event) =>
+        event.eventType === "approval.approved" &&
+        event.metadata.resolutionId === approvedBody.resolutionId,
+    );
+    expect(resolutionAudits).toHaveLength(1);
+    expect(resolutionAudits[0]?.traceId).toBe("trace-feature-intake");
+
+    const queue = await app.inject({
+      method: "GET",
+      url: `/v1/executive-queue?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    const queueBody = queue.json<{
+      tasks: Array<{ id: string }>;
+      approvalPending: Array<{ id: string }>;
+      recentResolutions: Array<{ id: string; decision: string }>;
+    }>();
+    expect(queueBody.tasks.map((task) => task.id)).not.toContain(createdTaskId);
+    expect(queueBody.approvalPending).toHaveLength(0);
+    expect(queueBody.recentResolutions).toContainEqual(
+      expect.objectContaining({
+        id: approvedBody.resolutionId,
+        decision: "approved",
+      }),
+    );
+
+    await expect(
+      withOrganizationScope(
+        pool,
+        { userId: blcsOperatorId, organizationIds: [blcsId] },
+        async (client) => {
+          await client.query(
+            `SELECT *
+             FROM transition_workflow(
+               $1, $2, $3, 7, 'rejected', 'user', $4, NULL, NULL, $5,
+               '{}'::jsonb
+             )`,
+            [
+              createdWorkflowId,
+              blcsId,
+              `illegal-after-terminal-${randomUUID()}`,
+              blcsOperatorId,
+              "trace-illegal-after-terminal",
+            ],
+          );
+        },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("rejects once and reaches the rejected terminal state", async () => {
+    const intakeKey = `reject-intake-${randomUUID()}`;
+    const intakeTrace = "trace-feature-reject";
+    const intake = await app.inject({
+      method: "POST",
+      url: "/v1/issues",
+      headers: {
+        "x-dev-user-email": blcsOperatorEmail,
+        "idempotency-key": intakeKey,
+        "x-trace-id": intakeTrace,
+      },
+      payload: {
+        organizationId: blcsId,
+        title: "Customer escalation requires rejection proof",
+        description:
+          "A $80,000 receivable needs an external customer follow-up draft.",
+        financialExposure: 80_000,
+        financialExposureCurrency: "USD",
+        retentionClassification: "financial_support",
+      },
+    });
+    expect(intake.statusCode, intake.body).toBe(202);
+    const taskId = intake.json<{ taskId: string }>().taskId;
+    const rejectedDrain = await drainOutbox(pool, "reject-test-worker");
+    expect(rejectedDrain.failed).toBe(0);
+    expect(rejectedDrain.published).toBeGreaterThanOrEqual(2);
+    const before = await app.inject({
+      method: "GET",
+      url: `/v1/tasks/${taskId}?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    const approvalId = before.json<{
+      approvals: Array<{ id: string }>;
+    }>().approvals[0]!.id;
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/resolution`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": `reject-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: blcsId,
+        decision: "rejected",
+        reason:
+          "The cited record does not support contacting the customer yet.",
+      },
+    });
+    expect(rejected.statusCode, rejected.body).toBe(202);
+    expect(rejected.json()).toMatchObject({
+      decision: "rejected",
+      workflowState: "rejected",
+      traceId: intakeTrace,
+    });
+
+    const after = await app.inject({
+      method: "GET",
+      url: `/v1/tasks/${taskId}?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    expect(after.json()).toMatchObject({
+      task: { status: "rejected" },
+      workflows: [
+        {
+          current_state: "rejected",
+          approval_status: "rejected",
+        },
+      ],
+      approvals: [
+        {
+          status: "rejected",
+        },
+      ],
+      approvalResolutions: [
+        {
+          decision: "rejected",
+          resulting_workflow_state: "rejected",
+          trace_id: intakeTrace,
+        },
+      ],
+    });
   });
 });

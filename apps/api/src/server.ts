@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
 import cors from "@fastify/cors";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import type { IdentityProvider } from "@operating-layer/auth";
 import type { DatabasePool } from "@operating-layer/db";
 import {
@@ -9,6 +9,7 @@ import {
   DomainError,
   getExecutiveQueue,
   getTaskDetail,
+  resolveApproval,
   resolveApplicationPrincipal,
 } from "@operating-layer/issue-intake";
 
@@ -127,6 +128,32 @@ export async function buildApi(
     const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
     const response = await createManualIssue(dependencies.pool, {
       principal,
+      input: request.body as never,
+      idempotencyKey,
+      context: {
+        traceId,
+        requestId: request.id,
+      },
+    });
+    return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
+
+  app.post<{
+    Params: { approvalId: string };
+  }>("/v1/approvals/:approvalId/resolution", async (request, reply) => {
+    const principal = await principalFor(request);
+    const idempotencyKey = headerValue(request, "idempotency-key");
+    if (!idempotencyKey) {
+      throw new DomainError(
+        400,
+        "idempotency_key_required",
+        "Idempotency-Key is required",
+      );
+    }
+    const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+    const response = await resolveApproval(dependencies.pool, {
+      principal,
+      approvalId: z.string().uuid().parse(request.params.approvalId),
       input: request.body as never,
       idempotencyKey,
       context: {

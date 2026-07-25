@@ -1,14 +1,15 @@
 # Operating Layer
 
 `operating-layer` is the neutral repository codename for the multi-entity
-Operations Control Tower. Phase 1 now contains one working vertical slice:
+Operations Control Tower. Phase 2 slice one closes the internal approval loop:
 
 ```text
 manual issue intake
   -> normalized task
   -> deterministic classification
   -> cited recommendation
-  -> approval policy
+  -> declarative, immutable approval policy
+  -> internal approve or reject
   -> database-enforced workflow state
   -> append-only, verifiable audit history
   -> executive queue and task detail
@@ -48,25 +49,27 @@ instructions, and operational checks.
   everything down.
 
 `pnpm test:feature` is the single acceptance-test entry point for this slice.
-It proves the audit chain on untampered history, detects privileged payload
-tampering, rejects task-status drift, rejects RLS-bypassing runtime identities,
-and preserves one trace ID through intake, worker transition, and audit.
+It proves seven-day idempotency replay/reaping and its lock race, declarative
+policy equivalence and two-person activation, approve/reject terminal paths,
+cross-organization rejection, idempotent resolution, audit integrity, and
+trace continuity.
 
 GitHub Actions runs formatting, workspace type checks, the feature suite
 against a clean PostgreSQL 16 database, and the production build in the
-`verify` job. Making that check a merge gate remains blocked until this private
-repository is upgraded to a GitHub plan that supports branch protection (or is
-deliberately made public). See [the runbook](docs/runbook.md) for the exact
-required settings and current evidence.
+`verify` job. A single-human-committer exception currently waives strict hosted
+protection while preserving PR-only flow and requiring green `verify` before
+merge. See [the runbook](docs/runbook.md) for the forcing trigger and exact
+protection steps.
 
 ## Documentation
 
 Start with [the current state](docs/current-state.md), [architecture](docs/architecture.md),
-[security model](docs/security.md), and [Phase 1 implementation record](docs/phase1-implementation.md).
+[security model](docs/security.md), [Phase 1 implementation record](docs/phase1-implementation.md),
+and [Phase 2 decision](docs/phase2-scope-proposal.md).
 
 ## Safety boundary
 
-- Connectors are read-only in Phase 1.
+- Production connectors remain absent.
 - Risk-5 and risk-6 actions are structurally prohibited.
 - External communication sending is absent.
 - Credentials are represented only by secret references.
@@ -78,6 +81,9 @@ Start with [the current state](docs/current-state.md), [architecture](docs/archi
 - Each audit event links to the prior stored hash and hashes its canonical
   event payload. The independent verifier checks linkage, event hashes,
   sequence, and stream head.
+- Idempotency claims snapshot an immutable seven-day retention version.
+- Approval decisions use an immutable organization policy version and internal
+  approval resolution performs no external action.
 - All state-changing commands must produce an audit event.
 
 See [deployment.md](docs/deployment.md) for the environment outline.

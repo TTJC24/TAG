@@ -10,12 +10,13 @@ import {
   type DatabasePool,
 } from "@operating-layer/db";
 import type { AgentContext } from "@operating-layer/agents";
-import { evaluateApprovalPolicy } from "@operating-layer/workflows";
+import { evaluateDeclarativeApprovalPolicy } from "@operating-layer/workflows";
 import {
   ClassificationAgent,
   DeterministicModelProvider,
   RecommendationAgent,
 } from "./agents.js";
+import { loadActiveApprovalPolicy } from "./policy.js";
 
 interface OutboxJob {
   id: string;
@@ -40,8 +41,11 @@ interface WorkflowTaskRow {
   task_type: string;
   priority: "P0" | "P1" | "P2" | "P3";
   financial_exposure: string | null;
+  financial_exposure_currency: string | null;
   created_by_actor_id: string;
   organization_code: "BLCS" | "FSI" | "USA" | "CULTIVUS";
+  source_system_id: string;
+  source_type: string;
   source_record_id: string;
   source_version_id: string;
   content_hash: string;
@@ -100,8 +104,11 @@ async function loadWorkflowTask(
        task.task_type,
        task.priority,
        task.financial_exposure,
+       task.financial_exposure_currency,
        task.created_by_actor_id,
        organization.code AS organization_code,
+       source_system.id AS source_system_id,
+       source_system.type AS source_type,
        source.id AS source_record_id,
        version.id AS source_version_id,
        version.content_hash,
@@ -116,8 +123,11 @@ async function loadWorkflowTask(
        ON task_source.task_id = task.id
       AND task_source.organization_id = task.organization_id
      JOIN source_records source
-       ON source.id = task_source.source_record_id
+      ON source.id = task_source.source_record_id
       AND source.organization_id = task_source.organization_id
+     JOIN source_systems source_system
+       ON source_system.id = source.source_system_id
+      AND source_system.organization_id = source.organization_id
      JOIN source_record_versions version
        ON version.id = source.latest_version_id
       AND version.organization_id = source.organization_id
@@ -398,13 +408,42 @@ async function processRecommendation(
     ...(financialExposure !== undefined ? { financialExposure } : {}),
     citation,
   });
-  const policy = evaluateApprovalPolicy({
-    riskLevel: result.output.riskLevel,
-    requestedAction: result.output.recommendationType,
-  });
+  const policyVersion = await loadActiveApprovalPolicy(
+    client,
+    job.organization_id,
+  );
+  const policy = evaluateDeclarativeApprovalPolicy(
+    {
+      task: {
+        organizationId: job.organization_id,
+        taskType: workflow.task_type,
+        ...(financialExposure !== undefined &&
+        workflow.financial_exposure_currency !== null
+          ? {
+              financialExposure: {
+                amount: financialExposure,
+                currency: workflow.financial_exposure_currency,
+              },
+            }
+          : {}),
+        sourceType: workflow.source_type,
+        sourceSystemId: workflow.source_system_id,
+      },
+      recommendation: {
+        riskLevel: result.output.riskLevel,
+        recommendationType: result.output.recommendationType,
+      },
+      requestedAction: {
+        actionType: result.output.recommendationType,
+        targetSystem: "internal_approval_only",
+        crossEntity: false,
+      },
+    },
+    policyVersion,
+  );
   if (!policy.allowedInPhase && result.output.riskLevel >= 5) {
     throw new Error(
-      `Recommendation requires a prohibited Phase 1 capability: ${policy.reasonCode}`,
+      `Recommendation requires a prohibited capability: ${policy.reasonCode}`,
     );
   }
 
@@ -583,12 +622,14 @@ async function processRecommendation(
          payload_reference,
          payload_hash,
          policy_version,
+         policy_version_id,
+         policy_content_hash,
          risk_level,
          status
        )
        VALUES (
          $1, $2, $3, 'agent', 'deterministic-recommendation-v1', $4, $5,
-         $6, $7, $8, $9, 'pending'
+         $6, $7, $8, $9, $10, $11, 'pending'
        )`,
       [
         job.organization_id,
@@ -599,6 +640,8 @@ async function processRecommendation(
         `recommendation:${recommendationId}`,
         outputHash,
         policy.policyVersion,
+        policy.policyVersionId,
+        policy.policyContentHash,
         result.output.riskLevel,
       ],
     );
@@ -628,7 +671,7 @@ async function processRecommendation(
   await appendAuditEvent(client, {
     organizationId: job.organization_id,
     actorType: "system",
-    actorId: "approval-policy:phase1-v1",
+    actorId: `approval-policy:${policy.policyVersionId}`,
     eventType: policy.requiresApproval
       ? "approval.required"
       : "approval.not_required",
@@ -642,6 +685,8 @@ async function processRecommendation(
       taskId: workflow.task_id,
       recommendationId,
       policyVersion: policy.policyVersion,
+      policyVersionId: policy.policyVersionId,
+      policyContentHash: policy.policyContentHash,
       reasonCode: policy.reasonCode,
       workflowVersion,
     },

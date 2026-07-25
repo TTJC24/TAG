@@ -92,10 +92,14 @@ VALUES
   ('30000000-0000-4000-8000-000000000001', 'tasks.read'),
   ('30000000-0000-4000-8000-000000000001', 'queue.read'),
   ('30000000-0000-4000-8000-000000000001', 'audit.read'),
+  ('30000000-0000-4000-8000-000000000001', 'approval_policy.author'),
+  ('30000000-0000-4000-8000-000000000001', 'approval_policy.activate'),
   ('30000000-0000-4000-8000-000000000002', 'issues.create'),
   ('30000000-0000-4000-8000-000000000002', 'tasks.read'),
   ('30000000-0000-4000-8000-000000000002', 'queue.read'),
   ('30000000-0000-4000-8000-000000000002', 'audit.read'),
+  ('30000000-0000-4000-8000-000000000002', 'approvals.decide'),
+  ('30000000-0000-4000-8000-000000000002', 'approval_policy.activate'),
   ('30000000-0000-4000-8000-000000000003', 'issues.create'),
   ('30000000-0000-4000-8000-000000000003', 'tasks.read'),
   ('30000000-0000-4000-8000-000000000003', 'queue.read'),
@@ -309,5 +313,397 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO audit_streams (organization_id)
 SELECT id FROM organizations
 ON CONFLICT DO NOTHING;
+
+-- Seven-day idempotency retention is explicit and versioned per organization.
+WITH retention_seed (
+  organization_id,
+  policy_version_id
+) AS (
+  VALUES
+    (
+      '10000000-0000-4000-8000-000000000001'::uuid,
+      '61000000-0000-4000-8000-000000000001'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000002'::uuid,
+      '61000000-0000-4000-8000-000000000002'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000003'::uuid,
+      '61000000-0000-4000-8000-000000000003'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000004'::uuid,
+      '61000000-0000-4000-8000-000000000004'::uuid
+    )
+)
+INSERT INTO idempotency_retention_policy_versions (
+  id,
+  organization_id,
+  version,
+  retention_seconds,
+  assumption_summary,
+  content_hash,
+  created_by_user_id
+)
+SELECT
+  policy_version_id,
+  organization_id,
+  1,
+  604800,
+  'Approved seven-day maximum legitimate retry window',
+  encode(
+    digest(
+      organization_id::text || ':idempotency-retention:v1:604800',
+      'sha256'
+    ),
+    'hex'
+  ),
+  '20000000-0000-4000-8000-000000000001'
+FROM retention_seed
+ON CONFLICT (id) DO NOTHING;
+
+WITH retention_seed (
+  organization_id,
+  policy_version_id
+) AS (
+  VALUES
+    (
+      '10000000-0000-4000-8000-000000000001'::uuid,
+      '61000000-0000-4000-8000-000000000001'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000002'::uuid,
+      '61000000-0000-4000-8000-000000000002'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000003'::uuid,
+      '61000000-0000-4000-8000-000000000003'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000004'::uuid,
+      '61000000-0000-4000-8000-000000000004'::uuid
+    )
+)
+INSERT INTO idempotency_retention_policy_bindings (
+  organization_id,
+  active_policy_version_id,
+  activated_by_user_id
+)
+SELECT
+  organization_id,
+  policy_version_id,
+  '20000000-0000-4000-8000-000000000002'
+FROM retention_seed
+ON CONFLICT (organization_id) DO NOTHING;
+
+-- Bootstrap the behavior-preserving phase1-v1 policy. The seed writes the
+-- first binding directly under a one-time migration guard. Runtime roles have
+-- no insert/update grant on binding or activation tables.
+WITH policy_seed (
+  organization_id,
+  policy_version_id
+) AS (
+  VALUES
+    (
+      '10000000-0000-4000-8000-000000000001'::uuid,
+      '62000000-0000-4000-8000-000000000001'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000002'::uuid,
+      '62000000-0000-4000-8000-000000000002'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000003'::uuid,
+      '62000000-0000-4000-8000-000000000003'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000004'::uuid,
+      '62000000-0000-4000-8000-000000000004'::uuid
+    )
+),
+policy_content AS (
+  SELECT
+    '[
+      {
+        "ordinal": 10,
+        "name": "Risk 6 prohibited",
+        "predicate": {
+          "field": "recommendation.risk_level",
+          "operator": "gte",
+          "value": 6
+        },
+        "outcome": {
+          "effect": "blocked",
+          "approverCount": 0,
+          "approverPermission": null,
+          "requesterMustBeDistinct": true,
+          "approversMustBeDistinct": true
+        },
+        "reasonCode": "risk_6_prohibited"
+      },
+      {
+        "ordinal": 20,
+        "name": "Risk 5 write prohibited",
+        "predicate": {
+          "field": "recommendation.risk_level",
+          "operator": "eq",
+          "value": 5
+        },
+        "outcome": {
+          "effect": "blocked",
+          "approverCount": 0,
+          "approverPermission": null,
+          "requesterMustBeDistinct": true,
+          "approversMustBeDistinct": true
+        },
+        "reasonCode": "risk_5_write_prohibited_in_phase1"
+      },
+      {
+        "ordinal": 30,
+        "name": "Risk 3 and 4 require approval",
+        "predicate": {
+          "all": [
+            {
+              "field": "recommendation.risk_level",
+              "operator": "gte",
+              "value": 3
+            },
+            {
+              "field": "recommendation.risk_level",
+              "operator": "lte",
+              "value": 4
+            }
+          ]
+        },
+        "outcome": {
+          "effect": "requires_approval",
+          "approverCount": 1,
+          "approverPermission": "approvals.decide",
+          "requesterMustBeDistinct": true,
+          "approversMustBeDistinct": true
+        },
+        "reasonCode": "human_approval_required"
+      },
+      {
+        "ordinal": 40,
+        "name": "Low-risk internal default",
+        "predicate": {
+          "all": []
+        },
+        "outcome": {
+          "effect": "auto_approve",
+          "approverCount": 0,
+          "approverPermission": null,
+          "requesterMustBeDistinct": false,
+          "approversMustBeDistinct": false
+        },
+        "reasonCode": "low_risk_internal_action"
+      }
+    ]'::jsonb AS rules
+)
+INSERT INTO approval_policy_versions (
+  id,
+  organization_id,
+  policy_key,
+  version_number,
+  schema_version,
+  human_label,
+  description,
+  content_hash,
+  created_by_user_id
+)
+SELECT
+  policy_seed.policy_version_id,
+  policy_seed.organization_id,
+  'issue_intake',
+  1,
+  'approval-policy.v1',
+  'phase1-v1-data',
+  'Behavior-preserving declarative form of phase1-v1',
+  encode(digest(policy_content.rules::text, 'sha256'), 'hex'),
+  '20000000-0000-4000-8000-000000000001'
+FROM policy_seed
+CROSS JOIN policy_content
+ON CONFLICT (id) DO NOTHING;
+
+WITH policy_seed (
+  organization_id,
+  policy_version_id
+) AS (
+  VALUES
+    (
+      '10000000-0000-4000-8000-000000000001'::uuid,
+      '62000000-0000-4000-8000-000000000001'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000002'::uuid,
+      '62000000-0000-4000-8000-000000000002'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000003'::uuid,
+      '62000000-0000-4000-8000-000000000003'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000004'::uuid,
+      '62000000-0000-4000-8000-000000000004'::uuid
+    )
+),
+rule_seed (
+  ordinal,
+  name,
+  predicate_json,
+  outcome_json,
+  reason_code
+) AS (
+  VALUES
+    (
+      10,
+      'Risk 6 prohibited',
+      '{"field":"recommendation.risk_level","operator":"gte","value":6}'::jsonb,
+      '{"effect":"blocked","approverCount":0,"approverPermission":null,"requesterMustBeDistinct":true,"approversMustBeDistinct":true}'::jsonb,
+      'risk_6_prohibited'
+    ),
+    (
+      20,
+      'Risk 5 write prohibited',
+      '{"field":"recommendation.risk_level","operator":"eq","value":5}'::jsonb,
+      '{"effect":"blocked","approverCount":0,"approverPermission":null,"requesterMustBeDistinct":true,"approversMustBeDistinct":true}'::jsonb,
+      'risk_5_write_prohibited_in_phase1'
+    ),
+    (
+      30,
+      'Risk 3 and 4 require approval',
+      '{"all":[{"field":"recommendation.risk_level","operator":"gte","value":3},{"field":"recommendation.risk_level","operator":"lte","value":4}]}'::jsonb,
+      '{"effect":"requires_approval","approverCount":1,"approverPermission":"approvals.decide","requesterMustBeDistinct":true,"approversMustBeDistinct":true}'::jsonb,
+      'human_approval_required'
+    ),
+    (
+      40,
+      'Low-risk internal default',
+      '{"all":[]}'::jsonb,
+      '{"effect":"auto_approve","approverCount":0,"approverPermission":null,"requesterMustBeDistinct":false,"approversMustBeDistinct":false}'::jsonb,
+      'low_risk_internal_action'
+    )
+)
+INSERT INTO approval_policy_rules (
+  organization_id,
+  policy_version_id,
+  ordinal,
+  name,
+  predicate_json,
+  outcome_json,
+  reason_code
+)
+SELECT
+  policy_seed.organization_id,
+  policy_seed.policy_version_id,
+  rule_seed.ordinal,
+  rule_seed.name,
+  rule_seed.predicate_json,
+  rule_seed.outcome_json,
+  rule_seed.reason_code
+FROM policy_seed
+CROSS JOIN rule_seed
+ON CONFLICT (policy_version_id, ordinal) DO NOTHING;
+
+SELECT set_config(
+  'app.approval_policy_bootstrap_guard',
+  'deterministic-seed:v1',
+  true
+);
+
+WITH policy_seed (
+  organization_id,
+  policy_version_id
+) AS (
+  VALUES
+    (
+      '10000000-0000-4000-8000-000000000001'::uuid,
+      '62000000-0000-4000-8000-000000000001'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000002'::uuid,
+      '62000000-0000-4000-8000-000000000002'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000003'::uuid,
+      '62000000-0000-4000-8000-000000000003'::uuid
+    ),
+    (
+      '10000000-0000-4000-8000-000000000004'::uuid,
+      '62000000-0000-4000-8000-000000000004'::uuid
+    )
+)
+INSERT INTO approval_policy_bindings (
+  organization_id,
+  policy_key,
+  active_policy_version_id,
+  activated_by_user_id
+)
+SELECT
+  organization_id,
+  'issue_intake',
+  policy_version_id,
+  '20000000-0000-4000-8000-000000000002'
+FROM policy_seed
+ON CONFLICT (organization_id, policy_key) DO NOTHING;
+
+WITH activation_seed (
+  activation_id,
+  organization_id,
+  policy_version_id
+) AS (
+  VALUES
+    (
+      '63000000-0000-4000-8000-000000000001'::uuid,
+      '10000000-0000-4000-8000-000000000001'::uuid,
+      '62000000-0000-4000-8000-000000000001'::uuid
+    ),
+    (
+      '63000000-0000-4000-8000-000000000002'::uuid,
+      '10000000-0000-4000-8000-000000000002'::uuid,
+      '62000000-0000-4000-8000-000000000002'::uuid
+    ),
+    (
+      '63000000-0000-4000-8000-000000000003'::uuid,
+      '10000000-0000-4000-8000-000000000003'::uuid,
+      '62000000-0000-4000-8000-000000000003'::uuid
+    ),
+    (
+      '63000000-0000-4000-8000-000000000004'::uuid,
+      '10000000-0000-4000-8000-000000000004'::uuid,
+      '62000000-0000-4000-8000-000000000004'::uuid
+    )
+)
+INSERT INTO approval_policy_activations (
+  id,
+  organization_id,
+  policy_key,
+  previous_policy_version_id,
+  activated_policy_version_id,
+  activation_mode,
+  binding_version,
+  activated_by_user_id,
+  reason,
+  command_id,
+  trace_id
+)
+SELECT
+  activation_id,
+  organization_id,
+  'issue_intake',
+  NULL,
+  policy_version_id,
+  'bootstrap',
+  1,
+  '20000000-0000-4000-8000-000000000002',
+  'Deterministic Phase 2 bootstrap',
+  'bootstrap:phase1-v1-data',
+  'trace-bootstrap-phase1-v1-data'
+FROM activation_seed
+ON CONFLICT (id) DO NOTHING;
+
+SELECT set_config('app.approval_policy_bootstrap_guard', '', true);
 
 COMMIT;

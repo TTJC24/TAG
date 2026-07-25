@@ -11,11 +11,17 @@ export const entityCodeSchema = z.enum(["BLCS", "FSI", "USA", "CULTIVUS"]);
 export type EntityCode = z.infer<typeof entityCodeSchema>;
 
 export const taskStatusSchema = z.enum([
-  "open",
-  "in_progress",
+  "received",
+  "normalized",
+  "classified",
+  "recommended",
   "blocked",
   "awaiting_approval",
+  "approved",
+  "action_queued",
   "completed",
+  "rejected",
+  "failed",
   "cancelled",
 ]);
 export type TaskStatus = z.infer<typeof taskStatusSchema>;
@@ -98,6 +104,33 @@ export const issueIntakeResponseSchema = z.object({
   traceId: z.string().min(1),
 });
 export type IssueIntakeResponse = z.infer<typeof issueIntakeResponseSchema>;
+
+export const approvalResolutionInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  decision: z.enum(["approved", "rejected"]),
+  reason: z.string().trim().min(3).max(2000),
+});
+export type ApprovalResolutionInput = z.infer<
+  typeof approvalResolutionInputSchema
+>;
+
+export const approvalResolutionResponseSchema = z.object({
+  approvalId: z.string().uuid(),
+  resolutionId: z.string().uuid(),
+  taskId: z.string().uuid(),
+  workflowId: z.string().uuid(),
+  decision: z.enum(["approved", "rejected"]),
+  workflowState: z.enum(["completed", "rejected"]),
+  policyVersionId: z.string().uuid(),
+  policyContentHash: z.string().length(64),
+  resolvedByUserId: z.string().uuid(),
+  reason: z.string(),
+  duplicate: z.boolean(),
+  traceId: z.string().min(1),
+});
+export type ApprovalResolutionResponse = z.infer<
+  typeof approvalResolutionResponseSchema
+>;
 
 export type OutputSchema<T> = {
   parse(input: unknown): T;

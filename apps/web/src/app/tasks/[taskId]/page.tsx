@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { operatingLayerApi } from "../../../lib/api";
+import { ApprovalResolutionForm } from "./approval-resolution-form";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,7 @@ interface TaskDetail {
   transitions: Array<Record<string, unknown>>;
   recommendations: Array<Record<string, unknown>>;
   approvals: Array<Record<string, unknown>>;
+  approvalResolutions: Array<Record<string, unknown>>;
   auditHistory: Array<Record<string, unknown>>;
 }
 
@@ -32,19 +34,18 @@ export default async function TaskDetailPage({
   if (!query.organizationId) {
     throw new Error("An explicit organizationId is required");
   }
+  const organizationId = query.organizationId;
   const detail = await operatingLayerApi<TaskDetail>(
     `/v1/tasks/${encodeURIComponent(
       taskId,
-    )}?organizationId=${encodeURIComponent(query.organizationId)}`,
+    )}?organizationId=${encodeURIComponent(organizationId)}`,
   );
   const task = detail.task;
 
   return (
     <div className="pageStack">
       <div className="breadcrumb">
-        <Link href={`/?organizationId=${query.organizationId}`}>
-          Executive queue
-        </Link>
+        <Link href={`/?organizationId=${organizationId}`}>Executive queue</Link>
         <span>/</span>
         <span>Task detail</span>
       </div>
@@ -185,7 +186,7 @@ export default async function TaskDetailPage({
           <div className="panelHeader">
             <div>
               <p className="eyebrow">Human control</p>
-              <h2>Pending approval</h2>
+              <h2>Approval control</h2>
             </div>
           </div>
           {detail.approvals.map((approval) => (
@@ -196,6 +197,47 @@ export default async function TaskDetailPage({
                 {display(approval.policy_version)}
               </p>
               <span className="status pending">{display(approval.status)}</span>
+              {approval.status === "pending" ? (
+                <ApprovalResolutionForm
+                  approvalId={display(approval.id)}
+                  organizationId={organizationId}
+                />
+              ) : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      {detail.approvalResolutions.length > 0 ? (
+        <section className="panel approvalPanel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Recorded decision</p>
+              <h2>Approval resolution</h2>
+            </div>
+          </div>
+          {detail.approvalResolutions.map((resolution) => (
+            <article key={display(resolution.id)}>
+              <strong>{display(resolution.decision)}</strong>
+              <p>{display(resolution.reason)}</p>
+              <dl>
+                <div>
+                  <dt>Resolver</dt>
+                  <dd>{display(resolution.resolver_name)}</dd>
+                </div>
+                <div>
+                  <dt>Policy version</dt>
+                  <dd>{display(resolution.policy_version_id)}</dd>
+                </div>
+                <div>
+                  <dt>Resulting state</dt>
+                  <dd>{display(resolution.resulting_workflow_state)}</dd>
+                </div>
+                <div>
+                  <dt>Resolved</dt>
+                  <dd>{display(resolution.resolved_at)}</dd>
+                </div>
+              </dl>
             </article>
           ))}
         </section>

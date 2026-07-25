@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Approved for Phase 1 with mandatory amendments
+Status: Approved through Phase 2 slice one
 Date: 2026-07-25
 Repository codename: `operating-layer` (not a permanent product name)
 
@@ -15,7 +15,8 @@ caching but never owns workflow truth or retry state. The workflow package
 exposes an engine interface so Temporal can replace the dispatcher for
 long-running Phase 3 workflows without changing domain contracts.
 
-This choice keeps the Phase 1 operating surface small while retaining explicit states, retries, idempotency, observability, and a credible Temporal migration path.
+This choice keeps the operating surface small while retaining explicit states,
+retries, idempotency, observability, and a credible Temporal migration path.
 
 ## System context and data flow
 
@@ -88,9 +89,9 @@ infrastructure/
   migrations/
 ```
 
-The manual-intake vertical slice is implemented. Real connectors, CSV import,
-live model providers, external sends, and source-system write adapters remain
-deferred.
+Manual intake and internal approval resolution are implemented. Real
+connectors, CSV import, live model providers, external sends, and source-system
+write adapters remain deferred.
 
 ## Domain and database model
 
@@ -105,6 +106,9 @@ PostgreSQL stores:
 - `approvals`, `actions`, and `action_verifications`;
 - `prompt_versions` and `agent_runs`;
 - append-only `audit_events`;
+- immutable approval-policy versions/rules, guarded bindings, and activation
+  history;
+- immutable idempotency-retention versions and reaper history;
 - `connector_sync_runs`, `outbox_events`, and idempotency records.
 
 Every organization-scoped row carries `organization_id`, including derived
@@ -141,16 +145,15 @@ application role as defense-in-depth, not as a substitute for service checks.
 
 Initial role templates are `system_admin`, `executive`, `operations_manager`, `operator`, `approver`, and `auditor`. Their exact grants require business approval.
 
-## Workflow engine recommendation
+## Workflow engine
 
-Phase 1 uses a durable explicit state machine:
+The deployed slices use a durable explicit state machine. The approval branch
+implemented in Phase 2 is:
 
 ```text
-received -> normalized -> classified -> recommended
-         -> awaiting_approval -> approved -> action_queued
-         -> completed
-
-Any active state -> blocked | failed | cancelled
+received -> normalized -> classified -> recommended -> awaiting_approval
+awaiting_approval -> approved -> completed
+awaiting_approval -> rejected
 ```
 
 Transitions require a command ID, expected current version, policy result,
@@ -160,7 +163,10 @@ updates and transition inserts. The calling transaction also appends its audit
 and outbox records. Workers are at-least-once, so handlers must be idempotent,
 leased, bounded by an attempt policy, and dead-lettered visibly when exhausted.
 
-Temporal is recommended for Phase 3 when schedules, human waits, retries measured in days, and multi-system compensation become common. The `WorkflowEngine` port prevents domain code from importing BullMQ or Temporal directly.
+No approval path queues an external action. Temporal remains deferred until
+schedules, human waits measured in days, and multi-system compensation become
+common. The `WorkflowEngine` port prevents domain code from importing a future
+engine directly.
 
 ## Agent abstraction
 

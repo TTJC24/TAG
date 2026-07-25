@@ -10,7 +10,8 @@ a local working directory rather than a Git repository.
 
 ## Current capability
 
-The repository now has a runnable Phase 1 manual-intake vertical slice:
+The repository now has a runnable Phase 1 intake slice plus the first Phase 2
+internal approval-resolution slice:
 
 - modular TypeScript workspace with Next.js web, Fastify API, and worker;
 - PostgreSQL 16 schema, Phase 1 control migration, and deterministic local seed;
@@ -18,10 +19,15 @@ The repository now has a runnable Phase 1 manual-intake vertical slice:
 - organization-scoped application transactions plus database row-level security;
 - append-only raw source versions and independently verified, hash-chained
   audit history;
-- idempotent issue intake and PostgreSQL-authoritative outbox retries;
+- versioned seven-day idempotency retention, prior-result replay, and a bounded
+  PostgreSQL reaper that serializes with replay;
 - deterministic, schema-validated classification and recommendation agents;
 - database-enforced workflow transitions, guarded task-status projection, and
-  code-versioned approval policy;
+  immutable organization-scoped declarative approval policy;
+- two-person activation for new policy versions and single-actor break-glass
+  restoration of an already approved version;
+- authorized, idempotent internal approve/reject resolution with terminal
+  workflow states, immutable history, and no external effect;
 - boot-time rejection of RLS-bypassing API/worker database identities;
 - executive queue and task detail/history screens;
 - unit and clean-database integration tests.
@@ -34,8 +40,9 @@ There is no production source-system integration or external write capability.
 2. Treat connector schemas, scopes, and credentials as unresolved.
 3. Keep every future connector read-only until separately reviewed.
 4. Preserve PostgreSQL as the operating-layer authority; Redis is ephemeral only.
-5. Resolve retention, hosting, OIDC client configuration, production database
-   identities, and exact business roles before production deployment.
+5. Resolve hosting, OIDC client configuration, production database identities,
+   exact business roles, and the broader data-retention schedule before
+   production deployment.
 6. Do not implement external writes during this handoff.
 
 ## Existing assets
@@ -45,9 +52,9 @@ agent behavior are synthetic and local-only.
 
 ## Handoff boundary
 
-The implementation stops at the passing manual-intake slice. CSV import,
-production connectors, live model providers, external sends, and source-system
-writes require a new review.
+The implementation stops at the passing internal approval-resolution slice.
+CSV import, the execution lifecycle, production connectors, live model
+providers, external sends, and source-system writes require a new review.
 
 ## Local tooling note
 
