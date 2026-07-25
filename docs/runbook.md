@@ -69,6 +69,20 @@ transition enforcement, task-status projection drift, safe runtime identity,
 audit immutability and chain verification/tamper detection, trace equality,
 and retry exhaustion.
 
+## Continuous integration and merge gate
+
+`.github/workflows/ci.yml` runs one required job named `verify` for pull
+requests targeting `main` and pushes to `main`. It installs from the frozen
+lockfile, checks formatting, type-checks every workspace package, runs the
+feature suite against a clean PostgreSQL 16 database (including all
+migrations), and builds the workspace.
+
+Branch protection on `main` requires `verify` and requires the head branch to
+be up to date before merge. Treat either setting disappearing as a control
+failure. The gate was proved after installation with a throwaway pull request
+containing a deliberate type error: GitHub reported `verify` as failed and
+`mergeStateStatus: BLOCKED`; the pull request was then closed without merge.
+
 ## Observe
 
 - API request logs include a trace/request identifier.

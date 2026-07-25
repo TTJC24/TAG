@@ -52,6 +52,12 @@ It proves the audit chain on untampered history, detects privileged payload
 tampering, rejects task-status drift, rejects RLS-bypassing runtime identities,
 and preserves one trace ID through intake, worker transition, and audit.
 
+GitHub Actions runs formatting, workspace type checks, the feature suite
+against a clean PostgreSQL 16 database, and the production build in the
+`verify` job. The `main` branch requires that exact check and requires branches
+to be current before merge; see [the runbook](docs/runbook.md) for the
+enforcement proof.
+
 ## Documentation
 
 Start with [the current state](docs/current-state.md), [architecture](docs/architecture.md),

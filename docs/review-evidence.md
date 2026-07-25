@@ -23,6 +23,7 @@ transactional workflow end to end. Accepted deferrals are explicit below.
 | All workspace packages type-check                                               | `pnpm typecheck`                                                                                                                                               | Automated command                      |
 | PostgreSQL 16 migrations apply cleanly                                          | `pnpm test:feature` creates a clean PostgreSQL 16 instance before the suite                                                                                    | Automated command                      |
 | Feature tests run from one documented command                                   | `pnpm test:feature` in `README.md` and `docs/runbook.md`                                                                                                       | Automated command                      |
+| CI is a required merge gate                                                     | GitHub Actions job `verify`; `main` protection requires the check and up-to-date branches; a deliberately failing throwaway PR reports a blocked merge         | Automated and enforcement-tested       |
 
 ## Reviewer-requested control proofs
 
