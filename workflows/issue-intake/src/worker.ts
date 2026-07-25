@@ -602,12 +602,6 @@ async function processRecommendation(
         result.output.riskLevel,
       ],
     );
-    await client.query(
-      `UPDATE tasks
-       SET status = 'awaiting_approval', updated_at = now(), version = version + 1
-       WHERE id = $1 AND organization_id = $2`,
-      [workflow.task_id, job.organization_id],
-    );
     workflowVersion = await transition(
       client,
       job,
@@ -682,78 +676,12 @@ export async function claimNextOutboxJob(
   pool: DatabasePool,
   workerId: string,
 ): Promise<OutboxJob | null> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query(
-      `UPDATE operating_layer.outbox_events
-       SET
-         status = 'failed',
-         locked_at = NULL,
-         locked_by = NULL,
-         safe_error_message = 'Worker lease expired before completion',
-         last_error_code = 'lease_expired',
-         available_at = now()
-       WHERE status = 'processing'
-         AND locked_at < now() - interval '5 minutes'`,
-    );
-    const candidate = await client.query<OutboxJob>(
-      `SELECT
-         id,
-         organization_id,
-         topic,
-         aggregate_id,
-         idempotency_key,
-         trace_id,
-         requested_by_user_id,
-         request_id,
-         attempts,
-         max_attempts
-       FROM operating_layer.outbox_events
-       WHERE status IN ('pending', 'failed')
-         AND available_at <= now()
-         AND attempts < max_attempts
-         AND requested_by_user_id IS NOT NULL
-         AND request_id IS NOT NULL
-       ORDER BY created_at
-       FOR UPDATE SKIP LOCKED
-       LIMIT 1`,
-    );
-    const row = candidate.rows[0];
-    if (!row) {
-      await client.query("COMMIT");
-      return null;
-    }
-    const claimed = await client.query<OutboxJob>(
-      `UPDATE operating_layer.outbox_events
-       SET
-         status = 'processing',
-         attempts = attempts + 1,
-         locked_at = now(),
-         locked_by = $2,
-         last_attempt_at = now()
-       WHERE id = $1
-       RETURNING
-         id,
-         organization_id,
-         topic,
-         aggregate_id,
-         idempotency_key,
-         trace_id,
-         requested_by_user_id,
-         request_id,
-         attempts,
-         max_attempts`,
-      [row.id, workerId],
-    );
-    await client.query("COMMIT");
-    return claimed.rows[0] ?? null;
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+  const claimed = await pool.query<OutboxJob>(
+    `SELECT *
+     FROM operating_layer.claim_outbox_job($1)`,
+    [workerId],
+  );
+  return claimed.rows[0] ?? null;
 }
 
 async function recordJobFailure(
@@ -766,19 +694,30 @@ async function recordJobFailure(
       ? error.message.slice(0, 500)
       : "Unknown job failure";
   const status = job.attempts >= job.max_attempts ? "dead_letter" : "failed";
-  await pool.query(
-    `UPDATE operating_layer.outbox_events
-     SET
-       status = $2,
-       locked_at = NULL,
-       locked_by = NULL,
-       last_error_code = 'handler_failed',
-       safe_error_message = $3,
-       available_at = now() + (
-         LEAST(60, POWER(2, GREATEST(attempts - 1, 0))) * interval '1 second'
-       )
-     WHERE id = $1`,
-    [job.id, status, safeMessage],
+  await withOrganizationScope(
+    pool,
+    {
+      userId: job.requested_by_user_id,
+      organizationIds: [job.organization_id],
+    },
+    async (client) => {
+      await client.query(
+        `UPDATE outbox_events
+         SET
+           status = $2,
+           locked_at = NULL,
+           locked_by = NULL,
+           last_error_code = 'handler_failed',
+           safe_error_message = $3,
+           available_at = now() + (
+             LEAST(60, POWER(2, GREATEST(attempts - 1, 0))) *
+               interval '1 second'
+           )
+         WHERE id = $1
+           AND organization_id = $4`,
+        [job.id, status, safeMessage, job.organization_id],
+      );
+    },
   );
   return status;
 }

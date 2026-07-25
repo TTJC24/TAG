@@ -11,7 +11,7 @@ const composeArgs = [
   "operating-layer-smoke",
 ];
 const databaseUrl =
-  "postgresql://operating_layer:feature-test-only@localhost:55432/operating_layer_test";
+  "postgresql://operating_layer_runtime:local-runtime-only@localhost:55432/operating_layer_test";
 const children = [];
 
 function run(command, args) {

@@ -1,4 +1,7 @@
-import { createDatabasePool } from "@operating-layer/db";
+import {
+  assertSafeRuntimeDatabaseIdentity,
+  createDatabasePool,
+} from "@operating-layer/db";
 import { processNextOutboxJob } from "@operating-layer/issue-intake";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -7,6 +10,12 @@ if (!databaseUrl) {
 }
 
 const pool = createDatabasePool(databaseUrl);
+try {
+  await assertSafeRuntimeDatabaseIdentity(pool);
+} catch (error) {
+  await pool.end();
+  throw error;
+}
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000);
 let stopping = false;

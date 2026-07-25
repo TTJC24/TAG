@@ -16,10 +16,13 @@ The repository now has a runnable Phase 1 manual-intake vertical slice:
 - PostgreSQL 16 schema, Phase 1 control migration, and deterministic local seed;
 - provider-neutral development/OIDC identity adapters;
 - organization-scoped application transactions plus database row-level security;
-- append-only raw source versions and hash-chained audit history;
+- append-only raw source versions and independently verified, hash-chained
+  audit history;
 - idempotent issue intake and PostgreSQL-authoritative outbox retries;
 - deterministic, schema-validated classification and recommendation agents;
-- database-enforced workflow transitions and code-based approval policy;
+- database-enforced workflow transitions, guarded task-status projection, and
+  code-versioned approval policy;
+- boot-time rejection of RLS-bypassing API/worker database identities;
 - executive queue and task detail/history screens;
 - unit and clean-database integration tests.
 

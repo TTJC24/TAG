@@ -75,7 +75,19 @@ Changing the payload invalidates the approval. A requester may not satisfy a two
 
 ## Audit integrity
 
-Audit records are append-only, hash chained per organization stream, and written transactionally with domain changes. The application role receives insert/select but not update/delete. A database trigger rejects mutation. Production exports should be periodically signed and written to immutable storage controlled separately from the application.
+Audit records are append-only for the application role and hash-chained per
+organization stream. The genesis row links to `NULL`; each later event stores
+the preceding event hash and a SHA-256 hash of its canonical event payload,
+sequence, and link. The independent verifier recomputes every event, linkage,
+sequence, and stream head. The feature suite performs privileged payload
+tampering and proves that verification fails deterministically.
+
+The application role receives insert/select but not update/delete, and a
+database trigger rejects mutation. This chain detects partial history
+tampering; it is not an external anchor against a fully privileged
+administrator who rewrites and re-hashes the complete history. Production
+exports should therefore be periodically signed and written to immutable
+storage controlled separately from the application.
 
 Concise reasoning summaries may be stored. Hidden chain-of-thought is neither requested nor persisted.
 
@@ -129,6 +141,14 @@ Before production:
 - model-provider data handling review;
 - incident response contacts and runbook;
 - recovery objectives and retention policy approval.
+
+## Runtime database identity
+
+API and worker startup fails closed when `current_user` is a superuser, has
+`BYPASSRLS`, or owns an RLS-protected table. Runtime uses the non-owner
+`operating_layer_runtime` role; migration ownership remains separate. Workers
+claim jobs only through the narrow `claim_outbox_job` security-definer
+function and process each claimed job under an explicit organization scope.
 
 ## Explicit Phase 1 prohibitions
 

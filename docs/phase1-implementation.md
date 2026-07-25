@@ -16,7 +16,7 @@ manual issue intake
   -> deterministic, cited recommendation
   -> code-based approval policy
   -> persisted terminal or awaiting-approval state
-  -> immutable audit history
+  -> append-only, independently verified audit history
   -> executive queue and task detail
 ```
 
@@ -69,8 +69,11 @@ and source-system writes remain outside this phase.
 | Typed model output    | deterministic and malformed provider unit tests                      |
 | Permitted transitions | database tests for valid, invalid, and direct updates                |
 | Approval decision     | policy unit tests and high-exposure integration case                 |
-| Audit immutability    | integration update/delete rejection                                  |
+| Audit integrity       | mutation rejection, chain verification, and privileged tamper test   |
 | Entity isolation      | API authorization and direct RLS integration tests                   |
+| Runtime DB identity   | superuser rejection and scoped runtime-role acceptance               |
+| Task projection       | workflow/task equality and direct status-write rejection             |
+| Trace propagation     | intake/outbox/worker/audit equality assertion                        |
 | Bounded retries       | failed job lease/retry/dead-letter integration test                  |
 | Executive queue       | API assertions for open, overdue, blocked, and approval              |
 | Task history          | API assertions for source, recommendation, workflow, approval, audit |

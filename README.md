@@ -10,7 +10,7 @@ manual issue intake
   -> cited recommendation
   -> approval policy
   -> database-enforced workflow state
-  -> immutable audit history
+  -> append-only, verifiable audit history
   -> executive queue and task detail
 ```
 
@@ -40,14 +40,17 @@ instructions, and operational checks.
 
 - `pnpm check` runs workspace type checks and unit tests.
 - `pnpm build` creates all application and package builds.
-- `pnpm test:feature` creates a clean PostgreSQL 16 database, applies both
-  migrations and seed data, runs the vertical-slice feature suite, and removes
-  the isolated test database.
+- `pnpm test:feature` creates a clean PostgreSQL 16 database, applies every
+  forward migration and seed data, runs the vertical-slice feature suite, and
+  removes the isolated test database.
 - `pnpm test:smoke` starts the built API, worker, and production web server
   against another isolated database, exercises the slice over HTTP, and tears
   everything down.
 
-The last command is the single acceptance-test entry point for this slice.
+`pnpm test:feature` is the single acceptance-test entry point for this slice.
+It proves the audit chain on untampered history, detects privileged payload
+tampering, rejects task-status drift, rejects RLS-bypassing runtime identities,
+and preserves one trace ID through intake, worker transition, and audit.
 
 ## Documentation
 
@@ -61,6 +64,13 @@ Start with [the current state](docs/current-state.md), [architecture](docs/archi
 - External communication sending is absent.
 - Credentials are represented only by secret references.
 - PostgreSQL stores operating-layer state; source systems remain authoritative.
+- `workflows.current_state` is authoritative; `tasks.status` is updated only by
+  the guarded transition function and is checked for projection drift.
+- API and worker processes refuse to start as a PostgreSQL superuser,
+  `BYPASSRLS` role, or owner of an RLS-protected table.
+- Each audit event links to the prior stored hash and hashes its canonical
+  event payload. The independent verifier checks linkage, event hashes,
+  sequence, and stream head.
 - All state-changing commands must produce an audit event.
 
 See [deployment.md](docs/deployment.md) for the environment outline.

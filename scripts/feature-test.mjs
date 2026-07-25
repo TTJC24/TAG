@@ -33,6 +33,8 @@ try {
       ...process.env,
       DATABASE_URL_TEST:
         "postgresql://operating_layer:feature-test-only@localhost:55432/operating_layer_test",
+      DATABASE_URL_RUNTIME_TEST:
+        "postgresql://operating_layer_runtime:local-runtime-only@localhost:55432/operating_layer_test",
     },
   });
 } finally {

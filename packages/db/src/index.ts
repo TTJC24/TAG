@@ -21,6 +21,83 @@ export function createDatabasePool(databaseUrl: string): DatabasePool {
   });
 }
 
+export interface RuntimeDatabaseIdentity {
+  roleName: string;
+  superuser: boolean;
+  bypassRls: boolean;
+  ownedRlsTables: readonly string[];
+}
+
+export class UnsafeRuntimeDatabaseIdentityError extends Error {
+  readonly identity: RuntimeDatabaseIdentity;
+
+  constructor(identity: RuntimeDatabaseIdentity) {
+    const reasons = [
+      ...(identity.superuser ? ["role is a superuser"] : []),
+      ...(identity.bypassRls ? ["role has BYPASSRLS"] : []),
+      ...(identity.ownedRlsTables.length > 0
+        ? [
+            `role owns RLS-protected tables: ${identity.ownedRlsTables.join(", ")}`,
+          ]
+        : []),
+    ];
+    super(
+      `Unsafe runtime database identity "${identity.roleName}": ${reasons.join(
+        "; ",
+      )}. API and worker processes require a non-owner, non-bypass role.`,
+    );
+    this.name = "UnsafeRuntimeDatabaseIdentityError";
+    this.identity = identity;
+  }
+}
+
+export async function assertSafeRuntimeDatabaseIdentity(
+  pool: DatabasePool,
+): Promise<RuntimeDatabaseIdentity> {
+  const identityResult = await pool.query<{
+    role_name: string;
+    superuser: boolean;
+    bypass_rls: boolean;
+  }>(
+    `SELECT
+       role.rolname AS role_name,
+       role.rolsuper AS superuser,
+       role.rolbypassrls AS bypass_rls
+     FROM pg_roles role
+     WHERE role.rolname = current_user`,
+  );
+  const identityRow = identityResult.rows[0];
+  if (!identityRow) {
+    throw new Error("Current PostgreSQL identity could not be resolved");
+  }
+
+  const ownershipResult = await pool.query<{ table_name: string }>(
+    `SELECT class.relname AS table_name
+     FROM pg_class class
+     JOIN pg_namespace namespace ON namespace.oid = class.relnamespace
+     JOIN pg_roles owner_role ON owner_role.oid = class.relowner
+     WHERE namespace.nspname = 'operating_layer'
+       AND class.relkind IN ('r', 'p')
+       AND class.relrowsecurity
+       AND owner_role.rolname = current_user
+     ORDER BY class.relname`,
+  );
+  const identity: RuntimeDatabaseIdentity = {
+    roleName: identityRow.role_name,
+    superuser: identityRow.superuser,
+    bypassRls: identityRow.bypass_rls,
+    ownedRlsTables: ownershipResult.rows.map((row) => row.table_name),
+  };
+  if (
+    identity.superuser ||
+    identity.bypassRls ||
+    identity.ownedRlsTables.length > 0
+  ) {
+    throw new UnsafeRuntimeDatabaseIdentityError(identity);
+  }
+  return identity;
+}
+
 export interface OrganizationScope {
   userId: string;
   organizationIds: readonly string[];

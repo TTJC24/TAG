@@ -229,6 +229,11 @@ Audit events are append-only facts, not mutable application logs. Each event inc
 
 Sensitive payloads remain in encrypted object storage; audit metadata records references and hashes. State-changing commands fail if the matching audit event and outbox record cannot commit in the same transaction. Database permissions prohibit update/delete for the application role, and a trigger rejects mutation as defense in depth.
 
+The independent verifier recomputes the canonical event hash, sequence,
+prior-hash linkage, and stream head. It detects partial history tampering but
+does not replace a future external signed anchor against a fully privileged
+database re-chain.
+
 Production design adds periodic signed audit manifests exported to separate immutable storage. Audit exports and retention periods require explicit policy approval.
 
 ## Observability

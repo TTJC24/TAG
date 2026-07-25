@@ -23,6 +23,22 @@ Run the three `pnpm` application commands in separate terminals. The web
 application is at `http://localhost:3000`; API health is at
 `http://localhost:3001/health`.
 
+## Database identities
+
+Local Compose initializes PostgreSQL with two distinct identities:
+
+- `operating_layer` is the migration/administration identity and must never be
+  used as `DATABASE_URL` by an application process.
+- `operating_layer_runtime` is the non-owner, non-superuser, non-`BYPASSRLS`
+  API/worker identity configured by `.env.example`.
+
+API and worker startup query PostgreSQL role and table-ownership metadata
+before accepting work. Startup fails with an
+`UnsafeRuntimeDatabaseIdentityError` if the connection is a superuser, has
+`BYPASSRLS`, or owns any RLS-protected table. Production must provision a
+credentialed runtime role with the same invariants; migrations remain a
+separate deployment step under a migration identity.
+
 ## Seed identities
 
 | Identity                             | Scope                          |
@@ -49,13 +65,19 @@ The feature test owns only the
 `operating-layer-feature-test_feature-test-postgres` volume and always tears it
 down. It covers successful intake, duplicate/conflicting idempotency keys,
 typed agent output, approval routing, entity authorization/RLS, database
-transition enforcement, immutable source/audit records, and retry exhaustion.
+transition enforcement, task-status projection drift, safe runtime identity,
+audit immutability and chain verification/tamper detection, trace equality,
+and retry exhaustion.
 
 ## Observe
 
 - API request logs include a trace/request identifier.
 - Workflow transitions, recommendations, approvals, and audit history appear
   on task detail.
+- The audit verifier recomputes sequence, prior-hash linkage, canonical event
+  hashes, and the stream head. A verification failure is an integrity incident;
+  the Phase 1 verifier is not an external cryptographic anchor against an
+  administrator who rewrites and re-hashes the complete database history.
 - Failed/exhausted outbox work appears in the executive queue.
 - PostgreSQL is authoritative for outbox attempts and workflow completion.
   Redis or process restarts do not decide either.
@@ -81,7 +103,7 @@ this procedure against a shared or production environment.
 
 - production hosting/network topology;
 - Google Workspace OIDC client and group/role mapping;
-- non-owner database identities and secret manager;
+- production runtime credentials and secret manager;
 - backup, retention, audit-export, and recovery policy;
 - approved model providers and data-handling rules;
 - source-system schemas and read-only credentials.

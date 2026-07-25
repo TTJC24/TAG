@@ -26,8 +26,12 @@ Use a TypeScript pnpm monorepo with separately deployable Next.js web, modular A
   state. Redis is limited to dispatch, caching, and ephemeral coordination.
 - Workflow state changes are accepted only through a database transition
   function guarded by a database transition graph and optimistic version.
+- `tasks.status` is a guarded projection written by that same transition
+  function and checked against the authoritative workflow state at commit.
 - Entity isolation is enforced by application authorization, organization-
   scoped foreign keys, and PostgreSQL row-level security.
+- API and worker processes reject a superuser, `BYPASSRLS`, or protected-table
+  owner identity during startup.
 - Cross-entity reads require an explicit authorized organization set.
 - Model output is untrusted input and must pass a typed runtime schema before
   it can be persisted or used by a workflow.
@@ -36,6 +40,9 @@ Use a TypeScript pnpm monorepo with separately deployable Next.js web, modular A
 - Async commands carry idempotency and trace IDs, bounded attempts, leases, and
   visible dead-letter state.
 - Private chain-of-thought is neither requested nor stored.
+- Audit events form a verifiable organization chain over canonical event
+  payloads, sequence, and prior hash. The chain is not an external anchor
+  against a fully privileged database re-chain.
 
 ## Consequences
 

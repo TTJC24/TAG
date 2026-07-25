@@ -271,7 +271,7 @@ export async function createManualIssue(
            created_by_actor_id
          )
          VALUES (
-           $1, $2, $3, $4, $5, 'open', 'P3', $6, $7, $8, $9,
+           $1, $2, $3, $4, $5, 'received', 'P3', $6, $7, $8, $9,
            'user', $10
          )`,
         [

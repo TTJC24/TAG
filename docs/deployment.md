@@ -51,7 +51,7 @@ processes as documented in the repository README.
 volume. It validates migrations and seed data against a clean PostgreSQL 16
 instance and removes the instance afterward.
 
-Production hosting remains undecided. Before a deployment decision, define
-separate non-owner migration, API, worker, and reporting database identities;
-managed secret references; backup/restore objectives; retention rules; OIDC
-client configuration; and immutable audit export.
+Production hosting remains undecided. Before a deployment decision, credential
+the non-owner runtime role separately from the migration identity; define any
+reporting identity, managed secret references, backup/restore objectives,
+retention rules, OIDC client configuration, and immutable audit export.

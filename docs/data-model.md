@@ -1,10 +1,13 @@
 # Core Data Model
 
-The canonical schema is the ordered pair of forward-only migrations:
+The canonical schema is the ordered set of forward-only migrations:
 
 - `infrastructure/migrations/0001_core.sql` defines the core operating model.
 - `infrastructure/migrations/0002_phase1_vertical_slice.sql` adds the approved
   Phase 1 provenance, transition, retry, and row-level-security controls.
+- `infrastructure/migrations/0003_phase1_closeout.sql` adds the task-status
+  projection guard, safe runtime role boundary, and narrow worker claim
+  function.
 
 ## Ownership
 
@@ -40,7 +43,11 @@ Organization
 - An approval binds to a payload hash and policy version.
 - An action has an organization-scoped idempotency key.
 - Prompt content is versioned; terminal agent outputs cannot be overwritten and retries remain separately identifiable.
-- Audit events are append-only and chain by organization sequence/hash.
+- Audit events are append-only for the application role and chain by
+  organization sequence/hash. The verifier independently recomputes event
+  hashes, linkage, sequence, and the stream head.
+- `workflows.current_state` is authoritative; `tasks.status` is a
+  transactionally guarded projection and must match at commit.
 - State mutation, audit append, and outbox append occur in one database transaction.
 
 ## Implemented Phase 1 controls
@@ -51,6 +58,8 @@ Organization
 - raw-source checksum, source identity/timestamp, ingestion timestamp, schema
   version, and retention classification;
 - PostgreSQL-owned outbox leases, bounded attempts, errors, and dead-letter status.
+- runtime boot rejection for superuser, `BYPASSRLS`, or protected-table-owner
+  identities.
 
 ## Deferred schema decisions
 

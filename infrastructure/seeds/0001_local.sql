@@ -2,6 +2,9 @@ BEGIN;
 
 SET search_path TO operating_layer, public;
 
+ALTER ROLE operating_layer_runtime
+  LOGIN PASSWORD 'local-runtime-only';
+
 INSERT INTO organizations (id, name, code, status)
 VALUES
   (

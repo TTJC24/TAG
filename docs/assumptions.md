@@ -42,20 +42,20 @@ None of these unknowns should be silently encoded into connector or workflow log
 
 ## Risk register
 
-| Risk                                          | Impact   | Initial control                                                                        | Owner/status           |
-| --------------------------------------------- | -------- | -------------------------------------------------------------------------------------- | ---------------------- |
-| Cross-entity data leakage                     | Critical | Organization membership checks at every service boundary; scoped queries; access tests | Unassigned             |
-| Unauthorized ERP/accounting write             | Critical | No write credentials or write methods in Phase 1; deny-by-default action policy        | Controlled by scope    |
-| Audit records altered or omitted              | Critical | Append-only database table, transactionally coupled audit writes, hash chaining/export | Design defined         |
-| Unsupported AI recommendation                 | High     | Structured output, citations, freshness, confidence, verification, human approval      | Design defined         |
-| Source data becomes stale                     | High     | Sync watermark, observed/source timestamps, stale-data flags, connector health         | Design defined         |
-| Duplicate issue creation                      | High     | Source identity uniqueness, idempotency keys, deterministic import keys, manual merge  | Design defined         |
-| Prompt contains credentials or excessive data | High     | Secret references only; redaction and data-minimizing context builder                  | Design defined         |
-| Workflow job is lost or repeated              | High     | Persisted transition, transactional outbox, idempotent handlers                        | Design defined         |
-| LLM vendor lock-in                            | Medium   | Provider contract and normalized model telemetry                                       | Design defined         |
-| Cost overrun                                  | Medium   | Per-run budgets, task routing, caching, usage ledger, hard caps                        | Pending implementation |
-| Raw payload exposure                          | High     | Encrypted object storage, short-lived access, metadata-only UI, retention decision     | Pending infrastructure |
-| Incorrect automatic record merge              | High     | Automatic merging prohibited; link suggestions require review                          | Controlled by scope    |
+| Risk                                          | Impact   | Initial control                                                                         | Owner/status            |
+| --------------------------------------------- | -------- | --------------------------------------------------------------------------------------- | ----------------------- |
+| Cross-entity data leakage                     | Critical | Organization membership checks at every service boundary; scoped queries; access tests  | Unassigned              |
+| Unauthorized ERP/accounting write             | Critical | No write credentials or write methods in Phase 1; deny-by-default action policy         | Controlled by scope     |
+| Audit records altered or omitted              | Critical | Append-only events, transactional writes, verified hash chain; external anchor deferred | Implemented for Phase 1 |
+| Unsupported AI recommendation                 | High     | Structured output, citations, freshness, confidence, verification, human approval       | Design defined          |
+| Source data becomes stale                     | High     | Sync watermark, observed/source timestamps, stale-data flags, connector health          | Design defined          |
+| Duplicate issue creation                      | High     | Source identity uniqueness, idempotency keys, deterministic import keys, manual merge   | Design defined          |
+| Prompt contains credentials or excessive data | High     | Secret references only; redaction and data-minimizing context builder                   | Design defined          |
+| Workflow job is lost or repeated              | High     | Persisted transition, transactional outbox, idempotent handlers                         | Design defined          |
+| LLM vendor lock-in                            | Medium   | Provider contract and normalized model telemetry                                        | Design defined          |
+| Cost overrun                                  | Medium   | Per-run budgets, task routing, caching, usage ledger, hard caps                         | Pending implementation  |
+| Raw payload exposure                          | High     | Encrypted object storage, short-lived access, metadata-only UI, retention decision      | Pending infrastructure  |
+| Incorrect automatic record merge              | High     | Automatic merging prohibited; link suggestions require review                           | Controlled by scope     |
 
 ## Decisions requiring explicit approval
 

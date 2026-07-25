@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { verifyAuditChain } from "@operating-layer/audit";
 import { DevelopmentHeaderIdentityProvider } from "@operating-layer/auth";
 import {
+  assertSafeRuntimeDatabaseIdentity,
   createDatabasePool,
+  UnsafeRuntimeDatabaseIdentityError,
   withOrganizationScope,
   type DatabasePool,
 } from "@operating-layer/db";
@@ -19,6 +22,7 @@ const blcsOperatorEmail = "operator@local.operating-layer";
 const fsiOperatorEmail = "fsi-operator@local.operating-layer";
 
 describe("Phase 1 manual issue vertical slice", () => {
+  let adminPool: DatabasePool;
   let pool: DatabasePool;
   let app: Awaited<ReturnType<typeof buildApi>>;
   let createdTaskId: string;
@@ -29,7 +33,13 @@ describe("Phase 1 manual issue vertical slice", () => {
     if (!databaseUrl) {
       throw new Error("DATABASE_URL_TEST is required");
     }
-    pool = createDatabasePool(databaseUrl);
+    const runtimeDatabaseUrl = process.env.DATABASE_URL_RUNTIME_TEST;
+    if (!runtimeDatabaseUrl) {
+      throw new Error("DATABASE_URL_RUNTIME_TEST is required");
+    }
+    adminPool = createDatabasePool(databaseUrl);
+    pool = createDatabasePool(runtimeDatabaseUrl);
+    await assertSafeRuntimeDatabaseIdentity(pool);
     app = await buildApi({
       pool,
       identityProvider: new DevelopmentHeaderIdentityProvider(),
@@ -40,6 +50,7 @@ describe("Phase 1 manual issue vertical slice", () => {
   afterAll(async () => {
     await app.close();
     await pool.end();
+    await adminPool.end();
   });
 
   it("creates, deduplicates, classifies, recommends, and queues approval", async () => {
@@ -177,6 +188,69 @@ describe("Phase 1 manual issue vertical slice", () => {
         approvalPending: 1,
       },
     });
+
+    const traceEvidence = await withOrganizationScope(
+      pool,
+      { userId: blcsOperatorId, organizationIds: [blcsId] },
+      async (client) => {
+        const result = await client.query<{
+          intake_trace: string;
+          worker_trace: string;
+          audit_trace: string;
+        }>(
+          `SELECT
+             (
+               SELECT trace_id
+               FROM outbox_events
+               WHERE aggregate_id = $1
+                 AND topic = 'issue.classify'
+               LIMIT 1
+             ) AS intake_trace,
+             (
+               SELECT trace_id
+               FROM workflow_transitions
+               WHERE workflow_id = $1
+                 AND to_state = 'classified'
+               LIMIT 1
+             ) AS worker_trace,
+             (
+               SELECT trace_id
+               FROM audit_events
+               WHERE workflow_id = $1
+                 AND event_type = 'task.classified'
+               LIMIT 1
+             ) AS audit_trace`,
+          [createdWorkflowId],
+        );
+        return result.rows[0]!;
+      },
+    );
+    expect(traceEvidence).toEqual({
+      intake_trace: "trace-feature-intake",
+      worker_trace: "trace-feature-intake",
+      audit_trace: "trace-feature-intake",
+    });
+  });
+
+  it("rejects RLS-bypassing runtime identities and accepts the scoped role", async () => {
+    const unsafeIdentity = await assertSafeRuntimeDatabaseIdentity(
+      adminPool,
+    ).catch((error: unknown) => error);
+    expect(unsafeIdentity).toBeInstanceOf(UnsafeRuntimeDatabaseIdentityError);
+    if (!(unsafeIdentity instanceof UnsafeRuntimeDatabaseIdentityError)) {
+      throw new Error("Expected the migration identity to be rejected");
+    }
+    expect(unsafeIdentity.message).toMatch(/superuser/);
+    expect(unsafeIdentity.identity.ownedRlsTables).toContain("tasks");
+
+    await expect(
+      assertSafeRuntimeDatabaseIdentity(pool),
+    ).resolves.toMatchObject({
+      roleName: "operating_layer_runtime",
+      superuser: false,
+      bypassRls: false,
+      ownedRlsTables: [],
+    });
   });
 
   it("enforces organization authorization in the API and row-level security", async () => {
@@ -209,6 +283,30 @@ describe("Phase 1 manual issue vertical slice", () => {
   });
 
   it("rejects direct or invalid workflow mutations at the database layer", async () => {
+    const projection = await withOrganizationScope(
+      pool,
+      { userId: blcsOperatorId, organizationIds: [blcsId] },
+      async (client) => {
+        const result = await client.query<{
+          task_status: string;
+          workflow_state: string;
+        }>(
+          `SELECT
+             task.status AS task_status,
+             workflow.current_state AS workflow_state
+           FROM tasks task
+           JOIN workflows workflow
+             ON workflow.task_id = task.id
+            AND workflow.organization_id = task.organization_id
+           WHERE workflow.id = $1
+             AND workflow.organization_id = $2`,
+          [createdWorkflowId, blcsId],
+        );
+        return result.rows[0]!;
+      },
+    );
+    expect(projection.task_status).toBe(projection.workflow_state);
+
     await expect(
       withOrganizationScope(
         pool,
@@ -246,7 +344,7 @@ describe("Phase 1 manual issue vertical slice", () => {
     ).rejects.toThrow();
 
     await expect(
-      pool.query(
+      adminPool.query(
         `INSERT INTO operating_layer.workflow_transitions (
            workflow_id, organization_id, command_id, from_state, to_state,
            workflow_version, actor_type, actor_id, trace_id
@@ -261,10 +359,36 @@ describe("Phase 1 manual issue vertical slice", () => {
         ],
       ),
     ).rejects.toThrow();
+
+    await expect(
+      withOrganizationScope(
+        pool,
+        { userId: blcsOperatorId, organizationIds: [blcsId] },
+        async (client) => {
+          await client.query(
+            `UPDATE tasks
+             SET status = 'completed'
+             WHERE id = $1
+               AND organization_id = $2`,
+            [createdTaskId, blcsId],
+          );
+        },
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      adminPool.query(
+        `UPDATE operating_layer.tasks
+         SET status = 'completed'
+         WHERE id = $1
+           AND organization_id = $2`,
+        [createdTaskId, blcsId],
+      ),
+    ).rejects.toThrow(/transition_workflow/);
   });
 
-  it("keeps source versions and audit events immutable", async () => {
-    const identifiers = await pool.query<{
+  it("keeps audit history immutable and detects privileged payload tampering", async () => {
+    const identifiers = await adminPool.query<{
       source_version_id: string;
       audit_event_id: string;
     }>(
@@ -287,7 +411,7 @@ describe("Phase 1 manual issue vertical slice", () => {
     );
     const row = identifiers.rows[0]!;
     await expect(
-      pool.query(
+      adminPool.query(
         `UPDATE operating_layer.source_record_versions
          SET content_hash = repeat('0', 64)
          WHERE id = $1`,
@@ -295,53 +419,107 @@ describe("Phase 1 manual issue vertical slice", () => {
       ),
     ).rejects.toThrow();
     await expect(
-      pool.query(
-        `UPDATE operating_layer.audit_events
-         SET event_type = 'tampered'
-         WHERE id = $1`,
-        [row.audit_event_id],
+      withOrganizationScope(
+        pool,
+        { userId: blcsOperatorId, organizationIds: [blcsId] },
+        async (client) => {
+          await client.query(
+            `UPDATE audit_events
+             SET event_type = 'tampered'
+             WHERE id = $1`,
+            [row.audit_event_id],
+          );
+        },
       ),
     ).rejects.toThrow();
+
+    const untampered = await verifyAuditChain(adminPool, blcsId);
+    expect(untampered.valid).toBe(true);
+    expect(untampered.checkedEvents).toBeGreaterThanOrEqual(5);
+    expect(untampered.errors).toEqual([]);
+
+    const privilegedClient = await adminPool.connect();
+    try {
+      await privilegedClient.query("BEGIN");
+      await privilegedClient.query(
+        `ALTER TABLE operating_layer.audit_events
+         DISABLE TRIGGER audit_events_are_immutable`,
+      );
+      await privilegedClient.query(
+        `UPDATE operating_layer.audit_events
+         SET metadata = metadata || '{"tampered": true}'::jsonb
+         WHERE id = $1`,
+        [row.audit_event_id],
+      );
+
+      const tampered = await verifyAuditChain(privilegedClient, blcsId);
+      expect(tampered.valid).toBe(false);
+      expect(tampered.errors).toContainEqual(
+        expect.objectContaining({ code: "event_hash_mismatch" }),
+      );
+    } finally {
+      await privilegedClient.query("ROLLBACK");
+      privilegedClient.release();
+    }
+
+    await expect(verifyAuditChain(adminPool, blcsId)).resolves.toMatchObject({
+      valid: true,
+      errors: [],
+    });
   });
 
   it("bounds retries, dead-letters exhausted work, and exposes it in the queue", async () => {
     const id = randomUUID();
-    await pool.query(
-      `INSERT INTO operating_layer.outbox_events (
-         id,
-         organization_id,
-         topic,
-         aggregate_type,
-         aggregate_id,
-         payload_reference,
-         payload_hash,
-         idempotency_key,
-         trace_id,
-         requested_by_user_id,
-         request_id,
-         max_attempts
-       )
-       VALUES (
-         $1, $2, 'unsupported.test', 'workflow', $3, 'test://unsupported',
-         repeat('a', 64), $4, 'trace-dead-letter', $5, 'request-dead-letter', 2
-       )`,
-      [
-        id,
-        blcsId,
-        createdWorkflowId,
-        `unsupported-${randomUUID()}`,
-        blcsOperatorId,
-      ],
+    await withOrganizationScope(
+      pool,
+      { userId: blcsOperatorId, organizationIds: [blcsId] },
+      async (client) => {
+        await client.query(
+          `INSERT INTO outbox_events (
+             id,
+             organization_id,
+             topic,
+             aggregate_type,
+             aggregate_id,
+             payload_reference,
+             payload_hash,
+             idempotency_key,
+             trace_id,
+             requested_by_user_id,
+             request_id,
+             max_attempts
+           )
+           VALUES (
+             $1, $2, 'unsupported.test', 'workflow', $3, 'test://unsupported',
+             repeat('a', 64), $4, 'trace-dead-letter', $5,
+             'request-dead-letter', 2
+           )`,
+          [
+            id,
+            blcsId,
+            createdWorkflowId,
+            `unsupported-${randomUUID()}`,
+            blcsOperatorId,
+          ],
+        );
+      },
     );
 
     expect(await processNextOutboxJob(pool, "failure-test-worker")).toBe(
       "failed",
     );
-    await pool.query(
-      `UPDATE operating_layer.outbox_events
-       SET available_at = now()
-       WHERE id = $1`,
-      [id],
+    await withOrganizationScope(
+      pool,
+      { userId: blcsOperatorId, organizationIds: [blcsId] },
+      async (client) => {
+        await client.query(
+          `UPDATE outbox_events
+           SET available_at = now()
+           WHERE id = $1
+             AND organization_id = $2`,
+          [id, blcsId],
+        );
+      },
     );
     expect(await processNextOutboxJob(pool, "failure-test-worker")).toBe(
       "dead_letter",

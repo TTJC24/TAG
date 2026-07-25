@@ -3,7 +3,10 @@ import {
   GoogleWorkspaceOidcProvider,
   type IdentityProvider,
 } from "@operating-layer/auth";
-import { createDatabasePool } from "@operating-layer/db";
+import {
+  assertSafeRuntimeDatabaseIdentity,
+  createDatabasePool,
+} from "@operating-layer/db";
 import { buildApi } from "./server.js";
 
 function identityProviderFromEnvironment(): IdentityProvider {
@@ -34,6 +37,12 @@ if (!databaseUrl) {
 }
 
 const pool = createDatabasePool(databaseUrl);
+try {
+  await assertSafeRuntimeDatabaseIdentity(pool);
+} catch (error) {
+  await pool.end();
+  throw error;
+}
 const app = await buildApi({
   pool,
   identityProvider: identityProviderFromEnvironment(),
