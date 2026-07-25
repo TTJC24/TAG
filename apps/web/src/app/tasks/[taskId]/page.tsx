@@ -2,6 +2,8 @@ import Link from "next/link";
 import { operatingLayerApi } from "../../../lib/api";
 import { ApprovalResolutionForm } from "./approval-resolution-form";
 import { ExecutionTriggerForm } from "./execution-trigger-form";
+import { GmailDraftAuthorizationForm } from "./gmail-draft-authorization-form";
+import { GmailDraftPreviewForm } from "./gmail-draft-preview-form";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +17,10 @@ interface TaskDetail {
   approvalResolutions: Array<Record<string, unknown>>;
   executionCommands: Array<Record<string, unknown>>;
   executionResults: Array<Record<string, unknown>>;
+  gmailDraftConnector: Record<string, unknown>;
+  gmailDraftPreviews: Array<Record<string, unknown>>;
+  gmailDraftAuthorizations: Array<Record<string, unknown>>;
+  gmailDraftAbandonments: Array<Record<string, unknown>>;
   auditHistory: Array<Record<string, unknown>>;
 }
 
@@ -44,6 +50,14 @@ export default async function TaskDetailPage({
     )}?organizationId=${encodeURIComponent(organizationId)}`,
   );
   const task = detail.task;
+  const connectorEnabled = detail.gmailDraftConnector.enabled === true;
+  const latestPreview = detail.gmailDraftPreviews.at(-1);
+  const latestAuthorization = detail.gmailDraftAuthorizations.at(-1);
+  const workflowState = display(detail.workflows.at(-1)?.current_state);
+  const canExecuteInternally =
+    workflowState === "approved" &&
+    (detail.executionCommands.length === 0 ||
+      detail.gmailDraftAbandonments.length > 0);
 
   return (
     <div className="pageStack">
@@ -206,13 +220,111 @@ export default async function TaskDetailPage({
                   organizationId={organizationId}
                 />
               ) : null}
-              {approval.status === "approved" &&
-              detail.executionCommands.length === 0 ? (
+              {approval.status === "approved" && canExecuteInternally ? (
                 <ExecutionTriggerForm
                   approvalId={display(approval.id)}
                   organizationId={organizationId}
                 />
               ) : null}
+              {approval.status === "approved" &&
+              canExecuteInternally &&
+              approval.action_type === "draft_external_follow_up" &&
+              connectorEnabled &&
+              !latestPreview ? (
+                <GmailDraftPreviewForm
+                  approvalId={display(approval.id)}
+                  organizationId={organizationId}
+                />
+              ) : null}
+              {approval.action_type === "draft_external_follow_up" &&
+              !connectorEnabled ? (
+                <p className="muted">
+                  Gmail draft materialization is disabled. Internal execution
+                  remains available.
+                </p>
+              ) : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      {detail.gmailDraftPreviews.length > 0 ? (
+        <section className="panel executionPanel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Exact external-action preview</p>
+              <h2>Gmail draft preview</h2>
+            </div>
+          </div>
+          {detail.gmailDraftPreviews.map((preview) => (
+            <article key={display(preview.id)}>
+              <dl>
+                <div>
+                  <dt>To</dt>
+                  <dd>{display(preview.recipient)}</dd>
+                </div>
+                <div>
+                  <dt>Subject</dt>
+                  <dd>{display(preview.subject)}</dd>
+                </div>
+                <div>
+                  <dt>Payload hash</dt>
+                  <dd>{display(preview.rendered_payload_hash)}</dd>
+                </div>
+                <div>
+                  <dt>Requested by</dt>
+                  <dd>{display(preview.requester_name)}</dd>
+                </div>
+              </dl>
+              <pre>{display(preview.body)}</pre>
+              {!latestAuthorization &&
+              workflowState === "awaiting_external_authorization" ? (
+                <GmailDraftAuthorizationForm
+                  previewId={display(preview.id)}
+                  organizationId={organizationId}
+                />
+              ) : null}
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      {detail.gmailDraftAuthorizations.length > 0 ? (
+        <section className="panel approvalPanel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Second human gate</p>
+              <h2>Gmail draft authorization</h2>
+            </div>
+          </div>
+          {detail.gmailDraftAuthorizations.map((authorization) => (
+            <article key={display(authorization.id)}>
+              <strong>{display(authorization.authorizer_name)}</strong>
+              <p>{display(authorization.reason)}</p>
+              <small>
+                {display(authorization.authorized_at)} · config{" "}
+                {display(authorization.connector_config_version_id)}
+              </small>
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      {detail.gmailDraftAbandonments.length > 0 ? (
+        <section className="panel failurePanel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Kill switch</p>
+              <h2>External materialization halted</h2>
+            </div>
+          </div>
+          {detail.gmailDraftAbandonments.map((abandonment) => (
+            <article key={display(abandonment.id)}>
+              <strong>{display(abandonment.reason_code)}</strong>
+              <p>
+                No Gmail call was made. The workflow returned to approved for
+                internal execution.
+              </p>
             </article>
           ))}
         </section>
@@ -318,6 +430,29 @@ export default async function TaskDetailPage({
                   <dd>{display(result.completed_at)}</dd>
                 </div>
               </dl>
+              {result.executor_provider === "gmail_draft" &&
+              result.outcome === "succeeded" ? (
+                <p>
+                  Draft ID:{" "}
+                  {display(
+                    (
+                      result.output_payload as
+                        Record<string, unknown> | undefined
+                    )?.draftId,
+                  )}
+                  {" · "}
+                  <a
+                    href={display(
+                      (
+                        result.output_payload as
+                          Record<string, unknown> | undefined
+                      )?.draftLink,
+                    )}
+                  >
+                    Open draft
+                  </a>
+                </p>
+              ) : null}
             </article>
           ))}
         </section>

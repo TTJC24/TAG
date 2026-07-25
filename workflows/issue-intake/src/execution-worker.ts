@@ -7,6 +7,7 @@ import type {
 } from "@operating-layer/executors";
 import {
   executionProviderOutputSchema,
+  gmailDraftProviderOutputSchema,
   type ExecutionProviderOutput,
 } from "@operating-layer/schemas";
 import type { OutboxJob } from "./worker.js";
@@ -24,7 +25,21 @@ interface ExecutionCommandRow {
   provider_name: string;
   policy_version_id: string;
   policy_content_hash: string;
+  external_authorization_id: string | null;
   result_id: string | null;
+  abandonment_id: string | null;
+  preview_id: string | null;
+  recipient: string | null;
+  subject: string | null;
+  body: string | null;
+  rendered_payload_hash: string | null;
+  connector_config_version_id: string | null;
+  active_config_version_id: string | null;
+  connector_enabled: boolean | null;
+  allowed_recipient_addresses: string[] | null;
+  allowed_recipient_domains: string[] | null;
+  credential_secret_reference: string | null;
+  authorized_by_user_id: string | null;
 }
 
 interface PreparedExecution {
@@ -45,10 +60,11 @@ export class ExecutionAttemptError extends Error {
   }
 }
 
-async function prepareInternalExecution(
+async function prepareExecution(
   pool: DatabasePool,
   job: OutboxJob,
-  provider: ExecutionProvider,
+  internalProvider: ExecutionProvider,
+  gmailDraftProvider: ExecutionProvider,
 ): Promise<PreparedExecution | null> {
   return withOrganizationScope(
     pool,
@@ -71,7 +87,21 @@ async function prepareInternalExecution(
            command.provider_name,
            approval.policy_version_id,
            approval.policy_content_hash,
-           result.id AS result_id
+           command.external_authorization_id,
+           result.id AS result_id,
+           abandonment.id AS abandonment_id,
+           preview.id AS preview_id,
+           preview.recipient,
+           preview.subject,
+           preview.body,
+           preview.rendered_payload_hash,
+           draft_authorization.connector_config_version_id,
+           binding.active_config_version_id,
+           config.enabled AS connector_enabled,
+           config.allowed_recipient_addresses,
+           config.allowed_recipient_domains,
+           config.credential_secret_reference,
+           draft_authorization.authorized_by_user_id
          FROM execution_commands command
          JOIN approvals approval
            ON approval.id = command.approval_id
@@ -79,6 +109,20 @@ async function prepareInternalExecution(
          LEFT JOIN execution_results result
            ON result.execution_command_id = command.id
           AND result.organization_id = command.organization_id
+         LEFT JOIN gmail_draft_execution_abandonments abandonment
+           ON abandonment.execution_command_id = command.id
+          AND abandonment.organization_id = command.organization_id
+         LEFT JOIN gmail_draft_authorizations draft_authorization
+           ON draft_authorization.id = command.external_authorization_id
+          AND draft_authorization.organization_id = command.organization_id
+         LEFT JOIN gmail_draft_previews preview
+           ON preview.id = draft_authorization.preview_id
+          AND preview.organization_id = draft_authorization.organization_id
+         LEFT JOIN gmail_draft_connector_bindings binding
+           ON binding.organization_id = command.organization_id
+         LEFT JOIN gmail_draft_connector_config_versions config
+           ON config.id = binding.active_config_version_id
+          AND config.organization_id = binding.organization_id
          WHERE command.id = $1
            AND command.organization_id = $2`,
         [job.aggregate_id, job.organization_id],
@@ -87,12 +131,19 @@ async function prepareInternalExecution(
       if (!command) {
         throw new Error("Execution command was not found");
       }
+      const provider =
+        command.provider_name === "gmail_draft"
+          ? gmailDraftProvider
+          : internalProvider;
       if (
-        command.provider_name !== "deterministic_internal" ||
-        provider.kind !== "internal" ||
-        !provider.enabled
+        (command.provider_name === "deterministic_internal" &&
+          provider.kind !== "internal") ||
+        (command.provider_name === "gmail_draft" &&
+          provider.kind !== "external")
       ) {
-        throw new Error("The authorized execution provider is not enabled");
+        throw new Error(
+          "The execution provider kind does not match the command",
+        );
       }
       if (command.result_id) {
         await client.query(
@@ -104,6 +155,110 @@ async function prepareInternalExecution(
           [job.id, job.organization_id],
         );
         return null;
+      }
+      if (command.abandonment_id) {
+        await client.query(
+          `UPDATE outbox_events
+           SET status = 'published', published_at = now(), locked_at = NULL,
+               locked_by = NULL, safe_error_message = NULL,
+               last_error_code = NULL
+           WHERE id = $1 AND organization_id = $2`,
+          [job.id, job.organization_id],
+        );
+        return null;
+      }
+
+      if (command.provider_name === "gmail_draft") {
+        const configMatches =
+          command.connector_enabled === true &&
+          command.connector_config_version_id !== null &&
+          command.connector_config_version_id ===
+            command.active_config_version_id;
+        if (!configMatches) {
+          const abandonmentId = randomUUID();
+          const reasonCode =
+            command.connector_enabled === true
+              ? "connector_config_changed"
+              : "connector_disabled";
+          const abandoned = await client.query<{
+            workflow_state: string;
+            workflow_version: number;
+          }>(
+            `SELECT workflow_state, workflow_version
+             FROM abandon_gmail_draft_execution($1, $2, $3, $4, $5)`,
+            [
+              abandonmentId,
+              command.id,
+              command.organization_id,
+              reasonCode,
+              job.trace_id,
+            ],
+          );
+          const abandonment = abandoned.rows[0];
+          if (!abandonment) {
+            throw new Error("Gmail draft abandonment did not return state");
+          }
+          await appendAuditEvent(client, {
+            organizationId: command.organization_id,
+            actorType: "service",
+            actorId: "gmail-draft-kill-switch",
+            eventType: "gmail_draft.materialization_abandoned",
+            workflowId: command.workflow_id,
+            sourceRecordIds: [],
+            inputHash: command.action_payload_hash,
+            outputHash: sha256({
+              abandonmentId,
+              reasonCode,
+              state: abandonment.workflow_state,
+            }),
+            traceId: job.trace_id,
+            requestId: job.request_id,
+            metadata: {
+              abandonmentId,
+              taskId: command.task_id,
+              approvalId: command.approval_id,
+              executionCommandId: command.id,
+              previewId: command.preview_id,
+              authorizationId: command.external_authorization_id,
+              connectorConfigVersionId: command.connector_config_version_id,
+              activeConfigVersionId: command.active_config_version_id,
+              reasonCode,
+              workflowState: abandonment.workflow_state,
+              workflowVersion: abandonment.workflow_version,
+            },
+            occurredAt: new Date().toISOString(),
+          });
+          await client.query(
+            `UPDATE outbox_events
+             SET status = 'published', published_at = now(), locked_at = NULL,
+                 locked_by = NULL, safe_error_message = NULL,
+                 last_error_code = NULL
+             WHERE id = $1 AND organization_id = $2`,
+            [job.id, job.organization_id],
+          );
+          return null;
+        }
+        if (
+          !command.preview_id ||
+          !command.external_authorization_id ||
+          !command.recipient ||
+          !command.subject ||
+          command.body === null ||
+          !command.rendered_payload_hash ||
+          !command.credential_secret_reference
+        ) {
+          throw new Error("Authorized Gmail draft payload is incomplete");
+        }
+        const domain = command.recipient.split("@")[1]!;
+        if (
+          !command.allowed_recipient_addresses?.includes(command.recipient) &&
+          !command.allowed_recipient_domains?.includes(domain)
+        ) {
+          throw new Error("Authorized Gmail draft recipient is not allowed");
+        }
+      }
+      if (!provider.enabled) {
+        throw new Error("The authorized execution provider is not enabled");
       }
 
       const inputHash = sha256({
@@ -117,7 +272,7 @@ async function prepareInternalExecution(
         did_transition: boolean;
       }>(
         `SELECT workflow_state, workflow_version, did_transition
-         FROM begin_internal_execution($1, $2, $3, $4)`,
+         FROM begin_execution($1, $2, $3, $4)`,
         [command.id, command.organization_id, inputHash, job.trace_id],
       );
       const beginResult = begun.rows[0];
@@ -165,6 +320,21 @@ async function prepareInternalExecution(
           actionType: command.action_type,
           summary: command.action_summary,
           payloadHash: command.action_payload_hash,
+          ...(command.provider_name === "gmail_draft"
+            ? {
+                payload: {
+                  capability: "drafts.create",
+                  previewId: command.preview_id,
+                  authorizationId: command.external_authorization_id,
+                  to: command.recipient,
+                  subject: command.subject,
+                  body: command.body,
+                  renderedPayloadHash: command.rendered_payload_hash,
+                  credentialSecretReference:
+                    command.credential_secret_reference,
+                },
+              }
+            : {}),
         },
         startedAt,
       };
@@ -266,6 +436,42 @@ async function persistExecutionOutcome(
         },
         occurredAt: completedAt,
       });
+      if (
+        prepared.command.provider_name === "gmail_draft" &&
+        output.outcome === "succeeded"
+      ) {
+        await appendAuditEvent(client, {
+          organizationId: prepared.command.organization_id,
+          actorType: "service",
+          actorId: provider.id,
+          eventType: "gmail_draft.created",
+          workflowId: row.workflow_id,
+          sourceRecordIds: [],
+          inputHash: prepared.command.action_payload_hash,
+          outputHash,
+          traceId: job.trace_id,
+          requestId: job.request_id,
+          metadata: {
+            taskId: row.task_id,
+            approvalId: row.approval_id,
+            executionCommandId: prepared.command.id,
+            executionResultId,
+            previewId: prepared.command.preview_id,
+            authorizationId: prepared.command.external_authorization_id,
+            authorizerUserId: prepared.command.authorized_by_user_id,
+            connectorConfigVersionId:
+              prepared.command.connector_config_version_id,
+            connector: "gmail",
+            capability: "drafts.create",
+            renderedPayloadHash: prepared.command.rendered_payload_hash,
+            draftId: output.output.draftId,
+            executorId: provider.id,
+            workflowState: row.resulting_workflow_state,
+            workflowVersion: row.workflow_version,
+          },
+          occurredAt: completedAt,
+        });
+      }
 
       await client.query(
         `UPDATE outbox_events
@@ -293,12 +499,22 @@ async function persistExecutionOutcome(
 export async function processInternalExecutionJob(
   pool: DatabasePool,
   job: OutboxJob,
-  provider: ExecutionProvider,
+  internalProvider: ExecutionProvider,
+  gmailDraftProvider: ExecutionProvider,
 ): Promise<void> {
-  const prepared = await prepareInternalExecution(pool, job, provider);
+  const prepared = await prepareExecution(
+    pool,
+    job,
+    internalProvider,
+    gmailDraftProvider,
+  );
   if (!prepared) {
     return;
   }
+  const provider =
+    prepared.command.provider_name === "gmail_draft"
+      ? gmailDraftProvider
+      : internalProvider;
 
   let untrustedOutput: unknown;
   try {
@@ -320,6 +536,15 @@ export async function processInternalExecutionJob(
   let output: ExecutionProviderOutput;
   try {
     output = executionProviderOutputSchema.parse(untrustedOutput);
+    if (prepared.command.provider_name === "gmail_draft") {
+      gmailDraftProviderOutputSchema.parse(untrustedOutput);
+      if (
+        output.output.renderedPayloadHash !==
+        prepared.command.rendered_payload_hash
+      ) {
+        throw new Error("Gmail draft output payload hash did not match");
+      }
+    }
   } catch {
     throw new ExecutionAttemptError(
       "Execution provider returned invalid output",
@@ -345,13 +570,23 @@ export async function processInternalExecutionJob(
 export async function finalizeInternalExecutionFailure(
   pool: DatabasePool,
   job: OutboxJob,
-  provider: ExecutionProvider,
+  internalProvider: ExecutionProvider,
+  gmailDraftProvider: ExecutionProvider,
   failure: unknown,
 ): Promise<void> {
-  const prepared = await prepareInternalExecution(pool, job, provider);
+  const prepared = await prepareExecution(
+    pool,
+    job,
+    internalProvider,
+    gmailDraftProvider,
+  );
   if (!prepared) {
     return;
   }
+  const provider =
+    prepared.command.provider_name === "gmail_draft"
+      ? gmailDraftProvider
+      : internalProvider;
   const attempt =
     failure instanceof ExecutionAttemptError
       ? failure

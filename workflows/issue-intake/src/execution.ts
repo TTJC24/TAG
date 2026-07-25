@@ -82,14 +82,23 @@ export async function requestInternalExecution(
            approval.status AS approval_status,
            workflow.current_state AS workflow_state,
            approval.decision_trace_id AS root_trace_id,
-           command.id AS existing_execution_command_id
+           active_command.id AS existing_execution_command_id
          FROM approvals approval
          JOIN workflows workflow
            ON workflow.id = approval.workflow_id
           AND workflow.organization_id = approval.organization_id
-         LEFT JOIN execution_commands command
-           ON command.approval_id = approval.id
-          AND command.organization_id = approval.organization_id
+         LEFT JOIN LATERAL (
+           SELECT command.id
+           FROM execution_commands command
+           LEFT JOIN gmail_draft_execution_abandonments abandonment
+             ON abandonment.execution_command_id = command.id
+            AND abandonment.organization_id = command.organization_id
+           WHERE command.approval_id = approval.id
+             AND command.organization_id = approval.organization_id
+             AND abandonment.id IS NULL
+           ORDER BY command.created_at DESC
+           LIMIT 1
+         ) active_command ON true
          WHERE approval.id = $1
            AND approval.organization_id = $2`,
         [command.approvalId, input.organizationId],

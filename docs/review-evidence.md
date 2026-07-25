@@ -1,9 +1,29 @@
-# Phase 2 Review Evidence
+# Phase 3 Review Evidence
 
-This file maps the approved deterministic internal-execution and controlled
-CSV batch-intake slices to executable evidence. The feature suite starts from
-an empty PostgreSQL 16 database, applies migrations `0001` through `0006`,
+This file maps the governed internal slices and the first disabled-by-default
+Gmail-draft external-write slice to executable evidence. The feature suite starts from
+an empty PostgreSQL 16 database, applies migrations `0001` through `0007`,
 loads deterministic seed data, and runs through the non-owner runtime role.
+
+## Gmail draft external-write evidence
+
+| Acceptance criterion                      | Executable proof                                                                                                                                                                                                    | Status                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `drafts.create` only; no send code path   | Executor unit test asserts the sole capability, exact compose scope, and fixed transport; feature test asserts `messages.send` is absent from capabilities and its API route is `404`                               | Automated                     |
+| Disabled and inert by default             | `ships disabled, exposes drafts.create only, and preserves internal execution` proves preview is rejected with no config and deterministic internal execution still completes                                       | Automated                     |
+| Exact dry-run before external command     | `previews exactly...` compares persisted/returned `to`, `subject`, and `body`, then asserts zero Gmail commands and zero results before authorization                                                               | Automated                     |
+| Existing approval is required             | Preview service and database trigger require the bound approval to be approved and the action to be `draft_external_follow_up`                                                                                      | App + database enforced       |
+| Organization kill switch and allowlist    | Success test rejects an outside domain before provider invocation; kill-switch test disables after authorization, proves zero provider calls, records abandonment, returns to `approved`, then completes internally | Automated                     |
+| Second explicit authorization             | Success test proves preview alone creates no command; authorization creates one immutable authorization, Gmail command, and outbox item                                                                             | Automated + database enforced |
+| Duplicate authorization and result replay | Success test replays authorization to the same IDs, forces outbox redelivery after success, and asserts one provider call, one result, and the same stored draft ID                                                 | Automated                     |
+| Typed untrusted provider output           | Worker validates generic execution output and the Gmail-specific `drafts.create` schema plus rendered-payload-hash equality before persistence                                                                      | Automated path                |
+| Bounded retries and visible dead letter   | `retries a failed drafts.create within bounds and exposes the dead letter` proves attempts 1/2 fail, attempt 3 terminally fails, and the exact dead letter appears in the executive queue                           | Automated                     |
+| Organization isolation                    | Success test proves cross-org API `403` and zero direct-ID rows under the other organization’s runtime RLS scope                                                                                                    | Automated                     |
+| Immutable audit and root trace            | Success test asserts approval, preview, authorization, execution, and `gmail_draft.created` share the intake trace; created event records capability, authorization, and draft ID                                   | Automated                     |
+| Task detail and queue                     | Detail response includes config state, exact previews, authorizations, abandonments, command/result and draft ID/link; queue counts `awaiting_external_authorization` and exposes execution dead letters            | Automated + build             |
+| No real network in tests                  | Feature tests inject an in-memory `GmailDraftCreateTransport`; production network transport is not instantiated by API/tests and worker runtime defaults disabled                                                   | Structural + automated        |
+| Workspace and migration verification      | `pnpm typecheck`, `pnpm build`, and `pnpm test:feature` against clean PostgreSQL 16                                                                                                                                 | Automated commands            |
+| Pull-request verification                 | GitHub Actions check `verify` runs formatting, typecheck, unit tests, clean PostgreSQL feature tests, and build                                                                                                     | Hosted check                  |
 
 ## Controlled CSV batch-intake evidence
 
@@ -31,7 +51,7 @@ loads deterministic seed data, and runs through the non-owner runtime role.
 
 | Acceptance criterion                            | Executable proof                                                                                                                                                              | Status            |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
-| Provider-neutral seam, internal mock only       | `packages/executors/src/index.test.ts` proves deterministic internal output and rejects external-provider resolution; feature test also makes the database reject `external`  | Automated         |
+| Provider-neutral seam, internal path preserved  | Executor unit tests prove deterministic internal output; disabled-connector feature test proves the existing internal path still completes without invoking Gmail             | Automated         |
 | Approved task executes to `completed`           | `executes an approved task once to completed with RLS and trace continuity` drives API → outbox → worker → immutable result → terminal state                                  | Automated         |
 | Failure becomes terminal and dead-lettered      | `retries deterministic execution failure to terminal dead-letter visibility` proves two bounded retries, third-attempt finalization, `execution_failed`, and queue visibility | Automated         |
 | Non-approved execution is DB-rejected           | `rejects once and reaches the rejected terminal state` attempts raw pending→executing and raw enqueue against pending/rejected approvals                                      | Automated         |
@@ -51,7 +71,7 @@ loads deterministic seed data, and runs through the non-owner runtime role.
 
 ## Preserved Phase 1 guarantees
 
-The Phase 2 tests run with all Phase 1 tests; no prior test was removed or
+The Phase 3 tests run with all Phase 1 and Phase 2 tests; no prior test was removed or
 weakened. The suite continues to prove:
 
 - database-enforced workflow transitions and task-status projection equality;
@@ -62,7 +82,8 @@ weakened. The suite continues to prove:
 - schema validation of untrusted deterministic-agent output;
 - intake-to-worker-to-audit trace equality;
 - bounded outbox retries and executive-queue dead-letter visibility; and
-- no connector, live-model, external-send, ERP, or accounting capability.
+- no external-send, live-model, ERP, accounting, or non-Gmail-draft write
+  capability.
 
 The same suite also retains the accepted Phase 2 foundation: seven-day
 idempotency replay/reaping and lock-race proof, declarative-policy equivalence,
@@ -78,17 +99,19 @@ idempotent approve/reject resolution, and approval trace history.
   duplicate detection is not implied.
 - Declarative policy can require or block approval but cannot grant a runtime
   permission or expose an absent external-write adapter.
-- Approval records authorization only. `completed` records a deterministic
-  internal outcome with `externalEffect=false`; it performs no external action.
+- Approval alone records authorization only. Internal completion records
+  `externalEffect=false`. The separately authorized Gmail branch may record
+  only an unsent `drafts.create` result.
 
 ## Deferred, explicit
 
-| Deferred capability               | Why safe for this slice                                                                    | Forcing trigger                                                   |
-| --------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| Administrative dead-letter replay | Retries remain bounded and exhausted jobs are visible; all current work is internal        | Before scheduled production ingestion or a production worker SLO  |
-| N-approver collection             | The schema/evaluator can represent it, but seeded `phase1-v1-data` needs one approver only | Before activating a policy with `requires_n_approvers`            |
-| Cancel/expiry approval outcomes   | Approved slice requires only approve authorization and reject termination                  | A separately approved approval-lifecycle slice                    |
-| External action execution         | Only the deterministic internal provider exists; no adapter or source-system effect        | Separate external-write architecture/security approval            |
-| Strict hosted merge protection    | Reviewer approved the runbook's single-human-committer exception                           | A second human committer or this repository becoming a dependency |
-| Scheduled/connector CSV ingestion | Internal file upload proves batch semantics without any production source credential       | A separately approved connector/read architecture                 |
-| Batch rollback/compensation       | Rows have no external effects; partial outcomes are explicit immutable facts               | Before any batch row can cause an external effect                 |
+| Deferred capability                   | Why safe for this slice                                                                                                                                                   | Forcing trigger                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| Administrative dead-letter replay     | Retries remain bounded and exhausted jobs are visible; all current work is internal                                                                                       | Before scheduled production ingestion or a production worker SLO   |
+| N-approver collection                 | The schema/evaluator can represent it, but seeded `phase1-v1-data` needs one approver only                                                                                | Before activating a policy with `requires_n_approvers`             |
+| Cancel/expiry approval outcomes       | Approved slice requires only approve authorization and reject termination                                                                                                 | A separately approved approval-lifecycle slice                     |
+| Ambiguous Gmail create crash recovery | Gmail `drafts.create` exposes no client idempotency key; stable stored-result replay is safe, but post-accept/pre-commit process loss needs an explicit production policy | Before enabling network transport in any organization              |
+| Gmail send or other mutations         | The connector exposes only `drafts.create`; no send route, method, or scope exists                                                                                        | Separate architecture/security approval; never implied by this ADR |
+| Strict hosted merge protection        | Reviewer approved the runbook's single-human-committer exception                                                                                                          | A second human committer or this repository becoming a dependency  |
+| Scheduled/connector CSV ingestion     | Internal file upload proves batch semantics without any production source credential                                                                                      | A separately approved connector/read architecture                  |
+| Batch rollback/compensation           | Rows have no external effects; partial outcomes are explicit immutable facts                                                                                              | Before any batch row can cause an external effect                  |

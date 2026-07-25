@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Approved through the Phase 2 controlled CSV intake slice
+Status: Approved through the disabled-by-default Phase 3 Gmail draft slice
 Date: 2026-07-25
 Repository codename: `operating-layer` (not a permanent product name)
 
@@ -30,8 +30,8 @@ Approved sources
   -> retrieval/classification/recommendation agents
   -> recommendation with source citations and policy result
   -> approval queue when required
-  -> immutable internal execution command
-  -> deterministic internal executor
+  -> immutable internal or authorized Gmail-draft execution command
+  -> provider-neutral executor
   -> immutable result + completed|execution_failed + audit event
 ```
 
@@ -67,7 +67,7 @@ packages/
   auth/            identity, principal, RBAC, organization-scope policy
   connectors/      connector interfaces and capability declarations
   db/              schema, migrations, generated/query types
-  executors/       provider-neutral execution contract; internal mock enabled
+  executors/       provider-neutral execution contract; internal default and gated Gmail draft
   observability/   trace, metrics, structured log contracts
   schemas/         shared command/event/domain schemas
   ui/              shared UI primitives
@@ -91,10 +91,10 @@ infrastructure/
   migrations/
 ```
 
-Manual intake, controlled CSV batch intake, internal approval resolution, and
-deterministic internal execution are implemented. Real connectors, live
-model/execution providers, external sends, and source-system write adapters
-remain deferred.
+Manual intake, controlled CSV batch intake, internal approval resolution,
+deterministic internal execution, and a disabled-by-default Gmail
+`drafts.create` provider are implemented. Live models, external sends, other
+connector mutations, and ERP/accounting write adapters remain deferred.
 
 ## Domain and database model
 
@@ -113,6 +113,8 @@ PostgreSQL stores:
   history;
 - immutable idempotency-retention versions and reaper history;
 - immutable execution commands and terminal execution results;
+- immutable Gmail connector config versions, exact draft previews, second
+  authorizations, and kill-switch abandonments;
 - immutable CSV batches, parsed rows, and accepted/failed row results;
 - `connector_sync_runs`, `outbox_events`, and idempotency records.
 
@@ -159,13 +161,17 @@ Initial role templates are `system_admin`, `executive`, `operations_manager`, `o
 ## Workflow engine
 
 The deployed slices use a durable explicit state machine. The implemented
-approval and internal-execution branch is:
+approval and execution branches are:
 
 ```text
 received -> normalized -> classified -> recommended -> awaiting_approval
 awaiting_approval -> approved -> executing -> completed
                                      \-----> execution_failed
 awaiting_approval -> rejected
+
+approved -> awaiting_external_authorization -> external_authorized
+external_authorized -> executing -> completed | execution_failed
+external_authorized | executing -> approved  (kill-switch abandonment only)
 ```
 
 Transitions require a command ID, expected current version, policy result,
@@ -178,20 +184,22 @@ its audit and outbox records. Workers are at-least-once, so handlers are
 idempotent, leased, bounded by an attempt policy, and dead-lettered visibly
 when exhausted.
 
-No execution path reaches an external adapter. Temporal remains deferred until
-schedules, human waits measured in days, and multi-system compensation become
-common. The `WorkflowEngine` port prevents domain code from importing a future
-engine directly.
+The Gmail branch reaches only `drafts.create`, after exact preview and second
+authorization. The worker revalidates the active organization config and
+allowlist immediately before invocation; config disablement/change records an
+immutable abandonment and returns to internal execution. Temporal remains
+deferred until schedules, human waits measured in days, and multi-system
+compensation become common.
 
 ## Execution provider abstraction
 
 Execution uses a provider-neutral `ExecutionProvider` contract over a typed
-action and trace/idempotency context. Only `deterministic_internal` resolves at
-runtime. It returns untrusted structured output that passes the same runtime
-schema boundary required of a future provider. The disabled external provider
-interface has `enabled=false`; selecting any non-internal provider refuses
-worker startup, the database rejects non-internal commands, and no connector
-or network adapter exists.
+action and trace/idempotency context. `deterministic_internal` remains the
+default. The Gmail implementation declares only `drafts.create`, uses only the
+compose OAuth scope, and receives a secret reference rather than a credential.
+All provider output is untrusted and schema-validated. The Gmail provider is
+disabled by default at both the organization binding and worker network
+boundary; tests inject an in-memory transport and never call Google.
 
 ## Agent abstraction
 

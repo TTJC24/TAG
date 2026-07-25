@@ -280,6 +280,151 @@ export type ExecutionProviderOutput = z.infer<
   typeof executionProviderOutputSchema
 >;
 
+const gmailAddressSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email()
+  .max(320)
+  .refine((value) => !/[\r\n]/.test(value), "email cannot contain newlines");
+
+export const gmailDraftConnectorConfigInputSchema = z
+  .object({
+    organizationId: z.string().uuid(),
+    enabled: z.boolean(),
+    allowedRecipientAddresses: z.array(gmailAddressSchema).max(500),
+    allowedRecipientDomains: z
+      .array(
+        z
+          .string()
+          .trim()
+          .toLowerCase()
+          .regex(
+            /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/,
+          ),
+      )
+      .max(100),
+    credentialSecretReference: z.string().trim().min(3).max(500).nullable(),
+    reason: z.string().trim().min(3).max(1000),
+  })
+  .superRefine((value, context) => {
+    if (
+      value.enabled &&
+      (!value.credentialSecretReference ||
+        value.allowedRecipientAddresses.length +
+          value.allowedRecipientDomains.length ===
+          0)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "enabled Gmail draft configuration requires a secret reference and recipient allowlist",
+      });
+    }
+  });
+export type GmailDraftConnectorConfigInput = z.infer<
+  typeof gmailDraftConnectorConfigInputSchema
+>;
+
+export const gmailDraftConnectorConfigResponseSchema = z.object({
+  configVersionId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  versionNumber: z.number().int().positive(),
+  bindingVersion: z.number().int().positive(),
+  enabled: z.boolean(),
+  allowedRecipientAddresses: z.array(gmailAddressSchema),
+  allowedRecipientDomains: z.array(z.string()),
+  oauthScopes: z.tuple([
+    z.literal("https://www.googleapis.com/auth/gmail.compose"),
+  ]),
+  reason: z.string(),
+  duplicate: z.boolean(),
+  traceId: z.string().min(1),
+});
+export type GmailDraftConnectorConfigResponse = z.infer<
+  typeof gmailDraftConnectorConfigResponseSchema
+>;
+
+export const gmailDraftPreviewInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  to: gmailAddressSchema,
+  subject: z
+    .string()
+    .trim()
+    .min(1)
+    .max(998)
+    .refine(
+      (value) => !/[\r\n]/.test(value),
+      "subject cannot contain newlines",
+    ),
+  body: z.string().min(1).max(100_000),
+});
+export type GmailDraftPreviewInput = z.infer<
+  typeof gmailDraftPreviewInputSchema
+>;
+
+export const gmailDraftPreviewResponseSchema = z.object({
+  previewId: z.string().uuid(),
+  taskId: z.string().uuid(),
+  workflowId: z.string().uuid(),
+  approvalId: z.string().uuid(),
+  connectorConfigVersionId: z.string().uuid(),
+  policyVersionId: z.string().uuid(),
+  renderedPayload: z.object({
+    to: gmailAddressSchema,
+    subject: z.string(),
+    body: z.string(),
+  }),
+  renderedPayloadHash: z.string().length(64),
+  workflowState: z.literal("awaiting_external_authorization"),
+  duplicate: z.boolean(),
+  traceId: z.string().min(1),
+});
+export type GmailDraftPreviewResponse = z.infer<
+  typeof gmailDraftPreviewResponseSchema
+>;
+
+export const gmailDraftAuthorizationInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  reason: z.string().trim().min(3).max(1000),
+});
+export type GmailDraftAuthorizationInput = z.infer<
+  typeof gmailDraftAuthorizationInputSchema
+>;
+
+export const gmailDraftAuthorizationResponseSchema = z.object({
+  authorizationId: z.string().uuid(),
+  previewId: z.string().uuid(),
+  executionCommandId: z.string().uuid(),
+  outboxEventId: z.string().uuid(),
+  taskId: z.string().uuid(),
+  workflowId: z.string().uuid(),
+  approvalId: z.string().uuid(),
+  renderedPayloadHash: z.string().length(64),
+  workflowState: z.literal("external_authorized"),
+  duplicate: z.boolean(),
+  traceId: z.string().min(1),
+});
+export type GmailDraftAuthorizationResponse = z.infer<
+  typeof gmailDraftAuthorizationResponseSchema
+>;
+
+export const gmailDraftProviderOutputSchema = z.object({
+  outcome: z.literal("succeeded"),
+  summary: z.string().trim().min(1).max(4000),
+  output: z.object({
+    capability: z.literal("drafts.create"),
+    draftId: z.string().trim().min(1).max(500),
+    messageId: z.string().trim().min(1).max(500),
+    threadId: z.string().trim().min(1).max(500).nullable(),
+    draftLink: z.string().url(),
+    renderedPayloadHash: z.string().length(64),
+  }),
+});
+export type GmailDraftProviderOutput = z.infer<
+  typeof gmailDraftProviderOutputSchema
+>;
+
 export type OutputSchema<T> = {
   parse(input: unknown): T;
 };

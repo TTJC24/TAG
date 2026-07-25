@@ -32,6 +32,7 @@ interface QueueResponse {
     overdue: number;
     blocked: number;
     approvalPending: number;
+    awaitingExternalAuthorization: number;
     inExecution: number;
     executionFailed: number;
     completedExecutions: number;
@@ -172,6 +173,15 @@ export default async function ExecutiveQueuePage({
           <span>Approvals</span>
           <strong>{queue.counts.approvalPending}</strong>
           <small>Human decision pending</small>
+        </article>
+        <article
+          className={
+            queue.counts.awaitingExternalAuthorization > 0 ? "accent" : ""
+          }
+        >
+          <span>Draft authorization</span>
+          <strong>{queue.counts.awaitingExternalAuthorization}</strong>
+          <small>Second human gate pending</small>
         </article>
         <article className={queue.counts.failedJobs > 0 ? "danger" : ""}>
           <span>Failed jobs</span>

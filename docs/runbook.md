@@ -73,6 +73,12 @@ equality, and dead-letter visibility. It also uploads a mixed CSV batch,
 proves exact immutable raw-file evidence and source linkage, rejects malformed
 rows without rolling back valid siblings, replays duplicate batch/row
 commands, and exhausts a real downstream CSV row job into a visible failure.
+It additionally proves the disabled-by-default Gmail-draft branch: exact
+preview without materialization, approval/config/authorization gates,
+recipient allowlist, API plus RLS isolation, stored-result replay without a
+second provider call, kill-switch fallback to internal execution, trace/audit
+continuity, and bounded-retry dead-letter visibility. Tests inject an in-memory
+transport and make no Google network request.
 
 ## Continuous integration and merge gate
 
@@ -137,8 +143,28 @@ is allowed to persist.
   `completed` means the deterministic internal executor stored a successful
   internal outcome; it never implies that an external system was changed.
 - `EXECUTION_PROVIDER` defaults to `deterministic_internal`. Any other value
-  refuses worker startup. The database also rejects commands naming another
-  provider.
+  refuses selection as the internal provider.
+- Gmail draft creation is separately inert by default. No seeded organization
+  has a connector binding, and the worker uses
+  `DisabledGmailDraftExecutionProvider` unless
+  `GMAIL_DRAFT_NETWORK_ENABLED=true`. Do not set that variable or create an
+  enabled organization config without a production-enablement review,
+  least-privilege credential, allowlist, and crash-window decision.
+- The Gmail adapter exposes only `drafts.create` under
+  `https://www.googleapis.com/auth/gmail.compose`. There is no send route or
+  send method, and the separate `gmail.send`/broader Gmail scopes are not
+  requested. Google's compose scope can itself authorize sending; because no
+  draft-only scope exists, the fixed drafts-create transport and credential
+  controls are part of the safety boundary.
+- Organization config stores only an `env://VARIABLE_NAME` secret reference.
+  The referenced token is resolved in the worker at invocation time and must
+  never be stored in source, PostgreSQL, an audit event, a prompt, or browser
+  state.
+- Preview stores the exact recipient, subject, body, and hash but queues no
+  external command. A second authorized action creates the Gmail command.
+  The worker rechecks the active config and allowlist immediately before the
+  call. If the config is disabled or replaced, it records abandonment, makes
+  no Gmail call, and returns the task to `approved` for internal execution.
 - An execution enters `executing` before provider invocation. A successful
   result reaches `completed`; an executor failure retries at most three times,
   then atomically records `execution_failed`, an immutable failure result and
@@ -170,5 +196,7 @@ this procedure against a shared or production environment.
 - approved model providers and data-handling rules;
 - source-system schemas and read-only credentials.
 
-Do not add a production connector, external send, or source-system write
-without the next architecture and security review.
+The Gmail draft code path must remain disabled until the production-enablement
+items above are approved. Do not add an external send, another connector
+mutation, or an ERP/accounting write without a separate architecture and
+security review.

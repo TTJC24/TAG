@@ -8,7 +8,13 @@ import {
   processNextOutboxJob,
   reapExpiredIdempotencyKeys,
 } from "@operating-layer/issue-intake";
-import { resolveExecutionProvider } from "@operating-layer/executors";
+import {
+  DisabledGmailDraftExecutionProvider,
+  EnvironmentConnectorSecretResolver,
+  GmailDraftExecutionProvider,
+  GoogleGmailDraftCreateTransport,
+  resolveExecutionProvider,
+} from "@operating-layer/executors";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -26,6 +32,14 @@ const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const executionProvider = resolveExecutionProvider(
   process.env.EXECUTION_PROVIDER ?? "deterministic_internal",
 );
+const gmailDraftProvider =
+  process.env.GMAIL_DRAFT_NETWORK_ENABLED === "true"
+    ? new GmailDraftExecutionProvider(
+        new GoogleGmailDraftCreateTransport(
+          new EnvironmentConnectorSecretResolver(),
+        ),
+      )
+    : new DisabledGmailDraftExecutionProvider();
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000);
 let stopping = false;
 let nextReaperAt = 0;
@@ -60,6 +74,7 @@ async function loop(): Promise<void> {
       pool,
       workerId,
       executionProvider,
+      gmailDraftProvider,
     );
     if (result === "idle") {
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));

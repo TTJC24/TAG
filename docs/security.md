@@ -1,6 +1,6 @@
 # Security and Control Model
 
-Status: Approved through the Phase 2 internal-execution slice with provisional role assignments
+Status: Approved through the disabled-by-default Phase 3 Gmail draft slice with provisional role assignments
 Date: 2026-07-25
 
 ## Security objectives
@@ -46,7 +46,7 @@ No endpoint infers organization access from a request body alone. Repository met
 | Risk | Capability                                  | Current behavior                                                    |
 | ---- | ------------------------------------------- | ------------------------------------------------------------------- |
 | 0    | read, summarize, classify                   | automatic, logged                                                   |
-| 1    | draft communication                         | draft only, logged                                                  |
+| 1    | draft communication                         | approved Gmail draft only when connector gates pass; never sent     |
 | 2    | create/update internal operating-layer task | allowed by permission, logged                                       |
 | 3    | update CRM                                  | adapter absent; approval required in a later phase                  |
 | 4    | send external message                       | adapter absent; approval required in a later phase                  |
@@ -83,13 +83,23 @@ immutable policy-version ID/content hash, resulting state, and the workflow's
 root trace. Approval stops at `approved`; it does not imply completion.
 
 Only a user with `executions.trigger` in the owning organization can create an
-internal execution command. PostgreSQL refuses non-approved workflows and any
-provider other than `deterministic_internal`. The worker validates provider
-output as untrusted data, persists one immutable terminal result, and can move
-only through `approved -> executing -> completed|execution_failed`. The
-external-provider interface is disabled and has no connector or network call
-path. Multi-approver collection is not implemented even though the policy
-schema can represent the requirement.
+internal execution command. A Gmail command requires the approved
+`draft_external_follow_up` action, enabled organization config, allowlisted
+recipient, exact immutable preview, and a separate user authorization with
+`external_actions.authorize`. The worker rechecks the active config and
+allowlist immediately before invocation. A disabled/replaced config records an
+immutable abandonment and returns the workflow to `approved` without a Gmail
+call. The worker validates all provider output as untrusted data before one
+immutable terminal result. Multi-approver collection is not implemented even
+though the policy schema can represent the requirement.
+
+The Gmail credential remains a secret reference until the worker resolves it.
+The adapter declares only `drafts.create` and the compose OAuth scope. No send
+API, capability, or route exists, and no separate `gmail.send`/broader Gmail
+scope is requested. Google's compose scope can authorize sending and there is
+no draft-create-only scope, so the closed provider capability set and fixed
+drafts-create HTTP transport are required controls. Both organization
+configuration and worker network transport ship disabled.
 
 ## Audit integrity
 
@@ -171,11 +181,13 @@ function and process each claimed job under an explicit organization scope.
 ## Explicit prohibitions
 
 - no Acumatica, accounting, payment, journal, customer-master, or vendor-master writes;
-- no external communication sends;
+- no external communication sends; Gmail is limited to an unsent
+  `drafts.create`;
 - no production secrets in source control or local example files;
 - no automatic duplicate merging;
 - no agent-controlled permission or workflow-state changes;
 - no unlogged state mutation.
 - no private chain-of-thought persistence;
 - no unvalidated model output persistence.
-- no enabled external execution provider or unvalidated executor output.
+- no externally enabled Gmail provider without both the organization kill
+  switch and worker network gate; no unvalidated executor output.

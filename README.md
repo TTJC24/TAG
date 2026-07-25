@@ -1,8 +1,9 @@
 # Operating Layer
 
 `operating-layer` is the neutral repository codename for the multi-entity
-Operations Control Tower. The implemented Phase 2 slices close the governed
-internal loop and add controlled batch intake:
+Operations Control Tower. The implemented slices close the governed internal
+loop, add controlled batch intake, and introduce one disabled-by-default
+external capability:
 
 ```text
 manual issue intake
@@ -15,12 +16,17 @@ manual issue intake
   -> approved internal execution command
   -> deterministic internal executor
   -> completed or execution_failed
+  or, for an approved external-draft recommendation:
+     exact Gmail draft preview
+     -> second human authorization
+     -> Gmail drafts.create (disabled by default)
+     -> completed or execution_failed
   -> database-enforced workflow state
   -> append-only, verifiable audit history
   -> executive queue and task detail
 ```
 
-Production connectors, live model calls, external communication, and
+Production connector enablement, live model calls, external sending, and
 ERP/accounting writes are intentionally absent.
 
 ## Local development
@@ -60,6 +66,11 @@ approved-only execution, success and exhausted-retry terminal paths,
 controlled CSV partial success, batch/row idempotency, immutable raw-file
 evidence, CSV downstream dead-letter visibility, cross-organization rejection,
 audit integrity, and trace continuity.
+It also proves the Gmail-draft connector remains disabled by default, exact
+preview creates nothing, allowlist/isolation and second authorization are
+enforced, stable result replay does not call the provider twice, kill-switch
+fallback remains internal, failures dead-letter visibly, and no send
+capability exists.
 
 GitHub Actions runs formatting, workspace type checks and unit tests, the
 feature suite against a clean PostgreSQL 16 database, and the production build
@@ -73,12 +84,18 @@ exact protection steps.
 Start with [the current state](docs/current-state.md), [architecture](docs/architecture.md),
 [security model](docs/security.md), [Phase 1 implementation record](docs/phase1-implementation.md),
 and [Phase 2 decision](docs/phase2-scope-proposal.md).
+The first external-write boundary is recorded in
+[ADR 0005](docs/decisions/0005-gmail-draft-external-write.md).
 
 ## Safety boundary
 
-- Production connectors remain absent.
+- The Gmail `drafts.create` implementation ships disabled with no seeded
+  organization config and network transport off by default.
 - Risk-5 and risk-6 actions are structurally prohibited.
-- External communication sending is absent.
+- External communication sending is absent; there is no `messages.send`
+  method, route, or capability, and no separate `gmail.send`/broader scope is
+  requested. Google requires the compose scope for draft creation; the fixed
+  drafts-create transport is therefore a required control.
 - Credentials are represented only by secret references.
 - PostgreSQL stores operating-layer state; source systems remain authoritative.
 - `workflows.current_state` is authoritative; `tasks.status` is updated only by
@@ -96,9 +113,11 @@ and [Phase 2 decision](docs/phase2-scope-proposal.md).
   stops at `approved`; only an immutable internal execution command/result can
   move the workflow through `executing` to `completed` or
   `execution_failed`.
-- `deterministic_internal` is the only enabled execution provider. The external
-  provider contract is inert, and execution results explicitly record that no
-  external effect occurred.
+- `deterministic_internal` remains the default. The only external provider
+  implementation can create an unsent Gmail draft after approval, enabled
+  organization config, allowlist validation, exact preview, and a second human
+  authorization. It is inert unless both the database kill switch and worker
+  network flag are explicitly enabled.
 - All state-changing commands must produce an audit event.
 
 See [deployment.md](docs/deployment.md) for the environment outline.

@@ -19,12 +19,16 @@ The API executes each accepted command in one PostgreSQL transaction:
 Workers deliver outbox messages at least once. Handlers therefore use command
 and idempotency keys and may safely observe duplicates.
 
-Internal execution deliberately separates authorization from outcome:
+Execution deliberately separates authorization from outcome:
 
 ```text
 awaiting_approval -> approved -> executing -> completed
                                      \-----> execution_failed
 awaiting_approval -> rejected
+
+approved -> awaiting_external_authorization -> external_authorized
+external_authorized -> executing -> completed | execution_failed
+external_authorized | executing -> approved  (kill-switch abandonment only)
 ```
 
 PostgreSQL permits `approved -> executing` only when the transition references
@@ -32,6 +36,11 @@ an immutable execution command for that exact approval and workflow. It permits
 an execution terminal transition only when it references the matching
 immutable execution result. No application update or provider response can
 skip those guards.
+
+The external-draft branch additionally requires an exact immutable preview and
+second human authorization. A transition back to `approved` is legal only when
+it references an immutable Gmail abandonment created after the active
+organization connector config is disabled or replaced.
 
 ## State rules
 

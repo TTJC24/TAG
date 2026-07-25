@@ -12,7 +12,7 @@ a Git repository with a pull-request verification workflow.
 
 The repository now has a runnable Phase 1 intake slice plus Phase 2 internal
 approval resolution, deterministic internal execution, and controlled CSV
-batch intake:
+batch intake plus one disabled-by-default Gmail draft capability:
 
 - modular TypeScript workspace with Next.js web, Fastify API, and worker;
 - PostgreSQL 16 schema, Phase 1 control migration, and deterministic local seed;
@@ -29,11 +29,13 @@ batch intake:
   restoration of an already approved version;
 - authorized, idempotent internal approve/reject resolution; approval stops at
   the executable `approved` state and rejection is terminal;
-- a provider-neutral execution seam with only
-  `deterministic_internal` enabled, immutable execution command/results, and
-  no external effect;
-- database-enforced `approved -> executing -> completed|execution_failed`
-  transitions, bounded retries, and execution dead-letter visibility;
+- a provider-neutral execution seam with `deterministic_internal` as the
+  default and a Gmail `drafts.create` provider gated by approved task, enabled
+  organization config, recipient allowlist, exact preview, second
+  authorization, and worker network flag;
+- database-enforced internal and external-draft transitions, guarded
+  kill-switch fallback to `approved`, bounded retries, and execution
+  dead-letter visibility;
 - internal CSV file upload with immutable raw bytes/provenance, typed per-row
   validation, partial success, batch/row idempotency, source-linked tasks, and
   bounded downstream failure projection;
@@ -41,18 +43,21 @@ batch intake:
 - executive queue and task detail/history screens;
 - unit and clean-database integration tests.
 
-There is no production source-system integration or external write capability.
+There is no enabled production source-system integration. The sole external
+write implementation creates an unsent Gmail draft and ships inert; sending
+and every other external mutation are absent.
 
 ## Immediate implications
 
 1. Keep `operating-layer` as a neutral codename until branding is approved.
 2. Treat connector schemas, scopes, and credentials as unresolved.
-3. Keep every future connector read-only until separately reviewed.
+3. Keep every future connector capability separately reviewed; Gmail remains
+   `drafts.create` only and disabled until production enablement review.
 4. Preserve PostgreSQL as the operating-layer authority; Redis is ephemeral only.
 5. Resolve hosting, OIDC client configuration, production database identities,
    exact business roles, and the broader data-retention schedule before
    production deployment.
-6. Do not implement external writes during this handoff.
+6. Do not add Gmail sending or another external write during this handoff.
 
 ## Existing assets
 
@@ -61,9 +66,9 @@ agent behavior are synthetic and local-only.
 
 ## Handoff boundary
 
-The implementation stops at the passing controlled CSV batch-intake slice.
-Scheduled ingestion, production connectors, live model/execution providers,
-external sends, and source-system writes require a new review.
+The implementation stops at the passing Gmail draft external-write slice.
+Scheduled ingestion, production enablement, live models, external sends, and
+other source-system writes require a new review.
 
 ## Local tooling note
 

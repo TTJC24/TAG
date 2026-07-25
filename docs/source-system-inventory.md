@@ -5,17 +5,17 @@ Date: 2026-07-25
 
 No production connector schema or credential has been supplied.
 
-| Source                                   | Entities                  | Authority                          | Current support               | Required discovery                                                                                 |
-| ---------------------------------------- | ------------------------- | ---------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| Manual issue intake                      | All                       | Operating-layer task input         | Included                      | Required fields, allowed creators, ownership rules                                                 |
-| Controlled CSV upload                    | All                       | Import-specific; never master data | Phase 2 internal upload       | Future templates, identifier mapping, and production row limits                                    |
-| Acumatica                                | BLCS, FSI, USA migration  | ERP/accounting/operations source   | Placeholder, read-only later  | Version, endpoints, tenants, companies/branches, objects, customizations, rate limits, read scopes |
-| Pipedrive                                | To confirm                | CRM candidate                      | Placeholder, read-only later  | Authority decision, pipelines, stages, custom fields, activity types, ownership                    |
-| Gmail / Google Workspace                 | To confirm                | Communication source               | Placeholder, read-only later  | Domain, mailboxes, delegation, labels, OAuth scopes, retention, sensitive-data rules               |
-| Google Drive                             | To confirm                | Document source candidate          | Placeholder, read-only later  | Shared drives/folders, ACL inheritance, formats, authoritative locations, retention                |
-| Uploaded files/reports                   | All                       | Contextual input                   | Metadata/raw storage included | File types, size limits, malware scanning, retention                                               |
-| Media storage/editing/social             | Cultivus+                 | Production/source/delivery systems | Not in Phase 1                | Platforms, asset IDs, stages, reviewers, delivery controls                                         |
-| Banking/payment/accounting write systems | Relevant finance entities | Financial systems of record        | Prohibited                    | Not eligible for MVP discovery-to-write path                                                       |
+| Source                                   | Entities                  | Authority                          | Current support                       | Required discovery                                                                                           |
+| ---------------------------------------- | ------------------------- | ---------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Manual issue intake                      | All                       | Operating-layer task input         | Included                              | Required fields, allowed creators, ownership rules                                                           |
+| Controlled CSV upload                    | All                       | Import-specific; never master data | Phase 2 internal upload               | Future templates, identifier mapping, and production row limits                                              |
+| Acumatica                                | BLCS, FSI, USA migration  | ERP/accounting/operations source   | Placeholder, read-only later          | Version, endpoints, tenants, companies/branches, objects, customizations, rate limits, read scopes           |
+| Pipedrive                                | To confirm                | CRM candidate                      | Placeholder, read-only later          | Authority decision, pipelines, stages, custom fields, activity types, ownership                              |
+| Gmail draft / Google Workspace           | Organization scoped       | Communication draft target         | `drafts.create` implemented, disabled | Production mailbox/delegation, credential provisioning, allowlists, audit retention, and crash-window policy |
+| Google Drive                             | To confirm                | Document source candidate          | Placeholder, read-only later          | Shared drives/folders, ACL inheritance, formats, authoritative locations, retention                          |
+| Uploaded files/reports                   | All                       | Contextual input                   | Metadata/raw storage included         | File types, size limits, malware scanning, retention                                                         |
+| Media storage/editing/social             | Cultivus+                 | Production/source/delivery systems | Not in Phase 1                        | Platforms, asset IDs, stages, reviewers, delivery controls                                                   |
+| Banking/payment/accounting write systems | Relevant finance entities | Financial systems of record        | Prohibited                            | Not eligible for MVP discovery-to-write path                                                                 |
 
 ## Inventory rules
 

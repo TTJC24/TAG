@@ -17,6 +17,9 @@ The canonical schema is the ordered set of forward-only migrations:
 - `infrastructure/migrations/0006_phase2_csv_batch_intake.sql` adds immutable
   raw CSV batches, parsed rows, row outcomes, audit constraints, and forced
   organization RLS.
+- `infrastructure/migrations/0007_phase3_gmail_draft.sql` adds immutable
+  organization connector versions, exact previews, second authorizations,
+  kill-switch abandonments, external-draft commands, and guarded transitions.
 
 ## Ownership
 
@@ -37,7 +40,9 @@ Organization
   -> Workflow -> WorkflowTransition
               -> Recommendation -> RecommendationSource -> SourceRecordVersion
               -> Approval -> ApprovalResolution
+                          -> GmailDraftPreview -> GmailDraftAuthorization
                           -> ExecutionCommand -> ExecutionResult
+                                              -> GmailDraftAbandonment
                           -> Action -> ActionVerification
   -> ApprovalPolicyVersion -> ApprovalPolicyRule
                            -> ApprovalPolicyActivation
@@ -62,10 +67,10 @@ Organization
   previously activated version may be restored by one authorized actor.
 - Approval resolution is an immutable fact and may update the approval
   projection only through `resolve_approval_workflow()`.
-- Approval is authorization, not completion. Only
-  `enqueue_internal_execution()` may authorize an internal command, and only a
-  matching immutable command/result may guard entry to and exit from
-  `executing`.
+- Approval is authorization, not completion. Internal commands use
+  `enqueue_internal_execution()`; Gmail draft commands require an exact
+  preview and second immutable authorization. Only a matching immutable
+  command/result may guard entry to and exit from `executing`.
 - An execution command and its single terminal result are immutable,
   organization-scoped, and linked to the exact workflow, task, approval,
   recommendation, action, provider, payload hash, and root trace.
@@ -101,6 +106,9 @@ Organization
 - immutable controlled CSV batches/rows/results, typed row validation, partial
   success, per-row bounded retries, source-linked tasks, and failed-row
   projection back to the batch result.
+- immutable Gmail connector config versions, previews, authorizations, and
+  abandonments with forced RLS; `drafts.create` output validation, stored draft
+  ID replay, active-config/allowlist recheck, and kill-switch fallback.
 
 ## Deferred schema decisions
 

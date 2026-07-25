@@ -6,6 +6,9 @@ import type { IdentityProvider } from "@operating-layer/auth";
 import type { DatabasePool } from "@operating-layer/db";
 import {
   createManualIssue,
+  authorizeGmailDraft,
+  configureGmailDraftConnector,
+  createGmailDraftPreview,
   DomainError,
   getCsvBatch,
   getExecutiveQueue,
@@ -97,6 +100,11 @@ export async function buildApi(
       externalWritesEnabled: false,
       modelProvider: "deterministic",
       csvUploadMode: "internal",
+      gmailDraftConnector: {
+        capability: "drafts.create",
+        networkExecutionDefault: "disabled",
+        defaultState: "disabled",
+      },
     };
   });
 
@@ -237,6 +245,78 @@ export async function buildApi(
     });
     return reply.status(response.duplicate ? 200 : 202).send(response);
   });
+
+  app.post("/v1/connectors/gmail-draft/config", async (request, reply) => {
+    const principal = await principalFor(request);
+    const idempotencyKey = headerValue(request, "idempotency-key");
+    if (!idempotencyKey) {
+      throw new DomainError(
+        400,
+        "idempotency_key_required",
+        "Idempotency-Key is required",
+      );
+    }
+    const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+    const response = await configureGmailDraftConnector(dependencies.pool, {
+      principal,
+      input: request.body as never,
+      idempotencyKey,
+      context: { traceId, requestId: request.id },
+    });
+    return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
+
+  app.post<{
+    Params: { approvalId: string };
+  }>(
+    "/v1/approvals/:approvalId/gmail-draft-preview",
+    async (request, reply) => {
+      const principal = await principalFor(request);
+      const idempotencyKey = headerValue(request, "idempotency-key");
+      if (!idempotencyKey) {
+        throw new DomainError(
+          400,
+          "idempotency_key_required",
+          "Idempotency-Key is required",
+        );
+      }
+      const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+      const response = await createGmailDraftPreview(dependencies.pool, {
+        principal,
+        approvalId: z.string().uuid().parse(request.params.approvalId),
+        input: request.body as never,
+        idempotencyKey,
+        context: { traceId, requestId: request.id },
+      });
+      return reply.status(response.duplicate ? 200 : 202).send(response);
+    },
+  );
+
+  app.post<{
+    Params: { previewId: string };
+  }>(
+    "/v1/gmail-draft-previews/:previewId/authorization",
+    async (request, reply) => {
+      const principal = await principalFor(request);
+      const idempotencyKey = headerValue(request, "idempotency-key");
+      if (!idempotencyKey) {
+        throw new DomainError(
+          400,
+          "idempotency_key_required",
+          "Idempotency-Key is required",
+        );
+      }
+      const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+      const response = await authorizeGmailDraft(dependencies.pool, {
+        principal,
+        previewId: z.string().uuid().parse(request.params.previewId),
+        input: request.body as never,
+        idempotencyKey,
+        context: { traceId, requestId: request.id },
+      });
+      return reply.status(response.duplicate ? 200 : 202).send(response);
+    },
+  );
 
   app.get<{
     Querystring: { organizationId?: string };

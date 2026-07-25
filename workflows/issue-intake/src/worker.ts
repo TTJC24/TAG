@@ -11,6 +11,7 @@ import {
 } from "@operating-layer/db";
 import type { AgentContext } from "@operating-layer/agents";
 import {
+  DisabledGmailDraftExecutionProvider,
   resolveExecutionProvider,
   type ExecutionProvider,
 } from "@operating-layer/executors";
@@ -795,6 +796,7 @@ export async function processNextOutboxJob(
   pool: DatabasePool,
   workerId: string,
   executionProvider: ExecutionProvider = resolveExecutionProvider(),
+  gmailDraftProvider: ExecutionProvider = new DisabledGmailDraftExecutionProvider(),
 ): Promise<"idle" | "published" | "failed" | "dead_letter"> {
   const job = await claimNextOutboxJob(pool, workerId);
   if (!job) {
@@ -803,7 +805,12 @@ export async function processNextOutboxJob(
 
   try {
     if (job.topic === "issue.execute") {
-      await processInternalExecutionJob(pool, job, executionProvider);
+      await processInternalExecutionJob(
+        pool,
+        job,
+        executionProvider,
+        gmailDraftProvider,
+      );
       return "published";
     }
     await withOrganizationScope(
@@ -823,6 +830,7 @@ export async function processNextOutboxJob(
         pool,
         job,
         executionProvider,
+        gmailDraftProvider,
         error,
       );
       return "dead_letter";
@@ -836,6 +844,7 @@ export async function drainOutbox(
   workerId: string,
   maximumJobs = 100,
   executionProvider: ExecutionProvider = resolveExecutionProvider(),
+  gmailDraftProvider: ExecutionProvider = new DisabledGmailDraftExecutionProvider(),
 ): Promise<{
   published: number;
   failed: number;
@@ -847,6 +856,7 @@ export async function drainOutbox(
       pool,
       workerId,
       executionProvider,
+      gmailDraftProvider,
     );
     if (result === "idle") {
       break;

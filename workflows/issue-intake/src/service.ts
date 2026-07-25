@@ -334,6 +334,11 @@ export async function getExecutiveQueue(
       const approvalPending = tasks.filter(
         (task) => task.approvalStatus === "pending",
       );
+      const awaitingExternalAuthorization = tasks.filter(
+        (task) =>
+          task.status === "awaiting_external_authorization" ||
+          task.workflowState === "awaiting_external_authorization",
+      );
       const inExecution = tasks.filter(
         (task) =>
           task.status === "executing" || task.workflowState === "executing",
@@ -355,6 +360,7 @@ export async function getExecutiveQueue(
           overdue: overdue.length,
           blocked: blocked.length,
           approvalPending: approvalPending.length,
+          awaitingExternalAuthorization: awaitingExternalAuthorization.length,
           inExecution: inExecution.length,
           executionFailed: executionFailed.length,
           completedExecutions: completedExecutions.length,
@@ -364,6 +370,7 @@ export async function getExecutiveQueue(
         overdue,
         blocked,
         approvalPending,
+        awaitingExternalAuthorization,
         inExecution,
         executionFailed,
         completedExecutions,
@@ -499,6 +506,54 @@ export async function getTaskDetail(
          ORDER BY completed_at`,
         [taskId, organizationId],
       );
+      const gmailDraftConnector = await client.query(
+        `SELECT
+           config.id AS "configVersionId",
+           config.version_number AS "versionNumber",
+           config.enabled,
+           config.allowed_recipient_addresses AS "allowedRecipientAddresses",
+           config.allowed_recipient_domains AS "allowedRecipientDomains",
+           config.oauth_scopes AS "oauthScopes"
+         FROM gmail_draft_connector_bindings binding
+         JOIN gmail_draft_connector_config_versions config
+           ON config.id = binding.active_config_version_id
+          AND config.organization_id = binding.organization_id
+         WHERE binding.organization_id = $1`,
+        [organizationId],
+      );
+      const gmailDraftPreviews = await client.query(
+        `SELECT
+           preview.*,
+           requester.name AS requester_name,
+           requester.email AS requester_email
+         FROM gmail_draft_previews preview
+         JOIN users requester ON requester.id = preview.requested_by_user_id
+         WHERE preview.task_id = $1
+           AND preview.organization_id = $2
+         ORDER BY preview.created_at`,
+        [taskId, organizationId],
+      );
+      const gmailDraftAuthorizations = await client.query(
+        `SELECT
+           draft_authorization.*,
+           authorizer.name AS authorizer_name,
+           authorizer.email AS authorizer_email
+         FROM gmail_draft_authorizations draft_authorization
+         JOIN users authorizer
+           ON authorizer.id = draft_authorization.authorized_by_user_id
+         WHERE draft_authorization.task_id = $1
+           AND draft_authorization.organization_id = $2
+         ORDER BY draft_authorization.authorized_at`,
+        [taskId, organizationId],
+      );
+      const gmailDraftAbandonments = await client.query(
+        `SELECT *
+         FROM gmail_draft_execution_abandonments
+         WHERE task_id = $1
+           AND organization_id = $2
+         ORDER BY abandoned_at`,
+        [taskId, organizationId],
+      );
       const audits = await client.query(
         `SELECT
            id,
@@ -535,6 +590,13 @@ export async function getTaskDetail(
         approvalResolutions: approvalResolutions.rows,
         executionCommands: executionCommands.rows,
         executionResults: executionResults.rows,
+        gmailDraftConnector: gmailDraftConnector.rows[0] ?? {
+          enabled: false,
+          defaultState: "disabled",
+        },
+        gmailDraftPreviews: gmailDraftPreviews.rows,
+        gmailDraftAuthorizations: gmailDraftAuthorizations.rows,
+        gmailDraftAbandonments: gmailDraftAbandonments.rows,
         auditHistory: audits.rows,
       };
     },
