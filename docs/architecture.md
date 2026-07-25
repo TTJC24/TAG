@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Approved through the Phase 2 internal-execution slice
+Status: Approved through the Phase 2 controlled CSV intake slice
 Date: 2026-07-25
 Repository codename: `operating-layer` (not a permanent product name)
 
@@ -22,7 +22,7 @@ retries, idempotency, observability, and a credible Temporal migration path.
 
 ```text
 Approved sources
-  -> read-only connector adapter
+  -> manual intake or controlled internal CSV upload
   -> immutable raw payload version in object storage
   -> normalized SourceRecord + provenance in PostgreSQL
   -> issue-intake command
@@ -91,9 +91,10 @@ infrastructure/
   migrations/
 ```
 
-Manual intake, internal approval resolution, and deterministic internal
-execution are implemented. Real connectors, CSV import, live model/execution
-providers, external sends, and source-system write adapters remain deferred.
+Manual intake, controlled CSV batch intake, internal approval resolution, and
+deterministic internal execution are implemented. Real connectors, live
+model/execution providers, external sends, and source-system write adapters
+remain deferred.
 
 ## Domain and database model
 
@@ -112,6 +113,7 @@ PostgreSQL stores:
   history;
 - immutable idempotency-retention versions and reaper history;
 - immutable execution commands and terminal execution results;
+- immutable CSV batches, parsed rows, and accepted/failed row results;
 - `connector_sync_runs`, `outbox_events`, and idempotency records.
 
 Every organization-scoped row carries `organization_id`, including derived
@@ -121,6 +123,12 @@ must be represented as explicit authorized links rather than by removing or
 implicitly widening organization scope.
 
 External record identity is unique on `(source_system_id, record_type, external_id)`. Raw payload versions are append-only and carry content hashes, observed timestamps, source update timestamps, and object-storage references.
+
+The controlled CSV slice keeps its exact raw upload bytes in the immutable
+`csv_batches` record and links the corresponding immutable source version to
+that payload. Each valid row calls the same normalized issue-intake service as
+manual intake and has an independent outbox/idempotency boundary. CSV remains
+an internal upload mode, not a connector.
 
 Money uses `numeric(20,2)` plus ISO currency. Timestamps are `timestamptz`. User-facing statuses remain text with application schema validation to avoid brittle database enum migrations.
 

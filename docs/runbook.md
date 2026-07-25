@@ -69,7 +69,10 @@ internal approve/reject resolution, approved-only deterministic execution,
 execution success and exhausted-retry failure, entity authorization/RLS,
 database transition enforcement, task-status projection drift, safe runtime
 identity, audit immutability and chain verification/tamper detection, trace
-equality, and dead-letter visibility.
+equality, and dead-letter visibility. It also uploads a mixed CSV batch,
+proves exact immutable raw-file evidence and source linkage, rejects malformed
+rows without rolling back valid siblings, replays duplicate batch/row
+commands, and exhausts a real downstream CSV row job into a visible failure.
 
 ## Continuous integration and merge gate
 
@@ -120,6 +123,11 @@ is allowed to persist.
   the Phase 1 verifier is not an external cryptographic anchor against an
   administrator who rewrites and re-hashes the complete database history.
 - Failed/exhausted outbox work appears in the executive queue.
+- Controlled CSV intake is available at `/csv-batches/new`. It accepts only
+  the documented `csv-issue.v1` columns and a 1 MB maximum file. Batch result
+  pages refresh while valid rows are pending and retain rejected/failed
+  reasons. This is an internal upload path; it has no connector or external
+  effect.
 - PostgreSQL is authoritative for outbox attempts and workflow completion.
   Redis or process restarts do not decide either.
 - The worker runs the bounded idempotency reaper at startup and every 15

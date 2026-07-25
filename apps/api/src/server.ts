@@ -7,11 +7,13 @@ import type { DatabasePool } from "@operating-layer/db";
 import {
   createManualIssue,
   DomainError,
+  getCsvBatch,
   getExecutiveQueue,
   getTaskDetail,
   resolveApproval,
   requestInternalExecution,
   resolveApplicationPrincipal,
+  uploadCsvBatch,
 } from "@operating-layer/issue-intake";
 
 export interface ApiDependencies {
@@ -94,6 +96,7 @@ export async function buildApi(
       status: "healthy",
       externalWritesEnabled: false,
       modelProvider: "deterministic",
+      csvUploadMode: "internal",
     };
   });
 
@@ -137,6 +140,50 @@ export async function buildApi(
       },
     });
     return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
+
+  app.post("/v1/csv-batches", async (request, reply) => {
+    const principal = await principalFor(request);
+    const idempotencyKey = headerValue(request, "idempotency-key");
+    if (!idempotencyKey) {
+      throw new DomainError(
+        400,
+        "idempotency_key_required",
+        "Idempotency-Key is required",
+      );
+    }
+    const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+    const response = await uploadCsvBatch(dependencies.pool, {
+      principal,
+      input: request.body as never,
+      idempotencyKey,
+      context: {
+        traceId,
+        requestId: request.id,
+      },
+    });
+    return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
+
+  app.get<{
+    Params: { batchId: string };
+    Querystring: { organizationId?: string };
+  }>("/v1/csv-batches/:batchId", async (request) => {
+    const principal = await principalFor(request);
+    const organizationId = request.query.organizationId;
+    if (!organizationId) {
+      throw new DomainError(
+        400,
+        "organization_required",
+        "An explicit organizationId is required",
+      );
+    }
+    return getCsvBatch(
+      dependencies.pool,
+      principal,
+      z.string().uuid().parse(organizationId),
+      z.string().uuid().parse(request.params.batchId),
+    );
   });
 
   app.post<{

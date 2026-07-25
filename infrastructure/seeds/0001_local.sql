@@ -95,6 +95,8 @@ VALUES
   ('30000000-0000-4000-8000-000000000001', 'approval_policy.author'),
   ('30000000-0000-4000-8000-000000000001', 'approval_policy.activate'),
   ('30000000-0000-4000-8000-000000000001', 'executions.trigger'),
+  ('30000000-0000-4000-8000-000000000001', 'csv_batches.create'),
+  ('30000000-0000-4000-8000-000000000001', 'csv_batches.read'),
   ('30000000-0000-4000-8000-000000000002', 'issues.create'),
   ('30000000-0000-4000-8000-000000000002', 'tasks.read'),
   ('30000000-0000-4000-8000-000000000002', 'queue.read'),
@@ -102,21 +104,28 @@ VALUES
   ('30000000-0000-4000-8000-000000000002', 'approvals.decide'),
   ('30000000-0000-4000-8000-000000000002', 'approval_policy.activate'),
   ('30000000-0000-4000-8000-000000000002', 'executions.trigger'),
+  ('30000000-0000-4000-8000-000000000002', 'csv_batches.create'),
+  ('30000000-0000-4000-8000-000000000002', 'csv_batches.read'),
   ('30000000-0000-4000-8000-000000000003', 'issues.create'),
   ('30000000-0000-4000-8000-000000000003', 'tasks.read'),
   ('30000000-0000-4000-8000-000000000003', 'queue.read'),
   ('30000000-0000-4000-8000-000000000003', 'audit.read'),
   ('30000000-0000-4000-8000-000000000003', 'executions.trigger'),
+  ('30000000-0000-4000-8000-000000000003', 'csv_batches.create'),
+  ('30000000-0000-4000-8000-000000000003', 'csv_batches.read'),
   ('30000000-0000-4000-8000-000000000004', 'issues.create'),
   ('30000000-0000-4000-8000-000000000004', 'tasks.read'),
   ('30000000-0000-4000-8000-000000000004', 'queue.read'),
+  ('30000000-0000-4000-8000-000000000004', 'csv_batches.create'),
+  ('30000000-0000-4000-8000-000000000004', 'csv_batches.read'),
   ('30000000-0000-4000-8000-000000000005', 'tasks.read'),
   ('30000000-0000-4000-8000-000000000005', 'queue.read'),
   ('30000000-0000-4000-8000-000000000005', 'approvals.decide'),
   ('30000000-0000-4000-8000-000000000005', 'executions.trigger'),
   ('30000000-0000-4000-8000-000000000006', 'tasks.read'),
   ('30000000-0000-4000-8000-000000000006', 'queue.read'),
-  ('30000000-0000-4000-8000-000000000006', 'audit.read')
+  ('30000000-0000-4000-8000-000000000006', 'audit.read'),
+  ('30000000-0000-4000-8000-000000000006', 'csv_batches.read')
 ON CONFLICT DO NOTHING;
 
 INSERT INTO users (
@@ -167,6 +176,54 @@ VALUES
     'Local Approver',
     'approver@local.operating-layer',
     'active'
+  )
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO source_systems (
+  id,
+  organization_id,
+  name,
+  type,
+  connection_status,
+  credential_mode,
+  permissions
+)
+VALUES
+  (
+    '40000000-0000-4000-8000-000000000005',
+    '10000000-0000-4000-8000-000000000001',
+    'Controlled CSV upload',
+    'csv_upload',
+    'healthy',
+    'none',
+    '{"internal_upload": true, "write_external": false}'::jsonb
+  ),
+  (
+    '40000000-0000-4000-8000-000000000006',
+    '10000000-0000-4000-8000-000000000002',
+    'Controlled CSV upload',
+    'csv_upload',
+    'healthy',
+    'none',
+    '{"internal_upload": true, "write_external": false}'::jsonb
+  ),
+  (
+    '40000000-0000-4000-8000-000000000007',
+    '10000000-0000-4000-8000-000000000003',
+    'Controlled CSV upload',
+    'csv_upload',
+    'healthy',
+    'none',
+    '{"internal_upload": true, "write_external": false}'::jsonb
+  ),
+  (
+    '40000000-0000-4000-8000-000000000008',
+    '10000000-0000-4000-8000-000000000004',
+    'Controlled CSV upload',
+    'csv_upload',
+    'healthy',
+    'none',
+    '{"internal_upload": true, "write_external": false}'::jsonb
   )
 ON CONFLICT (id) DO NOTHING;
 

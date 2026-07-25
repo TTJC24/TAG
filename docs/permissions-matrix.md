@@ -1,6 +1,7 @@
-# Proposed Permissions Matrix
+# Phase 2 Permissions Matrix
 
-Status: Draft for business approval
+Status: Implemented role templates; final personnel assignments remain subject
+to business approval
 
 These are role templates, not final assignments. Organization membership always limits the rows a role can access. A system administrator does not automatically become a financial approver.
 
@@ -9,7 +10,7 @@ These are role templates, not final assignments. Organization membership always 
 | View authorized tasks/sources      | Yes                   | Yes           | Yes                | Yes            | Yes           | Yes           |
 | View cross-entity dashboard        | By membership         | By membership | By membership      | No by default  | By membership | By membership |
 | Create manual issue                | Yes                   | Yes           | Yes                | Yes            | Yes           | No            |
-| Import CSV                         | Configure             | No            | Yes                | With grant     | No            | No            |
+| Upload controlled CSV batch        | Yes                   | Yes           | Yes                | Yes            | No            | Read only     |
 | Edit internal task                 | Yes                   | Yes           | Yes                | Owned/assigned | No by default | No            |
 | Run classification/recommendation  | Configure             | Yes           | Yes                | Yes            | Yes           | No            |
 | Request approval                   | No by default         | Yes           | Yes                | Yes            | Yes           | No            |
@@ -31,5 +32,9 @@ These are role templates, not final assignments. Organization membership always 
 - Credential administration and action approval are separate grants.
 - User deactivation revokes sessions and blocks new commands.
 - Batch approval is absent until exact-target preview and business approval exist.
+
+Controlled CSV upload grants are split into `csv_batches.create` and
+`csv_batches.read`. Every grant remains limited by active organization
+membership and forced database RLS.
 
 Final grants, approvers, financial materiality thresholds, and emergency access remain unresolved.

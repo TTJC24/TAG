@@ -20,11 +20,12 @@ export default function RootLayout({
               <span className="brandMark">OL</span>
               <span>
                 <strong>Operations Control Tower</strong>
-                <small>Phase 1 · governed execution</small>
+                <small>Phase 2 / governed operations</small>
               </span>
             </a>
             <nav aria-label="Primary navigation">
               <a href="/">Executive queue</a>
+              <a href="/csv-batches/new">CSV intake</a>
               <a className="primaryNav" href="/issues/new">
                 New issue
               </a>

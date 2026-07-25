@@ -25,6 +25,7 @@ import {
   finalizeInternalExecutionFailure,
   processInternalExecutionJob,
 } from "./execution-worker.js";
+import { finalizeCsvRowFailure, processCsvBatchRow } from "./csv.js";
 
 export interface OutboxJob {
   id: string;
@@ -55,6 +56,7 @@ interface WorkflowTaskRow {
   source_system_id: string;
   source_type: string;
   source_record_id: string;
+  source_record_type: string;
   source_version_id: string;
   content_hash: string;
   observed_at: Date | string;
@@ -118,6 +120,7 @@ async function loadWorkflowTask(
        source_system.id AS source_system_id,
        source_system.type AS source_type,
        source.id AS source_record_id,
+       source.record_type AS source_record_type,
        version.id AS source_version_id,
        version.content_hash,
        version.observed_at
@@ -206,7 +209,10 @@ async function processClassification(
   const citation = {
     sourceRecordId: workflow.source_record_id,
     sourceRecordVersionId: workflow.source_version_id,
-    locator: "manual_issue.input",
+    locator:
+      workflow.source_record_type === "csv_batch"
+        ? "csv_batch.raw_file"
+        : "manual_issue.input",
     excerptHash: workflow.content_hash,
     observedAt: toIso(workflow.observed_at),
   };
@@ -395,7 +401,10 @@ async function processRecommendation(
   const citation = {
     sourceRecordId: workflow.source_record_id,
     sourceRecordVersionId: workflow.source_version_id,
-    locator: "manual_issue.input",
+    locator:
+      workflow.source_record_type === "csv_batch"
+        ? "csv_batch.raw_file"
+        : "manual_issue.input",
     excerptHash: workflow.content_hash,
     observedAt: toIso(workflow.observed_at),
   };
@@ -722,6 +731,10 @@ async function dispatchJob(
     await processRecommendation(client, job);
     return;
   }
+  if (job.topic === "issue.csv-row") {
+    await processCsvBatchRow(client, job);
+    return;
+  }
   throw new Error(`Unsupported outbox topic: ${job.topic}`);
 }
 
@@ -754,6 +767,9 @@ async function recordJobFailure(
       organizationIds: [job.organization_id],
     },
     async (client) => {
+      if (status === "dead_letter") {
+        await finalizeCsvRowFailure(client, job, "handler_failed", safeMessage);
+      }
       await client.query(
         `UPDATE outbox_events
          SET

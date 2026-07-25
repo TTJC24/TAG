@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { appendAuditEvent, sha256 } from "@operating-layer/audit";
-import {
-  withOrganizationScope,
-  type DatabaseClient,
-  type DatabasePool,
-} from "@operating-layer/db";
+import { sha256 } from "@operating-layer/audit";
+import { withOrganizationScope, type DatabasePool } from "@operating-layer/db";
 import {
   manualIssueInputSchema,
   type IssueIntakeResponse,
@@ -20,63 +16,18 @@ import {
   requireOrganizationPermission,
   type ApplicationPrincipal,
 } from "./identity.js";
+import {
+  createNormalizedIssueFromSource,
+  type RequestContext,
+} from "./intake.js";
 
-export interface RequestContext {
-  traceId: string;
-  requestId: string;
-}
+export type { RequestContext } from "./intake.js";
 
 export interface CreateManualIssueCommand {
   principal: ApplicationPrincipal;
   input: ManualIssueInput;
   idempotencyKey: string;
   context: RequestContext;
-}
-
-async function transitionWorkflow(
-  client: DatabaseClient,
-  input: {
-    workflowId: string;
-    organizationId: string;
-    commandId: string;
-    expectedVersion: number;
-    toState: string;
-    actorId: string;
-    inputHash: string;
-    outputHash: string;
-    traceId: string;
-    metadata: Record<string, unknown>;
-  },
-): Promise<{ workflowState: string; workflowVersion: number }> {
-  const result = await client.query<{
-    current_state: string;
-    workflow_version: number;
-  }>(
-    `SELECT current_state, workflow_version
-     FROM transition_workflow(
-       $1, $2, $3, $4, $5, 'user', $6, $7, $8, $9, $10::jsonb
-     )`,
-    [
-      input.workflowId,
-      input.organizationId,
-      input.commandId,
-      input.expectedVersion,
-      input.toState,
-      input.actorId,
-      input.inputHash,
-      input.outputHash,
-      input.traceId,
-      JSON.stringify(input.metadata),
-    ],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    throw new Error("Workflow transition did not return state");
-  }
-  return {
-    workflowState: row.current_state,
-    workflowVersion: row.workflow_version,
-  };
 }
 
 export async function createManualIssue(
@@ -133,9 +84,7 @@ export async function createManualIssue(
 
       const sourceRecordId = randomUUID();
       const sourceVersionId = randomUUID();
-      const taskId = randomUUID();
-      const workflowId = randomUUID();
-      const externalId = `manual:${taskId}`;
+      const externalId = `manual:${sourceRecordId}`;
       const now = new Date().toISOString();
       const rawPayload = {
         schemaVersion: "manual-issue.v1",
@@ -202,152 +151,22 @@ export async function createManualIssue(
         [sourceRecordId, sourceVersionId, now, input.organizationId],
       );
 
-      await client.query(
-        `INSERT INTO tasks (
-           id,
-           organization_id,
-           title,
-           description,
-           task_type,
-           status,
-           priority,
-           owner_user_id,
-           due_date,
-           financial_exposure,
-           financial_exposure_currency,
-           created_by_actor_type,
-           created_by_actor_id
-         )
-         VALUES (
-           $1, $2, $3, $4, $5, 'received', 'P3', $6, $7, $8, $9,
-           'user', $10
-         )`,
-        [
-          taskId,
-          input.organizationId,
-          input.title,
-          input.description,
-          input.taskType ?? "unclassified",
-          command.principal.userId,
-          input.dueDate ?? null,
-          input.financialExposure ?? null,
-          input.financialExposureCurrency ?? null,
-          command.principal.userId,
-        ],
-      );
-
-      await client.query(
-        `INSERT INTO task_source_records (
-           organization_id,
-           task_id,
-           source_record_id,
-           relationship_type
-         )
-         VALUES ($1, $2, $3, 'intake_source')`,
-        [input.organizationId, taskId, sourceRecordId],
-      );
-
-      await client.query(
-        `INSERT INTO workflows (
-           id,
-           workflow_type,
-           organization_id,
-           task_id,
-           current_state
-         )
-         VALUES ($1, 'issue_intake', $2, $3, 'received')`,
-        [workflowId, input.organizationId, taskId],
-      );
-
-      await appendAuditEvent(client, {
-        organizationId: input.organizationId,
-        actorType: "user",
-        actorId: command.principal.userId,
-        eventType: "issue.intake.accepted",
-        workflowId,
-        sourceRecordIds: [sourceRecordId],
-        inputHash: requestHash,
-        outputHash: contentHash,
-        traceId: command.context.traceId,
-        requestId: command.context.requestId,
-        metadata: {
-          taskId,
+      const response = await createNormalizedIssueFromSource({
+        client,
+        input,
+        principalUserId: command.principal.userId,
+        idempotencyKey,
+        requestHash,
+        context: command.context,
+        source: {
+          sourceRecordId,
           sourceVersionId,
-          retentionClassification: input.retentionClassification,
+          contentHash,
+          relationshipType: "intake_source",
+          locator: "manual_issue.input",
+          intakeMode: "manual",
         },
-        occurredAt: now,
       });
-
-      const transition = await transitionWorkflow(client, {
-        workflowId,
-        organizationId: input.organizationId,
-        commandId: `${idempotencyKey}:normalize`,
-        expectedVersion: 1,
-        toState: "normalized",
-        actorId: command.principal.userId,
-        inputHash: contentHash,
-        outputHash: sha256({ taskId, status: "normalized" }),
-        traceId: command.context.traceId,
-        metadata: { taskId, sourceRecordId },
-      });
-
-      await appendAuditEvent(client, {
-        organizationId: input.organizationId,
-        actorType: "user",
-        actorId: command.principal.userId,
-        eventType: "task.normalized",
-        workflowId,
-        sourceRecordIds: [sourceRecordId],
-        inputHash: contentHash,
-        outputHash: sha256({
-          taskId,
-          workflowState: transition.workflowState,
-        }),
-        traceId: command.context.traceId,
-        requestId: command.context.requestId,
-        metadata: {
-          taskId,
-          workflowVersion: transition.workflowVersion,
-        },
-        occurredAt: now,
-      });
-
-      await client.query(
-        `INSERT INTO outbox_events (
-           organization_id,
-           topic,
-           aggregate_type,
-           aggregate_id,
-           payload_reference,
-           payload_hash,
-           idempotency_key,
-           trace_id,
-           requested_by_user_id,
-           request_id,
-           max_attempts
-         )
-         VALUES (
-           $1, 'issue.classify', 'workflow', $2, $3, $4, $5, $6, $7, $8, 3
-         )`,
-        [
-          input.organizationId,
-          workflowId,
-          `postgresql://operating_layer/workflows/${workflowId}`,
-          sha256({ workflowId, command: "classify" }),
-          `${taskId}:classify`,
-          command.context.traceId,
-          command.principal.userId,
-          command.context.requestId,
-        ],
-      );
-
-      const response: IssueIntakeResponse = {
-        taskId,
-        workflowId,
-        workflowState: transition.workflowState,
-        duplicate: false,
-        traceId: command.context.traceId,
-      };
 
       await completeIdempotentCommand(client, {
         organizationId: input.organizationId,

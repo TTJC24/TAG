@@ -68,9 +68,57 @@ async function readJson(response) {
   return response.json();
 }
 
+async function waitForPostgresStable() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const first = spawnSync(
+      "docker",
+      [
+        ...composeArgs,
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        "operating_layer",
+        "-d",
+        "operating_layer_test",
+        "-tAc",
+        "SELECT count(*) FROM operating_layer.source_systems",
+      ],
+      { cwd: repoPath, encoding: "utf8" },
+    );
+    if (first.status === 0) {
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      const second = spawnSync(
+        "docker",
+        [
+          ...composeArgs,
+          "exec",
+          "-T",
+          "postgres",
+          "psql",
+          "-U",
+          "operating_layer",
+          "-d",
+          "operating_layer_test",
+          "-tAc",
+          "SELECT count(*) FROM operating_layer.csv_batches",
+        ],
+        { cwd: repoPath, encoding: "utf8" },
+      );
+      if (second.status === 0) {
+        return;
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error("PostgreSQL did not become stably available");
+}
+
 try {
   run("docker", [...composeArgs, "down", "--volumes", "--remove-orphans"]);
   run("docker", [...composeArgs, "up", "--detach", "--wait", "postgres"]);
+  await waitForPostgresStable();
 
   const api = startNode(
     path.join(repoPath, "apps/api/dist/main.js"),
@@ -214,25 +262,93 @@ try {
     throw new Error("internal executor did not reach completed");
   }
 
-  const [homeResponse, intakeResponse, taskResponse] = await Promise.all([
+  const csvTraceId = `process-smoke-csv-${crypto.randomUUID()}`;
+  const csvBatch = await readJson(
+    await fetch("http://localhost:3300/api/csv-batches", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": csvTraceId,
+        "x-trace-id": csvTraceId,
+      },
+      body: JSON.stringify({
+        organizationId: "10000000-0000-4000-8000-000000000001",
+        fileName: "process-smoke.csv",
+        content: [
+          "title,description,task_type",
+          "Smoke CSV issue,Create an internal operational follow-up,operations",
+          "Rejected smoke row,,operations",
+        ].join("\n"),
+        sourceTimestamp: "2026-07-25T16:00:00.000Z",
+        schemaVersion: "csv-issue.v1",
+        retentionClassification: "operational",
+      }),
+    }),
+  );
+  let csvResult;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    csvResult = await readJson(
+      await fetch(
+        `http://localhost:3301/v1/csv-batches/${csvBatch.batchId}?organizationId=10000000-0000-4000-8000-000000000001`,
+        { headers: { "x-dev-user-email": "executive@local.operating-layer" } },
+      ),
+    );
+    if (csvResult.counts?.pending === 0) {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (
+    csvResult?.counts?.accepted !== 1 ||
+    csvResult?.counts?.rejected !== 1 ||
+    csvResult?.counts?.pending !== 0
+  ) {
+    throw new Error("controlled CSV batch did not reach partial completion");
+  }
+
+  const [
+    homeResponse,
+    intakeResponse,
+    csvIntakeResponse,
+    csvResultResponse,
+    taskResponse,
+  ] = await Promise.all([
     fetch("http://localhost:3300"),
     fetch("http://localhost:3300/issues/new"),
+    fetch("http://localhost:3300/csv-batches/new"),
+    fetch(
+      `http://localhost:3300/csv-batches/${csvBatch.batchId}?organizationId=10000000-0000-4000-8000-000000000001`,
+    ),
     fetch(
       `http://localhost:3300/tasks/${issue.taskId}?organizationId=10000000-0000-4000-8000-000000000001`,
     ),
   ]);
-  if (!homeResponse.ok || !intakeResponse.ok || !taskResponse.ok) {
+  if (
+    !homeResponse.ok ||
+    !intakeResponse.ok ||
+    !csvIntakeResponse.ok ||
+    !csvResultResponse.ok ||
+    !taskResponse.ok
+  ) {
     throw new Error(
-      `web routes failed: home=${homeResponse.status}, intake=${intakeResponse.status}, task=${taskResponse.status}`,
+      `web routes failed: home=${homeResponse.status}, intake=${intakeResponse.status}, csvIntake=${csvIntakeResponse.status}, csvResult=${csvResultResponse.status}, task=${taskResponse.status}`,
     );
   }
-  const [homeHtml, taskHtml] = await Promise.all([
+  const [homeHtml, csvIntakeHtml, csvResultHtml, taskHtml] = await Promise.all([
     homeResponse.text(),
+    csvIntakeResponse.text(),
+    csvResultResponse.text(),
     taskResponse.text(),
   ]);
   if (
     !homeHtml.includes("Recent approval outcomes") ||
     !homeHtml.includes("Recent execution outcomes") ||
+    !csvIntakeHtml.includes("Upload operational issues") ||
+    !csvResultHtml.includes("process-smoke.csv") ||
+    !csvResultHtml.includes("Per-row outcome") ||
+    !csvResultHtml.includes("accepted") ||
+    !csvResultHtml.includes("rejected") ||
+    !csvResultHtml.includes("Open created task") ||
     !taskHtml.includes(resolutionReason) ||
     !taskHtml.includes("Approval resolution") ||
     !taskHtml.includes("Execution result") ||
@@ -254,8 +370,13 @@ try {
         executionOutcome: detail.executionResults[0]?.outcome,
         recommendationCount: detail.recommendations.length,
         auditEventCount: detail.auditHistory.length,
+        csvBatchId: csvBatch.batchId,
+        csvAcceptedRows: csvResult.counts.accepted,
+        csvRejectedRows: csvResult.counts.rejected,
         executivePageStatus: homeResponse.status,
         intakePageStatus: intakeResponse.status,
+        csvIntakePageStatus: csvIntakeResponse.status,
+        csvResultPageStatus: csvResultResponse.status,
         taskPageStatus: taskResponse.status,
       },
       null,

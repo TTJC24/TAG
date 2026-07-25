@@ -2,10 +2,11 @@
 
 `operating-layer` is the neutral repository codename for the multi-entity
 Operations Control Tower. The implemented Phase 2 slices close the governed
-internal loop through a real execution outcome:
+internal loop and add controlled batch intake:
 
 ```text
 manual issue intake
+  or controlled CSV batch -> independently validated rows
   -> normalized task
   -> deterministic classification
   -> cited recommendation
@@ -56,8 +57,9 @@ instructions, and operational checks.
 It proves seven-day idempotency replay/reaping and its lock race, declarative
 policy equivalence and two-person activation, approve/reject resolution,
 approved-only execution, success and exhausted-retry terminal paths,
-cross-organization rejection, idempotency, audit integrity, and trace
-continuity.
+controlled CSV partial success, batch/row idempotency, immutable raw-file
+evidence, CSV downstream dead-letter visibility, cross-organization rejection,
+audit integrity, and trace continuity.
 
 GitHub Actions runs formatting, workspace type checks and unit tests, the
 feature suite against a clean PostgreSQL 16 database, and the production build
@@ -87,6 +89,9 @@ and [Phase 2 decision](docs/phase2-scope-proposal.md).
   event payload. The independent verifier checks linkage, event hashes,
   sequence, and stream head.
 - Idempotency claims snapshot an immutable seven-day retention version.
+- Controlled CSV uploads preserve exact raw bytes and provenance in immutable,
+  organization-scoped records. Valid rows reuse the manual issue pipeline;
+  rejected and exhausted rows remain visible without rolling back siblings.
 - Approval decisions use an immutable organization policy version. Approval
   stops at `approved`; only an immutable internal execution command/result can
   move the workflow through `executing` to `completed` or

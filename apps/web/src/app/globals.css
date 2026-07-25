@@ -493,6 +493,64 @@ textarea {
   padding: 12px;
 }
 
+.csvSchema {
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: grid;
+  gap: 7px;
+  padding: 15px;
+}
+
+.csvSchema strong {
+  font-size: 12px;
+}
+
+.csvSchema code {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.batchMetrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.batchMetadata {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.batchMetadata div {
+  min-width: 0;
+}
+
+.batchMetadata dt {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.batchMetadata dd {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 5px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.status.accepted {
+  background: var(--forest-soft);
+  color: var(--forest);
+}
+
+.status.rejected,
+.status.failed {
+  background: var(--red-soft);
+  color: var(--red);
+}
+
 .breadcrumb {
   color: var(--muted);
   display: flex;

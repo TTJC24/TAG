@@ -1,11 +1,33 @@
-# Phase 2 Internal Execution Review Evidence
+# Phase 2 Review Evidence
 
-This file maps the approved deterministic internal-execution slice to
-executable evidence. The feature suite starts from an empty PostgreSQL 16
-database, applies migrations `0001` through `0005`, loads deterministic seed
-data, and runs through the non-owner runtime role.
+This file maps the approved deterministic internal-execution and controlled
+CSV batch-intake slices to executable evidence. The feature suite starts from
+an empty PostgreSQL 16 database, applies migrations `0001` through `0006`,
+loads deterministic seed data, and runs through the non-owner runtime role.
 
-## Acceptance evidence
+## Controlled CSV batch-intake evidence
+
+| Acceptance criterion                            | Executable proof                                                                                                                                                                                                                    | Status                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Real internal file upload, no connector         | Web file control reads the selected `.csv`; API accepts the typed `csv-issue.v1` upload; health reports `csvUploadMode=internal`; no connector code is invoked                                                                      | Automated path                |
+| Raw source is exact and immutable               | `imports mixed rows with immutable evidence, RLS, and two idempotency layers` compares exact UTF-8 bytes/checksum/timestamps/identity/schema/retention and proves a privileged update is trigger-rejected                           | Automated                     |
+| Batch audit references source                   | The mixed-batch test asserts exactly one `csv.batch.imported` event whose source IDs contain the batch source; migration `0006` adds a deferred database constraint                                                                 | Automated + database-enforced |
+| Typed row validation before task creation       | Parser unit tests cover quoting and mixed shape/schema failures; feature test asserts zero tasks before valid row jobs and no job for the rejected row                                                                              | Automated                     |
+| Valid rows reuse the existing pipeline          | Mixed-batch test drains valid rows through normalize → classify → recommend → declarative policy and asserts task/recommendation source links                                                                                       | Automated                     |
+| Mixed rows partially succeed                    | A three-row batch finishes as two accepted, one rejected, zero pending/failed, with per-row outcomes and reasons                                                                                                                    | Automated                     |
+| Batch idempotency                               | Same organization/key/payload returns HTTP `200`, the same batch/source, and the stored live result; existing claim logic rejects hash conflicts                                                                                    | Automated                     |
+| Row idempotency                                 | Forced at-least-once redelivery produces one task, one accepted result, and one `csv.row.accepted` audit                                                                                                                            | Automated                     |
+| Independent bounded retry/dead letter           | `retries a downstream row failure, dead-letters it, and exposes it` removes the source projection after normalization, proves attempts 1/2 fail and 3 dead-letters, then asserts immutable failed result and guarded `failed` state | Automated                     |
+| Failure visible in management surfaces          | The failed batch row exposes safe error/attempts/task and executive queue contains the exact `issue.classify` dead letter                                                                                                           | Automated                     |
+| Organization authorization and RLS              | Cross-org upload/result return API `403`; direct-ID query under the other organization's runtime scope returns zero rows                                                                                                            | Automated                     |
+| Trace continuity                                | Mixed and failed tests compare batch, row outbox, row result, workflow transition, and audit trace IDs                                                                                                                              | Automated                     |
+| UI result reporting                             | Upload screen documents the contract; result page shows batch metadata/counts plus pending, accepted, rejected, or failed row details and task links                                                                                | Build + smoke/manual          |
+| Workspace type-checks                           | `pnpm typecheck`                                                                                                                                                                                                                    | Automated command             |
+| Workspace builds                                | `pnpm build`                                                                                                                                                                                                                        | Automated command             |
+| Clean PostgreSQL 16 migration and feature suite | `pnpm test:feature`                                                                                                                                                                                                                 | Automated command             |
+| Pull-request verification                       | GitHub Actions check `verify` runs formatting, typecheck, unit tests, clean PostgreSQL feature tests, and build                                                                                                                     | Hosted check                  |
+
+## Internal execution acceptance evidence
 
 | Acceptance criterion                            | Executable proof                                                                                                                                                              | Status            |
 | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
@@ -68,3 +90,5 @@ idempotent approve/reject resolution, and approval trace history.
 | Cancel/expiry approval outcomes   | Approved slice requires only approve authorization and reject termination                  | A separately approved approval-lifecycle slice                    |
 | External action execution         | Only the deterministic internal provider exists; no adapter or source-system effect        | Separate external-write architecture/security approval            |
 | Strict hosted merge protection    | Reviewer approved the runbook's single-human-committer exception                           | A second human committer or this repository becoming a dependency |
+| Scheduled/connector CSV ingestion | Internal file upload proves batch semantics without any production source credential       | A separately approved connector/read architecture                 |
+| Batch rollback/compensation       | Rows have no external effects; partial outcomes are explicit immutable facts               | Before any batch row can cause an external effect                 |

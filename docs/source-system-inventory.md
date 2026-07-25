@@ -5,10 +5,10 @@ Date: 2026-07-25
 
 No production connector schema or credential has been supplied.
 
-| Source                                   | Entities                  | Authority                          | Phase 1                       | Required discovery                                                                                 |
+| Source                                   | Entities                  | Authority                          | Current support               | Required discovery                                                                                 |
 | ---------------------------------------- | ------------------------- | ---------------------------------- | ----------------------------- | -------------------------------------------------------------------------------------------------- |
 | Manual issue intake                      | All                       | Operating-layer task input         | Included                      | Required fields, allowed creators, ownership rules                                                 |
-| CSV upload                               | All                       | Import-specific; never master data | Included                      | Approved templates, identifier mapping, row limits                                                 |
+| Controlled CSV upload                    | All                       | Import-specific; never master data | Phase 2 internal upload       | Future templates, identifier mapping, and production row limits                                    |
 | Acumatica                                | BLCS, FSI, USA migration  | ERP/accounting/operations source   | Placeholder, read-only later  | Version, endpoints, tenants, companies/branches, objects, customizations, rate limits, read scopes |
 | Pipedrive                                | To confirm                | CRM candidate                      | Placeholder, read-only later  | Authority decision, pipelines, stages, custom fields, activity types, ownership                    |
 | Gmail / Google Workspace                 | To confirm                | Communication source               | Placeholder, read-only later  | Domain, mailboxes, delegation, labels, OAuth scopes, retention, sensitive-data rules               |

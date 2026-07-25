@@ -1,6 +1,6 @@
 # Operations Control Tower MVP Plan
 
-Status: Approved for Phase 1 implementation
+Status: Historical Phase 1 plan; controlled CSV intake implemented in Phase 2
 Date: 2026-07-25
 
 ## MVP boundary
@@ -84,7 +84,8 @@ Add integration/evaluation tests, seed fixtures, authorization matrix tests, mig
 10. Cover intake-to-queue behavior with unit, integration, authorization,
     idempotency, retry/dead-letter, transition, and schema-validation tests.
 
-CSV import begins only after this vertical slice passes its acceptance suite.
+This checkpoint was satisfied. Controlled CSV intake was subsequently approved
+and implemented as Phase 2 slice two under ADR 0004.
 
 ## Test strategy
 

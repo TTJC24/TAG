@@ -14,6 +14,9 @@ The canonical schema is the ordered set of forward-only migrations:
   resolution.
 - `infrastructure/migrations/0005_phase2_internal_execution.sql` adds immutable
   execution commands/results and guarded execution lifecycle transitions.
+- `infrastructure/migrations/0006_phase2_csv_batch_intake.sql` adds immutable
+  raw CSV batches, parsed rows, row outcomes, audit constraints, and forced
+  organization RLS.
 
 ## Ownership
 
@@ -29,6 +32,7 @@ The canonical schema is the ordered set of forward-only migrations:
 Organization
   -> Membership -> User + PermissionSet
   -> SourceSystem -> SourceRecord -> SourceRecordVersion
+                 -> CsvBatch -> CsvBatchRow -> CsvBatchRowResult
   -> Task <-> SourceRecord
   -> Workflow -> WorkflowTransition
               -> Recommendation -> RecommendationSource -> SourceRecordVersion
@@ -66,6 +70,9 @@ Organization
   organization-scoped, and linked to the exact workflow, task, approval,
   recommendation, action, provider, payload hash, and root trace.
 - An action has an organization-scoped idempotency key.
+- A CSV batch stores exact raw bytes and provenance immutably; every valid row
+  has an independent idempotency/outbox boundary and every created task points
+  back to the batch source record.
 - Prompt content is versioned; terminal agent outputs cannot be overwritten and retries remain separately identifiable.
 - Audit events are append-only for the application role and chain by
   organization sequence/hash. The verifier independently recomputes event
@@ -91,6 +98,9 @@ Organization
 - approved-only deterministic internal execution with immutable results,
   typed provider-output validation, bounded retries, and terminal success or
   failure.
+- immutable controlled CSV batches/rows/results, typed row validation, partial
+  success, per-row bounded retries, source-linked tasks, and failed-row
+  projection back to the batch result.
 
 ## Deferred schema decisions
 

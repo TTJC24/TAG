@@ -76,5 +76,20 @@ exhaustion produces `execution_failed`, a dead-letter row, and queue
 visibility. No external provider, connector, send, or source-system write is
 enabled.
 
-Controlled CSV intake remains unselected. Any external execution capability
-requires a separately approved architecture, security model, and slice.
+## Implemented slice two: controlled CSV batch intake
+
+The selected follow-on accepts one internal CSV file, preserves the exact raw
+source and provenance, validates every row, and sends only valid rows through
+the existing issue-intake pipeline. Batch and row commands are independently
+idempotent; malformed or exhausted rows remain visible without rolling back
+accepted siblings.
+
+The result UI reports accepted, rejected, failed, and pending rows with
+validation or downstream failure reasons and links to created tasks. Forced
+RLS and application permissions isolate upload and result access. The detailed
+decision and executable evidence are recorded in ADR 0004.
+
+Scheduled import, production file connectors, CSV export, external execution,
+live models, and source-system writes remain unselected. Any external
+capability requires a separately approved architecture, security model, and
+slice.

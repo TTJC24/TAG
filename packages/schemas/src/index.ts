@@ -75,6 +75,122 @@ export const manualIssueInputSchema = z
   });
 export type ManualIssueInput = z.infer<typeof manualIssueInputSchema>;
 
+const optionalCsvText = (maximum: number) =>
+  z.preprocess(
+    (value) =>
+      typeof value === "string" && value.trim() === "" ? undefined : value,
+    z.string().trim().min(1).max(maximum).optional(),
+  );
+
+export const csvIssueRowSchema = z
+  .object({
+    title: z.string().trim().min(3).max(200),
+    description: z.string().trim().min(3).max(10_000),
+    taskType: optionalCsvText(100),
+    dueDate: z.preprocess(
+      (value) =>
+        typeof value === "string" && value.trim() === "" ? undefined : value,
+      z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/)
+        .optional(),
+    ),
+    financialExposure: z.preprocess((value) => {
+      if (typeof value !== "string") {
+        return value;
+      }
+      const normalized = value.trim();
+      return normalized === "" ? undefined : Number(normalized);
+    }, z.number().finite().nonnegative().max(999_999_999_999).optional()),
+    financialExposureCurrency: z.preprocess(
+      (value) =>
+        typeof value === "string" && value.trim() === ""
+          ? undefined
+          : typeof value === "string"
+            ? value.trim().toUpperCase()
+            : value,
+      z
+        .string()
+        .regex(/^[A-Z]{3}$/)
+        .optional(),
+    ),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const hasExposure = value.financialExposure !== undefined;
+    const hasCurrency = value.financialExposureCurrency !== undefined;
+    if (hasExposure !== hasCurrency) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          "financial_exposure and financial_exposure_currency must be provided together",
+      });
+    }
+  });
+export type CsvIssueRow = z.infer<typeof csvIssueRowSchema>;
+
+export const csvBatchUploadInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  fileName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/\.csv$/i, "fileName must end in .csv"),
+  content: z.string().min(1).max(1_000_000),
+  sourceTimestamp: z.string().datetime(),
+  schemaVersion: z.literal("csv-issue.v1"),
+  retentionClassification: z.enum([
+    "transient",
+    "operational",
+    "financial_support",
+    "legal_hold",
+  ]),
+});
+export type CsvBatchUploadInput = z.infer<typeof csvBatchUploadInputSchema>;
+
+export const csvBatchRowStatusSchema = z.enum([
+  "pending",
+  "accepted",
+  "rejected",
+  "failed",
+]);
+
+export const csvBatchResultSchema = z.object({
+  batchId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  fileName: z.string(),
+  checksum: z.string().length(64),
+  sourceTimestamp: z.string().datetime(),
+  ingestedAt: z.string().datetime(),
+  schemaVersion: z.literal("csv-issue.v1"),
+  retentionClassification: z.string(),
+  sourceRecordId: z.string().uuid(),
+  sourceRecordVersionId: z.string().uuid(),
+  duplicate: z.boolean(),
+  traceId: z.string(),
+  counts: z.object({
+    total: z.number().int().nonnegative(),
+    pending: z.number().int().nonnegative(),
+    accepted: z.number().int().nonnegative(),
+    rejected: z.number().int().nonnegative(),
+    failed: z.number().int().nonnegative(),
+  }),
+  rows: z.array(
+    z.object({
+      rowId: z.string().uuid(),
+      rowNumber: z.number().int().min(2),
+      status: csvBatchRowStatusSchema,
+      rejectionReasons: z.array(z.string()),
+      taskId: z.string().uuid().nullable(),
+      workflowId: z.string().uuid().nullable(),
+      safeErrorMessage: z.string().nullable(),
+      attempts: z.number().int().nonnegative(),
+    }),
+  ),
+});
+export type CsvBatchResult = z.infer<typeof csvBatchResultSchema>;
+
 export const classificationOutputSchema = z.object({
   entityCode: entityCodeSchema.nullable(),
   taskType: z.string().trim().min(1).max(100),
