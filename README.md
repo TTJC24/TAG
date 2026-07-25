@@ -1,7 +1,8 @@
 # Operating Layer
 
 `operating-layer` is the neutral repository codename for the multi-entity
-Operations Control Tower. Phase 2 slice one closes the internal approval loop:
+Operations Control Tower. The implemented Phase 2 slices close the governed
+internal loop through a real execution outcome:
 
 ```text
 manual issue intake
@@ -10,6 +11,9 @@ manual issue intake
   -> cited recommendation
   -> declarative, immutable approval policy
   -> internal approve or reject
+  -> approved internal execution command
+  -> deterministic internal executor
+  -> completed or execution_failed
   -> database-enforced workflow state
   -> append-only, verifiable audit history
   -> executive queue and task detail
@@ -50,16 +54,17 @@ instructions, and operational checks.
 
 `pnpm test:feature` is the single acceptance-test entry point for this slice.
 It proves seven-day idempotency replay/reaping and its lock race, declarative
-policy equivalence and two-person activation, approve/reject terminal paths,
-cross-organization rejection, idempotent resolution, audit integrity, and
-trace continuity.
+policy equivalence and two-person activation, approve/reject resolution,
+approved-only execution, success and exhausted-retry terminal paths,
+cross-organization rejection, idempotency, audit integrity, and trace
+continuity.
 
-GitHub Actions runs formatting, workspace type checks, the feature suite
-against a clean PostgreSQL 16 database, and the production build in the
-`verify` job. A single-human-committer exception currently waives strict hosted
-protection while preserving PR-only flow and requiring green `verify` before
-merge. See [the runbook](docs/runbook.md) for the forcing trigger and exact
-protection steps.
+GitHub Actions runs formatting, workspace type checks and unit tests, the
+feature suite against a clean PostgreSQL 16 database, and the production build
+in the `verify` job. A single-human-committer exception currently waives strict
+hosted protection while preserving PR-only flow and requiring green `verify`
+before merge. See [the runbook](docs/runbook.md) for the forcing trigger and
+exact protection steps.
 
 ## Documentation
 
@@ -82,8 +87,13 @@ and [Phase 2 decision](docs/phase2-scope-proposal.md).
   event payload. The independent verifier checks linkage, event hashes,
   sequence, and stream head.
 - Idempotency claims snapshot an immutable seven-day retention version.
-- Approval decisions use an immutable organization policy version and internal
-  approval resolution performs no external action.
+- Approval decisions use an immutable organization policy version. Approval
+  stops at `approved`; only an immutable internal execution command/result can
+  move the workflow through `executing` to `completed` or
+  `execution_failed`.
+- `deterministic_internal` is the only enabled execution provider. The external
+  provider contract is inert, and execution results explicitly record that no
+  external effect occurred.
 - All state-changing commands must produce an audit event.
 
 See [deployment.md](docs/deployment.md) for the environment outline.

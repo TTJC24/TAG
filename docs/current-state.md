@@ -5,13 +5,13 @@ Date: 2026-07-25
 ## Initial inspection result
 
 The handoff started as an empty, non-Git directory with no repository-specific
-instructions, credentials, schemas, or implementation to preserve. It remains
-a local working directory rather than a Git repository.
+instructions, credentials, schemas, or implementation to preserve. It is now
+a Git repository with a pull-request verification workflow.
 
 ## Current capability
 
-The repository now has a runnable Phase 1 intake slice plus the first Phase 2
-internal approval-resolution slice:
+The repository now has a runnable Phase 1 intake slice plus Phase 2 internal
+approval resolution and deterministic internal execution:
 
 - modular TypeScript workspace with Next.js web, Fastify API, and worker;
 - PostgreSQL 16 schema, Phase 1 control migration, and deterministic local seed;
@@ -26,8 +26,13 @@ internal approval-resolution slice:
   immutable organization-scoped declarative approval policy;
 - two-person activation for new policy versions and single-actor break-glass
   restoration of an already approved version;
-- authorized, idempotent internal approve/reject resolution with terminal
-  workflow states, immutable history, and no external effect;
+- authorized, idempotent internal approve/reject resolution; approval stops at
+  the executable `approved` state and rejection is terminal;
+- a provider-neutral execution seam with only
+  `deterministic_internal` enabled, immutable execution command/results, and
+  no external effect;
+- database-enforced `approved -> executing -> completed|execution_failed`
+  transitions, bounded retries, and execution dead-letter visibility;
 - boot-time rejection of RLS-bypassing API/worker database identities;
 - executive queue and task detail/history screens;
 - unit and clean-database integration tests.
@@ -52,9 +57,9 @@ agent behavior are synthetic and local-only.
 
 ## Handoff boundary
 
-The implementation stops at the passing internal approval-resolution slice.
-CSV import, the execution lifecycle, production connectors, live model
-providers, external sends, and source-system writes require a new review.
+The implementation stops at the passing deterministic internal-execution
+slice. CSV import, production connectors, live model/execution providers,
+external sends, and source-system writes require a new review.
 
 ## Local tooling note
 

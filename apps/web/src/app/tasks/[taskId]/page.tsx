@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { operatingLayerApi } from "../../../lib/api";
 import { ApprovalResolutionForm } from "./approval-resolution-form";
+import { ExecutionTriggerForm } from "./execution-trigger-form";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,8 @@ interface TaskDetail {
   recommendations: Array<Record<string, unknown>>;
   approvals: Array<Record<string, unknown>>;
   approvalResolutions: Array<Record<string, unknown>>;
+  executionCommands: Array<Record<string, unknown>>;
+  executionResults: Array<Record<string, unknown>>;
   auditHistory: Array<Record<string, unknown>>;
 }
 
@@ -203,6 +206,13 @@ export default async function TaskDetailPage({
                   organizationId={organizationId}
                 />
               ) : null}
+              {approval.status === "approved" &&
+              detail.executionCommands.length === 0 ? (
+                <ExecutionTriggerForm
+                  approvalId={display(approval.id)}
+                  organizationId={organizationId}
+                />
+              ) : null}
             </article>
           ))}
         </section>
@@ -236,6 +246,76 @@ export default async function TaskDetailPage({
                 <div>
                   <dt>Resolved</dt>
                   <dd>{display(resolution.resolved_at)}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      {detail.executionCommands.length > 0 ? (
+        <section className="panel executionPanel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Internal execution</p>
+              <h2>Execution command</h2>
+            </div>
+          </div>
+          {detail.executionCommands.map((command) => (
+            <article key={display(command.id)}>
+              <strong>{display(command.action_type)}</strong>
+              <p>{display(command.action_summary)}</p>
+              <dl>
+                <div>
+                  <dt>Provider</dt>
+                  <dd>{display(command.provider_name)}</dd>
+                </div>
+                <div>
+                  <dt>Requested by</dt>
+                  <dd>{display(command.requester_name)}</dd>
+                </div>
+                <div>
+                  <dt>Trace</dt>
+                  <dd>{display(command.trace_id)}</dd>
+                </div>
+                <div>
+                  <dt>Queued</dt>
+                  <dd>{display(command.created_at)}</dd>
+                </div>
+              </dl>
+            </article>
+          ))}
+        </section>
+      ) : null}
+
+      {detail.executionResults.length > 0 ? (
+        <section className="panel executionPanel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Recorded outcome</p>
+              <h2>Execution result</h2>
+            </div>
+          </div>
+          {detail.executionResults.map((result) => (
+            <article key={display(result.id)}>
+              <strong>{display(result.outcome)}</strong>
+              <p>{display(result.outcome_summary)}</p>
+              <dl>
+                <div>
+                  <dt>Executor</dt>
+                  <dd>{display(result.executor_id)}</dd>
+                </div>
+                <div>
+                  <dt>Action</dt>
+                  <dd>{display(result.action_type)}</dd>
+                </div>
+                <div>
+                  <dt>Terminal state</dt>
+                  <dd>{display(result.resulting_workflow_state)}</dd>
+                </div>
+                <div>
+                  <dt>Completed</dt>
+                  <dd>{display(result.completed_at)}</dd>
                 </div>
               </dl>
             </article>

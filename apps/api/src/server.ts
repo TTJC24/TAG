@@ -10,6 +10,7 @@ import {
   getExecutiveQueue,
   getTaskDetail,
   resolveApproval,
+  requestInternalExecution,
   resolveApplicationPrincipal,
 } from "@operating-layer/issue-intake";
 
@@ -152,6 +153,32 @@ export async function buildApi(
     }
     const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
     const response = await resolveApproval(dependencies.pool, {
+      principal,
+      approvalId: z.string().uuid().parse(request.params.approvalId),
+      input: request.body as never,
+      idempotencyKey,
+      context: {
+        traceId,
+        requestId: request.id,
+      },
+    });
+    return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
+
+  app.post<{
+    Params: { approvalId: string };
+  }>("/v1/approvals/:approvalId/executions", async (request, reply) => {
+    const principal = await principalFor(request);
+    const idempotencyKey = headerValue(request, "idempotency-key");
+    if (!idempotencyKey) {
+      throw new DomainError(
+        400,
+        "idempotency_key_required",
+        "Idempotency-Key is required",
+      );
+    }
+    const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+    const response = await requestInternalExecution(dependencies.pool, {
       principal,
       approvalId: z.string().uuid().parse(request.params.approvalId),
       input: request.body as never,

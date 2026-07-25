@@ -7,8 +7,10 @@ export type WorkflowState =
   | "recommended"
   | "awaiting_approval"
   | "approved"
+  | "executing"
   | "action_queued"
   | "completed"
+  | "execution_failed"
   | "rejected"
   | "blocked"
   | "failed"
@@ -76,9 +78,11 @@ export const issueIntakeTransitions: Readonly<
     "cancelled",
   ],
   awaiting_approval: ["approved", "rejected", "blocked", "failed", "cancelled"],
-  approved: ["completed"],
+  approved: ["executing"],
+  executing: ["completed", "execution_failed"],
   action_queued: [],
   completed: [],
+  execution_failed: [],
   rejected: [],
   blocked: [],
   failed: [],

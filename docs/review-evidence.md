@@ -1,35 +1,31 @@
-# Phase 2 Slice 1 Review Evidence
+# Phase 2 Internal Execution Review Evidence
 
-This file maps the approved internal approval-resolution slice to executable
-evidence. The feature suite starts from an empty PostgreSQL 16 database,
-applies migrations `0001` through `0004`, loads deterministic seed data, and
-runs through the non-owner runtime role.
+This file maps the approved deterministic internal-execution slice to
+executable evidence. The feature suite starts from an empty PostgreSQL 16
+database, applies migrations `0001` through `0005`, loads deterministic seed
+data, and runs through the non-owner runtime role.
 
 ## Acceptance evidence
 
-| Acceptance criterion                                 | Executable proof                                                                                                                                 | Status            |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------- |
-| Duplicate within seven days replays the prior result | `retains idempotency results for seven days and reaps without racing replay` asserts the same task/result and the `604800`-second snapshot       | Automated         |
-| Expired key is reaped and reuse is new intent        | Same test expires a terminal row, runs the reaper, and asserts a distinct task after key reuse                                                   | Automated         |
-| Reaper cannot race replay                            | Same test holds the idempotency row lock, proves `SKIP LOCKED` deletes zero, releases it, and then proves deletion                               | Automated         |
-| Declarative policy preserves Phase 1 behavior        | `policy.test.ts` evaluates boundary fixtures through the legacy oracle and data evaluator and compares complete behavioral output                | Automated         |
-| Policy versions and rules are immutable              | Migration revokes mutation and installs immutable-row triggers; activation feature test uses only guarded functions                              | Database-enforced |
-| Author cannot activate own version                   | `enforces two-person policy activation, permits one-person revert, and audits changes` rejects author-as-activator                               | Automated         |
-| A new version requires two actors                    | Same test rejects activation without a distinct actor's request, then activates after distinct review                                            | Automated         |
-| Prior approved version supports single-actor revert  | Same test restores seeded version 1 with one authorized actor                                                                                    | Automated         |
-| Policy change is audited                             | Same test asserts the immutable activation fact and `approval_policy.activated` audit event                                                      | Automated         |
-| Approve reaches terminal completion                  | `approves once, reaches terminal state, removes pending work, and preserves the root trace` asserts `awaiting_approval -> approved -> completed` | Automated         |
-| Reject reaches rejected terminal                     | `rejects once and reaches the rejected terminal state` asserts `awaiting_approval -> rejected`                                                   | Automated         |
-| Illegal transition is rejected by PostgreSQL         | Approval feature test attempts a terminal transition; the Phase 1 transition test also exercises raw invalid function/direct writes              | Automated         |
-| Cross-organization resolution is rejected            | Approval feature test asserts API `403` and zero rows from a direct runtime-role RLS query                                                       | Automated         |
-| Duplicate resolution is idempotent                   | Approval feature test repeats the identical command and asserts prior-result replay, one resolution, and one audit event                         | Automated         |
-| Resolution audit preserves root trace                | Approve and reject tests compare intake, transition, resolution, and audit trace IDs end to end                                                  | Automated         |
-| Queue reflects resolution                            | Approval test asserts approval-pending work leaves the open queue and the immutable recent outcome appears                                       | Automated         |
-| Task detail shows resolution history                 | Approval test asserts decision, resolver, reason, policy version, resulting state, approvals, transitions, and audit history                     | Automated         |
-| Workspace type-checks                                | `pnpm typecheck`                                                                                                                                 | Automated command |
-| Workspace builds                                     | `pnpm build`                                                                                                                                     | Automated command |
-| Clean PostgreSQL 16 migration and feature suite      | `pnpm test:feature`                                                                                                                              | Automated command |
-| Pull-request verification                            | GitHub Actions check `verify` runs formatting, typecheck, clean PostgreSQL feature tests, and build                                              | Hosted check      |
+| Acceptance criterion                            | Executable proof                                                                                                                                                              | Status            |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Provider-neutral seam, internal mock only       | `packages/executors/src/index.test.ts` proves deterministic internal output and rejects external-provider resolution; feature test also makes the database reject `external`  | Automated         |
+| Approved task executes to `completed`           | `executes an approved task once to completed with RLS and trace continuity` drives API → outbox → worker → immutable result → terminal state                                  | Automated         |
+| Failure becomes terminal and dead-lettered      | `retries deterministic execution failure to terminal dead-letter visibility` proves two bounded retries, third-attempt finalization, `execution_failed`, and queue visibility | Automated         |
+| Non-approved execution is DB-rejected           | `rejects once and reaches the rejected terminal state` attempts raw pending→executing and raw enqueue against pending/rejected approvals                                      | Automated         |
+| Only guarded transitions can execute            | Migration `0005` requires a referenced immutable execution command before `executing` and an immutable result before either terminal transition                               | Database-enforced |
+| Duplicate execution is idempotent               | Success feature test replays the same API command and asserts one command, one outbox item, one result, and one outcome audit                                                 | Automated         |
+| Terminal states have no onward transition       | Success/failure tests call `transition_workflow()` from `completed` and `execution_failed` and assert PostgreSQL rejection                                                    | Automated         |
+| Cross-organization execution is isolated        | Success feature test asserts API `403` and zero direct-ID rows through the other organization’s runtime RLS scope                                                             | Automated         |
+| Root trace remains continuous                   | Success/failure tests compare intake, approval, execution command, outbox, result, and execution-audit trace IDs                                                              | Automated         |
+| Execution output is validated before storage    | Worker parses the provider’s unknown output through `executionProviderOutputSchema`; feature results prove only typed terminal payloads persist                               | Automated path    |
+| Execution records are immutable and scoped      | Migration `0005` uses composite organization foreign keys, forced RLS, mutation triggers/revoked grants, and one-result uniqueness                                            | Database-enforced |
+| Queue and task detail show execution state      | Success/failure tests assert recent completed/failed outcomes, in-execution and failure counts, dead-letter output, commands/results, provider, result, and audit history     | Automated         |
+| Full process path works                         | `pnpm test:smoke` starts built API/worker/web with PostgreSQL 16 and proves approval → queued internal execution → completed plus rendered queue/detail evidence              | Automated command |
+| Workspace type-checks                           | `pnpm typecheck`                                                                                                                                                              | Automated command |
+| Workspace builds                                | `pnpm build`                                                                                                                                                                  | Automated command |
+| Clean PostgreSQL 16 migration and feature suite | `pnpm test:feature`                                                                                                                                                           | Automated command |
+| Pull-request verification                       | GitHub Actions check `verify` runs formatting, typecheck, unit tests, clean PostgreSQL feature tests, and build                                                               | Hosted check      |
 
 ## Preserved Phase 1 guarantees
 
@@ -46,6 +42,11 @@ weakened. The suite continues to prove:
 - bounded outbox retries and executive-queue dead-letter visibility; and
 - no connector, live-model, external-send, ERP, or accounting capability.
 
+The same suite also retains the accepted Phase 2 foundation: seven-day
+idempotency replay/reaping and lock-race proof, declarative-policy equivalence,
+two-person new-version activation, single-actor prior-version restore,
+idempotent approve/reject resolution, and approval trace history.
+
 ## Integrity boundaries
 
 - The audit chain detects partial database-history tampering. It is not an
@@ -55,8 +56,8 @@ weakened. The suite continues to prove:
   duplicate detection is not implied.
 - Declarative policy can require or block approval but cannot grant a runtime
   permission or expose an absent external-write adapter.
-- Internal approval completion records authorization only. It performs no
-  external action.
+- Approval records authorization only. `completed` records a deterministic
+  internal outcome with `externalEffect=false`; it performs no external action.
 
 ## Deferred, explicit
 
@@ -64,6 +65,6 @@ weakened. The suite continues to prove:
 | --------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
 | Administrative dead-letter replay | Retries remain bounded and exhausted jobs are visible; all current work is internal        | Before scheduled production ingestion or a production worker SLO  |
 | N-approver collection             | The schema/evaluator can represent it, but seeded `phase1-v1-data` needs one approver only | Before activating a policy with `requires_n_approvers`            |
-| Cancel/expiry approval outcomes   | Approved slice requires only approve/reject terminal decisions                             | A separately approved approval-lifecycle slice                    |
-| External action execution         | Approval has no adapter or source-system effect                                            | Separate external-write architecture/security approval            |
+| Cancel/expiry approval outcomes   | Approved slice requires only approve authorization and reject termination                  | A separately approved approval-lifecycle slice                    |
+| External action execution         | Only the deterministic internal provider exists; no adapter or source-system effect        | Separate external-write architecture/security approval            |
 | Strict hosted merge protection    | Reviewer approved the runbook's single-human-committer exception                           | A second human committer or this repository becoming a dependency |

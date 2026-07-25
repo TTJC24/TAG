@@ -46,6 +46,9 @@ jobs:
       - name: Type-check workspace
         run: pnpm typecheck
 
+      - name: Run workspace unit tests
+        run: pnpm test
+
       - name: Run feature tests and clean PostgreSQL 16 migrations
         run: pnpm test:feature
 

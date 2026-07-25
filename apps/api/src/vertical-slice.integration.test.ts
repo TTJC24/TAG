@@ -10,6 +10,10 @@ import {
   type DatabasePool,
 } from "@operating-layer/db";
 import {
+  DeterministicInternalExecutionProvider,
+  resolveExecutionProvider,
+} from "@operating-layer/executors";
+import {
   activateApprovalPolicy,
   createApprovalPolicyVersion,
   drainOutbox,
@@ -821,7 +825,7 @@ describe("Phase 1 manual issue vertical slice", () => {
     });
   });
 
-  it("approves once, reaches terminal state, removes pending work, and preserves the root trace", async () => {
+  it("approves once, leaves work executable, removes pending approval, and preserves the root trace", async () => {
     const crossOrgApi = await app.inject({
       method: "POST",
       url: `/v1/approvals/${createdApprovalId}/resolution`,
@@ -879,7 +883,7 @@ describe("Phase 1 manual issue vertical slice", () => {
       policyVersionId: string;
     }>();
     expect(approvedBody).toMatchObject({
-      workflowState: "completed",
+      workflowState: "approved",
       duplicate: false,
       traceId: "trace-feature-intake",
       policyVersionId: "62000000-0000-4000-8000-000000000001",
@@ -902,7 +906,7 @@ describe("Phase 1 manual issue vertical slice", () => {
     expect(duplicate.json()).toMatchObject({
       resolutionId: approvedBody.resolutionId,
       duplicate: true,
-      workflowState: "completed",
+      workflowState: "approved",
     });
 
     const detail = await app.inject({
@@ -936,9 +940,9 @@ describe("Phase 1 manual issue vertical slice", () => {
         metadata: { resolutionId?: string };
       }>;
     }>();
-    expect(detailBody.task.status).toBe("completed");
+    expect(detailBody.task.status).toBe("approved");
     expect(detailBody.workflows[0]).toMatchObject({
-      current_state: "completed",
+      current_state: "approved",
       approval_status: "approved",
     });
     expect(detailBody.approvals[0]).toMatchObject({
@@ -949,7 +953,7 @@ describe("Phase 1 manual issue vertical slice", () => {
       expect.objectContaining({
         id: approvedBody.resolutionId,
         decision: "approved",
-        resulting_workflow_state: "completed",
+        resulting_workflow_state: "approved",
         trace_id: "trace-feature-intake",
       }),
     );
@@ -971,7 +975,7 @@ describe("Phase 1 manual issue vertical slice", () => {
       approvalPending: Array<{ id: string }>;
       recentResolutions: Array<{ id: string; decision: string }>;
     }>();
-    expect(queueBody.tasks.map((task) => task.id)).not.toContain(createdTaskId);
+    expect(queueBody.tasks.map((task) => task.id)).toContain(createdTaskId);
     expect(queueBody.approvalPending).toHaveLength(0);
     expect(queueBody.recentResolutions).toContainEqual(
       expect.objectContaining({
@@ -988,15 +992,322 @@ describe("Phase 1 manual issue vertical slice", () => {
           await client.query(
             `SELECT *
              FROM transition_workflow(
-               $1, $2, $3, 7, 'rejected', 'user', $4, NULL, NULL, $5,
+               $1, $2, $3, 6, 'completed', 'user', $4, NULL, NULL, $5,
                '{}'::jsonb
              )`,
             [
               createdWorkflowId,
               blcsId,
-              `illegal-after-terminal-${randomUUID()}`,
+              `illegal-skip-execution-${randomUUID()}`,
               blcsOperatorId,
-              "trace-illegal-after-terminal",
+              "trace-illegal-skip-execution",
+            ],
+          );
+        },
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("executes an approved task once to completed with RLS and trace continuity", async () => {
+    expect(resolveExecutionProvider()).toBeInstanceOf(
+      DeterministicInternalExecutionProvider,
+    );
+    expect(() => resolveExecutionProvider("external")).toThrow(/not enabled/i);
+
+    const crossOrg = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${createdApprovalId}/executions`,
+      headers: {
+        "x-dev-user-email": fsiOperatorEmail,
+        "idempotency-key": `cross-org-execution-${randomUUID()}`,
+      },
+      payload: { organizationId: blcsId },
+    });
+    expect(crossOrg.statusCode).toBe(403);
+
+    await expect(
+      withOrganizationScope(
+        pool,
+        {
+          userId: "20000000-0000-4000-8000-000000000005",
+          organizationIds: [blcsId],
+        },
+        async (client) => {
+          await client.query(
+            `SELECT *
+             FROM enqueue_internal_execution($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              randomUUID(),
+              createdApprovalId,
+              blcsId,
+              "external",
+              `disabled-external-${randomUUID()}`,
+              "trace-feature-intake",
+              "request-disabled-external",
+            ],
+          );
+        },
+      ),
+    ).rejects.toThrow(/deterministic internal/i);
+
+    const idempotencyKey = `execute-approved-${randomUUID()}`;
+    const requested = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${createdApprovalId}/executions`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": idempotencyKey,
+        "x-trace-id": "trace-execution-http-request",
+      },
+      payload: { organizationId: blcsId },
+    });
+    expect(requested.statusCode, requested.body).toBe(202);
+    const requestedBody = requested.json<{
+      executionCommandId: string;
+      outboxEventId: string;
+      taskId: string;
+      workflowId: string;
+      duplicate: boolean;
+      traceId: string;
+    }>();
+    expect(requestedBody).toMatchObject({
+      taskId: createdTaskId,
+      workflowId: createdWorkflowId,
+      duplicate: false,
+      traceId: "trace-feature-intake",
+    });
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${createdApprovalId}/executions`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": idempotencyKey,
+      },
+      payload: { organizationId: blcsId },
+    });
+    expect(duplicate.statusCode).toBe(200);
+    expect(duplicate.json()).toMatchObject({
+      executionCommandId: requestedBody.executionCommandId,
+      outboxEventId: requestedBody.outboxEventId,
+      duplicate: true,
+      traceId: "trace-feature-intake",
+    });
+
+    const crossOrgRows = await withOrganizationScope(
+      pool,
+      {
+        userId: "20000000-0000-4000-8000-000000000004",
+        organizationIds: [fsiId],
+      },
+      async (client) => {
+        const result = await client.query(
+          `SELECT id FROM execution_commands WHERE id = $1`,
+          [requestedBody.executionCommandId],
+        );
+        return result.rowCount;
+      },
+    );
+    expect(crossOrgRows).toBe(0);
+
+    const beforeWorker = await adminPool.query<{
+      command_count: string;
+      request_audit_count: string;
+      outbox_trace_id: string;
+    }>(
+      `SELECT
+         (
+           SELECT count(*)::text
+           FROM operating_layer.execution_commands
+           WHERE id = $1
+         ) AS command_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events
+           WHERE organization_id = $2
+             AND event_type = 'execution.requested'
+             AND metadata ->> 'executionCommandId' = $1::text
+         ) AS request_audit_count,
+         (
+           SELECT trace_id
+           FROM operating_layer.outbox_events
+           WHERE id = $3
+         ) AS outbox_trace_id`,
+      [requestedBody.executionCommandId, blcsId, requestedBody.outboxEventId],
+    );
+    expect(beforeWorker.rows[0]).toEqual({
+      command_count: "1",
+      request_audit_count: "1",
+      outbox_trace_id: "trace-feature-intake",
+    });
+
+    const drained = await drainOutbox(pool, "execution-success-worker");
+    expect(drained.failed).toBe(0);
+    expect(drained.deadLetter).toBe(0);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/tasks/${createdTaskId}?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    expect(detail.statusCode).toBe(200);
+    const detailBody = detail.json<{
+      task: { status: string };
+      workflows: Array<{
+        current_state: string;
+        version: number;
+        approval_status: string;
+      }>;
+      executionCommands: Array<{
+        id: string;
+        trace_id: string;
+        provider_name: string;
+      }>;
+      executionResults: Array<{
+        id: string;
+        execution_command_id: string;
+        executor_provider: string;
+        executor_id: string;
+        outcome: string;
+        resulting_workflow_state: string;
+        trace_id: string;
+        output_payload: { externalEffect?: boolean };
+      }>;
+      auditHistory: Array<{
+        eventType: string;
+        traceId: string;
+        metadata: {
+          approvalId?: string;
+          executionCommandId?: string;
+          executionResultId?: string;
+        };
+      }>;
+    }>();
+    expect(detailBody.task.status).toBe("completed");
+    expect(detailBody.workflows[0]).toMatchObject({
+      current_state: "completed",
+      approval_status: "approved",
+    });
+    expect(detailBody.executionCommands).toEqual([
+      expect.objectContaining({
+        id: requestedBody.executionCommandId,
+        trace_id: "trace-feature-intake",
+        provider_name: "deterministic_internal",
+      }),
+    ]);
+    expect(detailBody.executionResults).toHaveLength(1);
+    const result = detailBody.executionResults[0]!;
+    expect(result).toMatchObject({
+      execution_command_id: requestedBody.executionCommandId,
+      executor_provider: "deterministic_internal",
+      executor_id: "deterministic-internal-v1",
+      outcome: "succeeded",
+      resulting_workflow_state: "completed",
+      trace_id: "trace-feature-intake",
+      output_payload: { externalEffect: false },
+    });
+    const executionAudits = detailBody.auditHistory.filter(
+      (event) =>
+        event.eventType === "execution.succeeded" &&
+        event.metadata.executionCommandId === requestedBody.executionCommandId,
+    );
+    expect(executionAudits).toHaveLength(1);
+    expect(executionAudits[0]).toMatchObject({
+      traceId: "trace-feature-intake",
+      metadata: { executionResultId: result.id },
+    });
+    expect(
+      detailBody.auditHistory.find(
+        (event) =>
+          event.eventType === "approval.approved" &&
+          event.metadata.approvalId === createdApprovalId,
+      )?.traceId,
+    ).toBe("trace-feature-intake");
+
+    const outcomeCounts = await adminPool.query<{
+      result_count: string;
+      outcome_audit_count: string;
+    }>(
+      `SELECT
+         (
+           SELECT count(*)::text
+           FROM operating_layer.execution_results
+           WHERE execution_command_id = $1
+         ) AS result_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events
+           WHERE organization_id = $2
+             AND event_type = 'execution.succeeded'
+             AND metadata ->> 'executionCommandId' = $1::text
+         ) AS outcome_audit_count`,
+      [requestedBody.executionCommandId, blcsId],
+    );
+    expect(outcomeCounts.rows[0]).toEqual({
+      result_count: "1",
+      outcome_audit_count: "1",
+    });
+    await expect(
+      adminPool.query(
+        `UPDATE operating_layer.execution_commands
+         SET action_summary = 'privileged tamper'
+         WHERE id = $1`,
+        [requestedBody.executionCommandId],
+      ),
+    ).rejects.toThrow(/immutable/i);
+    await expect(
+      adminPool.query(
+        `UPDATE operating_layer.execution_results
+         SET output_payload = '{"tampered":true}'::jsonb
+         WHERE id = $1`,
+        [result.id],
+      ),
+    ).rejects.toThrow(/immutable/i);
+
+    const queue = await app.inject({
+      method: "GET",
+      url: `/v1/executive-queue?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    const queueBody = queue.json<{
+      counts: {
+        completedExecutions: number;
+        inExecution: number;
+      };
+      tasks: Array<{ id: string }>;
+      recentExecutions: Array<{
+        executionCommandId: string;
+        outcome: string;
+      }>;
+    }>();
+    expect(queueBody.tasks.map((task) => task.id)).not.toContain(createdTaskId);
+    expect(queueBody.counts.completedExecutions).toBeGreaterThanOrEqual(1);
+    expect(queueBody.counts.inExecution).toBe(0);
+    expect(queueBody.recentExecutions).toContainEqual(
+      expect.objectContaining({
+        executionCommandId: requestedBody.executionCommandId,
+        outcome: "succeeded",
+      }),
+    );
+
+    await expect(
+      withOrganizationScope(
+        pool,
+        { userId: blcsOperatorId, organizationIds: [blcsId] },
+        async (client) => {
+          await client.query(
+            `SELECT *
+             FROM transition_workflow(
+               $1, $2, $3, $4, 'execution_failed', 'user', $5,
+               NULL, NULL, $6, '{}'::jsonb
+             )`,
+            [
+              createdWorkflowId,
+              blcsId,
+              `illegal-after-completed-${randomUUID()}`,
+              detailBody.workflows[0]!.version,
+              blcsOperatorId,
+              "trace-illegal-after-completed",
             ],
           );
         },
@@ -1035,9 +1346,74 @@ describe("Phase 1 manual issue vertical slice", () => {
       url: `/v1/tasks/${taskId}?organizationId=${blcsId}`,
       headers: { "x-dev-user-email": approverEmail },
     });
-    const approvalId = before.json<{
+    const beforeBody = before.json<{
       approvals: Array<{ id: string }>;
-    }>().approvals[0]!.id;
+      workflows: Array<{ id: string; version: number }>;
+    }>();
+    const approvalId = beforeBody.approvals[0]!.id;
+    const pendingWorkflow = beforeBody.workflows[0]!;
+
+    await expect(
+      withOrganizationScope(
+        pool,
+        {
+          userId: "20000000-0000-4000-8000-000000000005",
+          organizationIds: [blcsId],
+        },
+        async (client) => {
+          await client.query(
+            `SELECT *
+             FROM transition_workflow(
+               $1, $2, $3, $4, 'executing', 'user', $5, NULL, NULL, $6,
+               '{}'::jsonb
+             )`,
+            [
+              pendingWorkflow.id,
+              blcsId,
+              `db-pending-transition-${randomUUID()}`,
+              pendingWorkflow.version,
+              "20000000-0000-4000-8000-000000000005",
+              intakeTrace,
+            ],
+          );
+        },
+      ),
+    ).rejects.toThrow();
+
+    const executePending = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/executions`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": `execute-pending-${randomUUID()}`,
+      },
+      payload: { organizationId: blcsId },
+    });
+    expect(executePending.statusCode).toBe(409);
+    await expect(
+      withOrganizationScope(
+        pool,
+        {
+          userId: "20000000-0000-4000-8000-000000000005",
+          organizationIds: [blcsId],
+        },
+        async (client) => {
+          await client.query(
+            `SELECT *
+             FROM enqueue_internal_execution($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              randomUUID(),
+              approvalId,
+              blcsId,
+              "deterministic_internal",
+              `db-pending-${randomUUID()}`,
+              intakeTrace,
+              "request-db-pending",
+            ],
+          );
+        },
+      ),
+    ).rejects.toThrow(/approved workflow/i);
 
     const rejected = await app.inject({
       method: "POST",
@@ -1086,5 +1462,285 @@ describe("Phase 1 manual issue vertical slice", () => {
         },
       ],
     });
+
+    const executeRejected = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/executions`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": `execute-rejected-${randomUUID()}`,
+      },
+      payload: { organizationId: blcsId },
+    });
+    expect(executeRejected.statusCode).toBe(409);
+    await expect(
+      withOrganizationScope(
+        pool,
+        {
+          userId: "20000000-0000-4000-8000-000000000005",
+          organizationIds: [blcsId],
+        },
+        async (client) => {
+          await client.query(
+            `SELECT *
+             FROM enqueue_internal_execution($1, $2, $3, $4, $5, $6, $7)`,
+            [
+              randomUUID(),
+              approvalId,
+              blcsId,
+              "deterministic_internal",
+              `db-rejected-${randomUUID()}`,
+              intakeTrace,
+              "request-db-rejected",
+            ],
+          );
+        },
+      ),
+    ).rejects.toThrow(/approved workflow/i);
+  });
+
+  it("retries deterministic execution failure to terminal dead-letter visibility", async () => {
+    const intakeTrace = "trace-feature-execution-failure";
+    const intake = await app.inject({
+      method: "POST",
+      url: "/v1/issues",
+      headers: {
+        "x-dev-user-email": blcsOperatorEmail,
+        "idempotency-key": `failure-intake-${randomUUID()}`,
+        "x-trace-id": intakeTrace,
+      },
+      payload: {
+        organizationId: blcsId,
+        title: "Internal execution failure fixture for collections follow-up",
+        description:
+          "A $90,000 receivable requires an approved internal follow-up outcome.",
+        financialExposure: 90_000,
+        financialExposureCurrency: "USD",
+        retentionClassification: "financial_support",
+      },
+    });
+    expect(intake.statusCode, intake.body).toBe(202);
+    const intakeBody = intake.json<{ taskId: string; workflowId: string }>();
+    const prepared = await drainOutbox(pool, "execution-failure-prep-worker");
+    expect(prepared.failed).toBe(0);
+    expect(prepared.deadLetter).toBe(0);
+
+    const pendingDetail = await app.inject({
+      method: "GET",
+      url: `/v1/tasks/${intakeBody.taskId}?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    const approvalId = pendingDetail.json<{
+      approvals: Array<{ id: string }>;
+    }>().approvals[0]!.id;
+    const approval = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/resolution`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": `failure-approval-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: blcsId,
+        decision: "approved",
+        reason: "Approve the deterministic internal failure fixture.",
+      },
+    });
+    expect(approval.statusCode, approval.body).toBe(202);
+    expect(approval.json()).toMatchObject({
+      workflowState: "approved",
+      traceId: intakeTrace,
+    });
+
+    const trigger = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/executions`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": `failure-execution-${randomUUID()}`,
+        "x-trace-id": "trace-failure-execution-http",
+      },
+      payload: { organizationId: blcsId },
+    });
+    expect(trigger.statusCode, trigger.body).toBe(202);
+    const triggerBody = trigger.json<{
+      executionCommandId: string;
+      outboxEventId: string;
+      traceId: string;
+    }>();
+    expect(triggerBody.traceId).toBe(intakeTrace);
+
+    const failingProvider = new DeterministicInternalExecutionProvider({
+      outcome: "failed",
+      failureCode: "deterministic_fixture_failure",
+    });
+    expect(
+      await processNextOutboxJob(
+        pool,
+        "execution-failure-worker",
+        failingProvider,
+      ),
+    ).toBe("failed");
+
+    const inExecutionQueue = await app.inject({
+      method: "GET",
+      url: `/v1/executive-queue?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    expect(inExecutionQueue.json()).toMatchObject({
+      counts: { inExecution: 1 },
+      inExecution: [
+        expect.objectContaining({
+          id: intakeBody.taskId,
+          workflowState: "executing",
+        }),
+      ],
+    });
+
+    await adminPool.query(
+      `UPDATE operating_layer.outbox_events
+       SET available_at = now()
+       WHERE id = $1`,
+      [triggerBody.outboxEventId],
+    );
+    expect(
+      await processNextOutboxJob(
+        pool,
+        "execution-failure-worker",
+        failingProvider,
+      ),
+    ).toBe("failed");
+    await adminPool.query(
+      `UPDATE operating_layer.outbox_events
+       SET available_at = now()
+       WHERE id = $1`,
+      [triggerBody.outboxEventId],
+    );
+    expect(
+      await processNextOutboxJob(
+        pool,
+        "execution-failure-worker",
+        failingProvider,
+      ),
+    ).toBe("dead_letter");
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/tasks/${intakeBody.taskId}?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    const detailBody = detail.json<{
+      task: { status: string };
+      workflows: Array<{ current_state: string; version: number }>;
+      executionResults: Array<{
+        id: string;
+        outcome: string;
+        error_code: string;
+        resulting_workflow_state: string;
+        trace_id: string;
+      }>;
+      auditHistory: Array<{
+        eventType: string;
+        traceId: string;
+        metadata: {
+          approvalId?: string;
+          executionCommandId?: string;
+          executionResultId?: string;
+        };
+      }>;
+    }>();
+    expect(detailBody.task.status).toBe("execution_failed");
+    expect(detailBody.workflows[0]).toMatchObject({
+      current_state: "execution_failed",
+    });
+    expect(detailBody.executionResults).toEqual([
+      expect.objectContaining({
+        outcome: "failed",
+        error_code: "deterministic_fixture_failure",
+        resulting_workflow_state: "execution_failed",
+        trace_id: intakeTrace,
+      }),
+    ]);
+    const failureResult = detailBody.executionResults[0]!;
+    const failureAudits = detailBody.auditHistory.filter(
+      (event) =>
+        event.eventType === "execution.failed" &&
+        event.metadata.executionCommandId === triggerBody.executionCommandId,
+    );
+    expect(failureAudits).toEqual([
+      expect.objectContaining({
+        traceId: intakeTrace,
+        metadata: expect.objectContaining({
+          executionResultId: failureResult.id,
+        }),
+      }),
+    ]);
+    expect(
+      detailBody.auditHistory.find(
+        (event) =>
+          event.eventType === "approval.approved" &&
+          event.metadata.approvalId === approvalId,
+      )?.traceId,
+    ).toBe(intakeTrace);
+
+    const queue = await app.inject({
+      method: "GET",
+      url: `/v1/executive-queue?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    const queueBody = queue.json<{
+      counts: { executionFailed: number };
+      executionFailed: Array<{ id: string }>;
+      recentExecutions: Array<{
+        executionCommandId: string;
+        outcome: string;
+      }>;
+      jobFailures: Array<{
+        id: string;
+        topic: string;
+        status: string;
+      }>;
+    }>();
+    expect(queueBody.counts.executionFailed).toBeGreaterThanOrEqual(1);
+    expect(queueBody.executionFailed).toContainEqual(
+      expect.objectContaining({ id: intakeBody.taskId }),
+    );
+    expect(queueBody.recentExecutions).toContainEqual(
+      expect.objectContaining({
+        executionCommandId: triggerBody.executionCommandId,
+        outcome: "failed",
+      }),
+    );
+    expect(queueBody.jobFailures).toContainEqual(
+      expect.objectContaining({
+        id: triggerBody.outboxEventId,
+        topic: "issue.execute",
+        status: "dead_letter",
+      }),
+    );
+
+    await expect(
+      withOrganizationScope(
+        pool,
+        { userId: blcsOperatorId, organizationIds: [blcsId] },
+        async (client) => {
+          await client.query(
+            `SELECT *
+             FROM transition_workflow(
+               $1, $2, $3, $4, 'completed', 'user', $5,
+               NULL, NULL, $6, '{}'::jsonb
+             )`,
+            [
+              intakeBody.workflowId,
+              blcsId,
+              `illegal-after-execution-failed-${randomUUID()}`,
+              detailBody.workflows[0]!.version,
+              blcsOperatorId,
+              "trace-illegal-after-execution-failed",
+            ],
+          );
+        },
+      ),
+    ).rejects.toThrow();
   });
 });

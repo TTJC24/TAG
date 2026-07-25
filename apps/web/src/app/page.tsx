@@ -32,6 +32,9 @@ interface QueueResponse {
     overdue: number;
     blocked: number;
     approvalPending: number;
+    inExecution: number;
+    executionFailed: number;
+    completedExecutions: number;
     failedJobs: number;
   };
   tasks: QueueTask[];
@@ -45,6 +48,18 @@ interface QueueResponse {
     policyVersionId: string;
     resolverName: string;
     resolvedAt: string;
+  }>;
+  recentExecutions: Array<{
+    id: string;
+    taskId: string;
+    taskTitle: string;
+    actionType: string;
+    outcome: "succeeded" | "failed";
+    outcomeSummary: string;
+    executorProvider: string;
+    executorId: string;
+    resultingWorkflowState: string;
+    completedAt: string;
   }>;
   jobFailures: Array<{
     id: string;
@@ -163,6 +178,21 @@ export default async function ExecutiveQueuePage({
           <strong>{queue.counts.failedJobs}</strong>
           <small>Retry or dead-letter</small>
         </article>
+        <article className={queue.counts.inExecution > 0 ? "accent" : ""}>
+          <span>Executing</span>
+          <strong>{queue.counts.inExecution}</strong>
+          <small>Internal executor active</small>
+        </article>
+        <article className={queue.counts.executionFailed > 0 ? "danger" : ""}>
+          <span>Execution failed</span>
+          <strong>{queue.counts.executionFailed}</strong>
+          <small>Terminal internal failures</small>
+        </article>
+        <article>
+          <span>Completed</span>
+          <strong>{queue.counts.completedExecutions}</strong>
+          <small>Recorded execution outcomes</small>
+        </article>
       </section>
 
       <section className="panel">
@@ -263,6 +293,37 @@ export default async function ExecutiveQueuePage({
                     {resolution.decision}
                   </span>
                   <small>{resolution.resolverName}</small>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {queue.recentExecutions.length > 0 ? (
+        <section className="panel">
+          <div className="panelHeader">
+            <div>
+              <p className="eyebrow">Execution lifecycle</p>
+              <h2>Recent execution outcomes</h2>
+            </div>
+          </div>
+          <ul className="resolutionList">
+            {queue.recentExecutions.map((execution) => (
+              <li key={execution.id}>
+                <div>
+                  <Link
+                    href={`/tasks/${execution.taskId}?organizationId=${selectedOrganizationId}`}
+                  >
+                    {execution.taskTitle}
+                  </Link>
+                  <small>{execution.outcomeSummary}</small>
+                </div>
+                <div>
+                  <span className={`status ${execution.outcome}`}>
+                    {execution.resultingWorkflowState}
+                  </span>
+                  <small>{execution.executorId}</small>
                 </div>
               </li>
             ))}

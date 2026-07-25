@@ -8,6 +8,7 @@ import {
   processNextOutboxJob,
   reapExpiredIdempotencyKeys,
 } from "@operating-layer/issue-intake";
+import { resolveExecutionProvider } from "@operating-layer/executors";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -22,6 +23,9 @@ try {
   throw error;
 }
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
+const executionProvider = resolveExecutionProvider(
+  process.env.EXECUTION_PROVIDER ?? "deterministic_internal",
+);
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000);
 let stopping = false;
 let nextReaperAt = 0;
@@ -52,7 +56,11 @@ async function loop(): Promise<void> {
         nextReaperAt = Date.now() + IDEMPOTENCY_REAPER_INTERVAL_MS;
       }
     }
-    const result = await processNextOutboxJob(pool, workerId);
+    const result = await processNextOutboxJob(
+      pool,
+      workerId,
+      executionProvider,
+    );
     if (result === "idle") {
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }

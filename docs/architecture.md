@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Approved through Phase 2 slice one
+Status: Approved through the Phase 2 internal-execution slice
 Date: 2026-07-25
 Repository codename: `operating-layer` (not a permanent product name)
 
@@ -30,8 +30,9 @@ Approved sources
   -> retrieval/classification/recommendation agents
   -> recommendation with source citations and policy result
   -> approval queue when required
-  -> internal low-risk action or approved future adapter action
-  -> verification result + immutable audit event
+  -> immutable internal execution command
+  -> deterministic internal executor
+  -> immutable result + completed|execution_failed + audit event
 ```
 
 No model receives source-system credentials. No model or queue owns permissions, task state, or workflow state.
@@ -66,6 +67,7 @@ packages/
   auth/            identity, principal, RBAC, organization-scope policy
   connectors/      connector interfaces and capability declarations
   db/              schema, migrations, generated/query types
+  executors/       provider-neutral execution contract; internal mock enabled
   observability/   trace, metrics, structured log contracts
   schemas/         shared command/event/domain schemas
   ui/              shared UI primitives
@@ -89,9 +91,9 @@ infrastructure/
   migrations/
 ```
 
-Manual intake and internal approval resolution are implemented. Real
-connectors, CSV import, live model providers, external sends, and source-system
-write adapters remain deferred.
+Manual intake, internal approval resolution, and deterministic internal
+execution are implemented. Real connectors, CSV import, live model/execution
+providers, external sends, and source-system write adapters remain deferred.
 
 ## Domain and database model
 
@@ -109,6 +111,7 @@ PostgreSQL stores:
 - immutable approval-policy versions/rules, guarded bindings, and activation
   history;
 - immutable idempotency-retention versions and reaper history;
+- immutable execution commands and terminal execution results;
 - `connector_sync_runs`, `outbox_events`, and idempotency records.
 
 Every organization-scoped row carries `organization_id`, including derived
@@ -147,26 +150,40 @@ Initial role templates are `system_admin`, `executive`, `operations_manager`, `o
 
 ## Workflow engine
 
-The deployed slices use a durable explicit state machine. The approval branch
-implemented in Phase 2 is:
+The deployed slices use a durable explicit state machine. The implemented
+approval and internal-execution branch is:
 
 ```text
 received -> normalized -> classified -> recommended -> awaiting_approval
-awaiting_approval -> approved -> completed
+awaiting_approval -> approved -> executing -> completed
+                                     \-----> execution_failed
 awaiting_approval -> rejected
 ```
 
 Transitions require a command ID, expected current version, policy result,
 actor, input/output hashes, and trace ID. A database function checks the
 approved transition graph and optimistic version; triggers reject direct state
-updates and transition inserts. The calling transaction also appends its audit
-and outbox records. Workers are at-least-once, so handlers must be idempotent,
-leased, bounded by an attempt policy, and dead-lettered visibly when exhausted.
+updates and transition inserts. Entry to `executing` additionally requires the
+referenced immutable execution command, and a terminal transition requires the
+referenced immutable execution result. The calling transaction also appends
+its audit and outbox records. Workers are at-least-once, so handlers are
+idempotent, leased, bounded by an attempt policy, and dead-lettered visibly
+when exhausted.
 
-No approval path queues an external action. Temporal remains deferred until
+No execution path reaches an external adapter. Temporal remains deferred until
 schedules, human waits measured in days, and multi-system compensation become
 common. The `WorkflowEngine` port prevents domain code from importing a future
 engine directly.
+
+## Execution provider abstraction
+
+Execution uses a provider-neutral `ExecutionProvider` contract over a typed
+action and trace/idempotency context. Only `deterministic_internal` resolves at
+runtime. It returns untrusted structured output that passes the same runtime
+schema boundary required of a future provider. The disabled external provider
+interface has `enabled=false`; selecting any non-internal provider refuses
+worker startup, the database rejects non-internal commands, and no connector
+or network adapter exists.
 
 ## Agent abstraction
 

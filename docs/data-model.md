@@ -10,8 +10,10 @@ The canonical schema is the ordered set of forward-only migrations:
   function.
 - `infrastructure/migrations/0004_phase2_approval_resolution.sql` adds
   versioned idempotency retention, immutable declarative approval policy,
-  guarded activation, approval resolution history, and terminal
-  approve/reject transitions.
+  guarded activation, approval resolution history, and approve/reject
+  resolution.
+- `infrastructure/migrations/0005_phase2_internal_execution.sql` adds immutable
+  execution commands/results and guarded execution lifecycle transitions.
 
 ## Ownership
 
@@ -31,6 +33,7 @@ Organization
   -> Workflow -> WorkflowTransition
               -> Recommendation -> RecommendationSource -> SourceRecordVersion
               -> Approval -> ApprovalResolution
+                          -> ExecutionCommand -> ExecutionResult
                           -> Action -> ActionVerification
   -> ApprovalPolicyVersion -> ApprovalPolicyRule
                            -> ApprovalPolicyActivation
@@ -55,6 +58,13 @@ Organization
   previously activated version may be restored by one authorized actor.
 - Approval resolution is an immutable fact and may update the approval
   projection only through `resolve_approval_workflow()`.
+- Approval is authorization, not completion. Only
+  `enqueue_internal_execution()` may authorize an internal command, and only a
+  matching immutable command/result may guard entry to and exit from
+  `executing`.
+- An execution command and its single terminal result are immutable,
+  organization-scoped, and linked to the exact workflow, task, approval,
+  recommendation, action, provider, payload hash, and root trace.
 - An action has an organization-scoped idempotency key.
 - Prompt content is versioned; terminal agent outputs cannot be overwritten and retries remain separately identifiable.
 - Audit events are append-only for the application role and chain by
@@ -78,6 +88,9 @@ Organization
 - bounded, recorded reaper batches using `FOR UPDATE SKIP LOCKED`;
 - immutable approval-policy versions/rules with guarded organization bindings;
 - internal approve/reject resolution with policy/actor/reason/trace history.
+- approved-only deterministic internal execution with immutable results,
+  typed provider-output validation, bounded retries, and terminal success or
+  failure.
 
 ## Deferred schema decisions
 

@@ -24,6 +24,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@operating-layer/executors": "workspace:*",
     "@types/node": "catalog:",
     "tsx": "^4.20.0",
     "typescript": "catalog:",

@@ -199,7 +199,18 @@ describe("issue-intake transition graph", () => {
     expect(
       isIssueIntakeTransitionAllowed("awaiting_approval", "approved"),
     ).toBe(true);
-    expect(isIssueIntakeTransitionAllowed("approved", "completed")).toBe(true);
+    expect(isIssueIntakeTransitionAllowed("approved", "completed")).toBe(false);
+    expect(isIssueIntakeTransitionAllowed("approved", "executing")).toBe(true);
+    expect(isIssueIntakeTransitionAllowed("executing", "completed")).toBe(true);
+    expect(
+      isIssueIntakeTransitionAllowed("executing", "execution_failed"),
+    ).toBe(true);
+    expect(isIssueIntakeTransitionAllowed("completed", "executing")).toBe(
+      false,
+    );
+    expect(
+      isIssueIntakeTransitionAllowed("execution_failed", "executing"),
+    ).toBe(false);
     expect(
       isIssueIntakeTransitionAllowed("awaiting_approval", "rejected"),
     ).toBe(true);

@@ -1,6 +1,6 @@
 # Security and Control Model
 
-Status: Approved through Phase 2 slice one with provisional role assignments
+Status: Approved through the Phase 2 internal-execution slice with provisional role assignments
 Date: 2026-07-25
 
 ## Security objectives
@@ -80,8 +80,16 @@ Changing the payload invalidates the approval. A requester may not satisfy a two
 The implemented approval-resolution slice supports one authorized human
 approve/reject decision for the seeded policy. It records actor, reason,
 immutable policy-version ID/content hash, resulting state, and the workflow's
-root trace. It never executes an external action. Multi-approver collection is
-not implemented even though the policy schema can represent the requirement.
+root trace. Approval stops at `approved`; it does not imply completion.
+
+Only a user with `executions.trigger` in the owning organization can create an
+internal execution command. PostgreSQL refuses non-approved workflows and any
+provider other than `deterministic_internal`. The worker validates provider
+output as untrusted data, persists one immutable terminal result, and can move
+only through `approved -> executing -> completed|execution_failed`. The
+external-provider interface is disabled and has no connector or network call
+path. Multi-approver collection is not implemented even though the policy
+schema can represent the requirement.
 
 ## Audit integrity
 
@@ -170,3 +178,4 @@ function and process each claimed job under an explicit organization scope.
 - no unlogged state mutation.
 - no private chain-of-thought persistence;
 - no unvalidated model output persistence.
+- no enabled external execution provider or unvalidated executor output.

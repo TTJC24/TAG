@@ -65,18 +65,19 @@ The feature test owns only the
 `operating-layer-feature-test_feature-test-postgres` volume and always tears it
 down. It covers successful intake, seven-day idempotency retention and reaping,
 typed agent output, declarative policy equivalence and activation controls,
-internal approve/reject resolution, entity authorization/RLS, database
-transition enforcement, task-status projection drift, safe runtime identity,
-audit immutability and chain verification/tamper detection, trace equality,
-and retry exhaustion.
+internal approve/reject resolution, approved-only deterministic execution,
+execution success and exhausted-retry failure, entity authorization/RLS,
+database transition enforcement, task-status projection drift, safe runtime
+identity, audit immutability and chain verification/tamper detection, trace
+equality, and dead-letter visibility.
 
 ## Continuous integration and merge gate
 
 `.github/workflows/ci.yml` runs one check named `verify` for pull
 requests targeting `main` and pushes to `main`. It installs from the frozen
 lockfile, checks formatting, type-checks every workspace package, runs the
-feature suite against a clean PostgreSQL 16 database (including all
-migrations), and builds the workspace.
+workspace unit tests, runs the feature suite against a clean PostgreSQL 16
+database (including all migrations), and builds the workspace.
 
 ### Accepted single-committer exception
 
@@ -112,8 +113,8 @@ is allowed to persist.
 ## Observe
 
 - API request logs include a trace/request identifier.
-- Workflow transitions, recommendations, approvals, and audit history appear
-  on task detail.
+- Workflow transitions, recommendations, approvals, execution commands/results,
+  and audit history appear on task detail.
 - The audit verifier recomputes sequence, prior-hash linkage, canonical event
   hashes, and the stream head. A verification failure is an integrity incident;
   the Phase 1 verifier is not an external cryptographic anchor against an
@@ -124,8 +125,16 @@ is allowed to persist.
 - The worker runs the bounded idempotency reaper at startup and every 15
   minutes. Reaper runs are recorded in `idempotency_reaper_runs`; failure only
   delays cleanup because PostgreSQL expiry remains authoritative.
-- Approval outcomes are internal facts. A `completed` approval workflow does
-  not imply that any external system was changed.
+- Approval outcomes are internal facts. Approval stops at `approved`.
+  `completed` means the deterministic internal executor stored a successful
+  internal outcome; it never implies that an external system was changed.
+- `EXECUTION_PROVIDER` defaults to `deterministic_internal`. Any other value
+  refuses worker startup. The database also rejects commands naming another
+  provider.
+- An execution enters `executing` before provider invocation. A successful
+  result reaches `completed`; an executor failure retries at most three times,
+  then atomically records `execution_failed`, an immutable failure result and
+  audit event, and a visible `issue.execute` dead-letter.
 
 ## Recover local services
 

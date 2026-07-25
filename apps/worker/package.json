@@ -14,6 +14,7 @@
     "@operating-layer/agents": "workspace:*",
     "@operating-layer/connectors": "workspace:*",
     "@operating-layer/db": "workspace:*",
+    "@operating-layer/executors": "workspace:*",
     "@operating-layer/issue-intake": "workspace:*",
     "@operating-layer/observability": "workspace:*",
     "@operating-layer/workflows": "workspace:*"

@@ -20,6 +20,7 @@
     "@operating-layer/audit": "workspace:*",
     "@operating-layer/auth": "workspace:*",
     "@operating-layer/db": "workspace:*",
+    "@operating-layer/executors": "workspace:*",
     "@operating-layer/observability": "workspace:*",
     "@operating-layer/schemas": "workspace:*",
     "@operating-layer/workflows": "workspace:*",

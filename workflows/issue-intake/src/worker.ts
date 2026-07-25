@@ -10,6 +10,10 @@ import {
   type DatabasePool,
 } from "@operating-layer/db";
 import type { AgentContext } from "@operating-layer/agents";
+import {
+  resolveExecutionProvider,
+  type ExecutionProvider,
+} from "@operating-layer/executors";
 import { evaluateDeclarativeApprovalPolicy } from "@operating-layer/workflows";
 import {
   ClassificationAgent,
@@ -17,8 +21,12 @@ import {
   RecommendationAgent,
 } from "./agents.js";
 import { loadActiveApprovalPolicy } from "./policy.js";
+import {
+  finalizeInternalExecutionFailure,
+  processInternalExecutionJob,
+} from "./execution-worker.js";
 
-interface OutboxJob {
+export interface OutboxJob {
   id: string;
   organization_id: string;
   topic: string;
@@ -770,6 +778,7 @@ async function recordJobFailure(
 export async function processNextOutboxJob(
   pool: DatabasePool,
   workerId: string,
+  executionProvider: ExecutionProvider = resolveExecutionProvider(),
 ): Promise<"idle" | "published" | "failed" | "dead_letter"> {
   const job = await claimNextOutboxJob(pool, workerId);
   if (!job) {
@@ -777,6 +786,10 @@ export async function processNextOutboxJob(
   }
 
   try {
+    if (job.topic === "issue.execute") {
+      await processInternalExecutionJob(pool, job, executionProvider);
+      return "published";
+    }
     await withOrganizationScope(
       pool,
       {
@@ -789,6 +802,15 @@ export async function processNextOutboxJob(
     );
     return "published";
   } catch (error) {
+    if (job.topic === "issue.execute" && job.attempts >= job.max_attempts) {
+      await finalizeInternalExecutionFailure(
+        pool,
+        job,
+        executionProvider,
+        error,
+      );
+      return "dead_letter";
+    }
     return recordJobFailure(pool, job, error);
   }
 }
@@ -797,6 +819,7 @@ export async function drainOutbox(
   pool: DatabasePool,
   workerId: string,
   maximumJobs = 100,
+  executionProvider: ExecutionProvider = resolveExecutionProvider(),
 ): Promise<{
   published: number;
   failed: number;
@@ -804,7 +827,11 @@ export async function drainOutbox(
 }> {
   const totals = { published: 0, failed: 0, deadLetter: 0 };
   for (let index = 0; index < maximumJobs; index += 1) {
-    const result = await processNextOutboxJob(pool, workerId);
+    const result = await processNextOutboxJob(
+      pool,
+      workerId,
+      executionProvider,
+    );
     if (result === "idle") {
       break;
     }

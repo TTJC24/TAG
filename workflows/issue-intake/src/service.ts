@@ -471,8 +471,33 @@ export async function getExecutiveQueue(
          LIMIT 20`,
         [organizationId],
       );
+      const recentExecutionsResult = await client.query(
+        `SELECT
+           result.id,
+           result.execution_command_id AS "executionCommandId",
+           result.task_id AS "taskId",
+           task.title AS "taskTitle",
+           result.action_type AS "actionType",
+           result.outcome,
+           result.outcome_summary AS "outcomeSummary",
+           result.executor_provider AS "executorProvider",
+           result.executor_id AS "executorId",
+           result.resulting_workflow_state AS "resultingWorkflowState",
+           result.completed_at AS "completedAt"
+         FROM execution_results result
+         JOIN tasks task
+           ON task.id = result.task_id
+          AND task.organization_id = result.organization_id
+         WHERE result.organization_id = $1
+         ORDER BY result.completed_at DESC
+         LIMIT 20`,
+        [organizationId],
+      );
 
       const tasks = tasksResult.rows as Array<Record<string, unknown>>;
+      const recentExecutions = recentExecutionsResult.rows as Array<
+        Record<string, unknown>
+      >;
       const overdue = tasks.filter((task) => {
         const dueDate =
           task.dueDate instanceof Date
@@ -490,6 +515,18 @@ export async function getExecutiveQueue(
       const approvalPending = tasks.filter(
         (task) => task.approvalStatus === "pending",
       );
+      const inExecution = tasks.filter(
+        (task) =>
+          task.status === "executing" || task.workflowState === "executing",
+      );
+      const executionFailed = tasks.filter(
+        (task) =>
+          task.status === "execution_failed" ||
+          task.workflowState === "execution_failed",
+      );
+      const completedExecutions = recentExecutions.filter(
+        (result) => result.outcome === "succeeded",
+      );
 
       return {
         organization: organizationResult.rows[0],
@@ -499,13 +536,20 @@ export async function getExecutiveQueue(
           overdue: overdue.length,
           blocked: blocked.length,
           approvalPending: approvalPending.length,
+          inExecution: inExecution.length,
+          executionFailed: executionFailed.length,
+          completedExecutions: completedExecutions.length,
           failedJobs: failuresResult.rows.length,
         },
         tasks,
         overdue,
         blocked,
         approvalPending,
+        inExecution,
+        executionFailed,
+        completedExecutions,
         recentResolutions: recentResolutionsResult.rows,
+        recentExecutions,
         jobFailures: failuresResult.rows,
       };
     },
@@ -616,6 +660,26 @@ export async function getTaskDetail(
          ORDER BY resolution.resolved_at`,
         [taskId, organizationId],
       );
+      const executionCommands = await client.query(
+        `SELECT
+           command.*,
+           requester.name AS requester_name,
+           requester.email AS requester_email
+         FROM execution_commands command
+         JOIN users requester ON requester.id = command.requested_by_user_id
+         WHERE command.task_id = $1
+           AND command.organization_id = $2
+         ORDER BY command.created_at`,
+        [taskId, organizationId],
+      );
+      const executionResults = await client.query(
+        `SELECT *
+         FROM execution_results
+         WHERE task_id = $1
+           AND organization_id = $2
+         ORDER BY completed_at`,
+        [taskId, organizationId],
+      );
       const audits = await client.query(
         `SELECT
            id,
@@ -650,6 +714,8 @@ export async function getTaskDetail(
         recommendations: recommendations.rows,
         approvals: approvals.rows,
         approvalResolutions: approvalResolutions.rows,
+        executionCommands: executionCommands.rows,
+        executionResults: executionResults.rows,
         auditHistory: audits.rows,
       };
     },

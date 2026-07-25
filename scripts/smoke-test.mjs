@@ -82,11 +82,6 @@ try {
       DATABASE_URL: databaseUrl,
     },
   );
-  startNode(path.join(repoPath, "apps/worker/dist/main.js"), [], repoPath, {
-    DATABASE_URL: databaseUrl,
-    WORKER_ID: "process-smoke-worker",
-    WORKER_POLL_INTERVAL_MS: "100",
-  });
   const web = startNode(
     path.join(repoPath, "apps/web/node_modules/next/dist/bin/next"),
     ["start", "-p", "3300"],
@@ -99,6 +94,11 @@ try {
   );
 
   const healthResponse = await waitFor("http://localhost:3301/health");
+  startNode(path.join(repoPath, "apps/worker/dist/main.js"), [], repoPath, {
+    DATABASE_URL: databaseUrl,
+    WORKER_ID: "process-smoke-worker",
+    WORKER_POLL_INTERVAL_MS: "100",
+  });
   await waitFor("http://localhost:3300");
   const health = await readJson(healthResponse);
   const idempotencyKey = `process-smoke-${crypto.randomUUID()}`;
@@ -176,8 +176,42 @@ try {
       }),
     }),
   );
-  if (resolution.workflowState !== "completed") {
-    throw new Error("approval resolution did not reach completed");
+  if (resolution.workflowState !== "approved") {
+    throw new Error("approval resolution did not stop at executable approval");
+  }
+
+  const execution = await readJson(
+    await fetch(`http://localhost:3301/v1/approvals/${approvalId}/executions`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "idempotency-key": `process-smoke-execution-${crypto.randomUUID()}`,
+        "x-dev-user-email": "approver@local.operating-layer",
+        "x-trace-id": idempotencyKey,
+      },
+      body: JSON.stringify({
+        organizationId: "10000000-0000-4000-8000-000000000001",
+      }),
+    }),
+  );
+  if (execution.status !== "queued") {
+    throw new Error("approved internal execution was not queued");
+  }
+
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    detail = await readJson(
+      await fetch(
+        `http://localhost:3301/v1/tasks/${issue.taskId}?organizationId=10000000-0000-4000-8000-000000000001`,
+        { headers: { "x-dev-user-email": "operator@local.operating-layer" } },
+      ),
+    );
+    if (detail.workflows[0]?.current_state === "completed") {
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (detail?.workflows[0]?.current_state !== "completed") {
+    throw new Error("internal executor did not reach completed");
   }
 
   const [homeResponse, intakeResponse, taskResponse] = await Promise.all([
@@ -198,10 +232,15 @@ try {
   ]);
   if (
     !homeHtml.includes("Recent approval outcomes") ||
+    !homeHtml.includes("Recent execution outcomes") ||
     !taskHtml.includes(resolutionReason) ||
-    !taskHtml.includes("Approval resolution")
+    !taskHtml.includes("Approval resolution") ||
+    !taskHtml.includes("Execution result") ||
+    !taskHtml.includes("deterministic-internal-v1")
   ) {
-    throw new Error("resolved approval was not visible in the web UI");
+    throw new Error(
+      "approval or internal execution was not visible in the web UI",
+    );
   }
 
   console.log(
@@ -209,8 +248,10 @@ try {
       {
         apiHealth: health.status,
         taskId: issue.taskId,
-        workflowState: resolution.workflowState,
+        workflowState: detail.workflows[0]?.current_state,
         approvalDecision: resolution.decision,
+        executionProvider: detail.executionResults[0]?.executor_provider,
+        executionOutcome: detail.executionResults[0]?.outcome,
         recommendationCount: detail.recommendations.length,
         auditEventCount: detail.auditHistory.length,
         executivePageStatus: homeResponse.status,
@@ -228,6 +269,15 @@ try {
   if (web.exitCode !== null) {
     throw new Error(`web exited early: ${web.errorOutput()}`);
   }
+} catch (error) {
+  for (const child of children) {
+    if (child.exitCode !== null || child.errorOutput()) {
+      console.error(
+        `child ${child.spawnfile} exited=${child.exitCode}: ${child.errorOutput()}`,
+      );
+    }
+  }
+  throw error;
 } finally {
   for (const child of children.reverse()) {
     if (child.exitCode === null) {

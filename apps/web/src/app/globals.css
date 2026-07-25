@@ -666,6 +666,34 @@ textarea {
   resize: vertical;
 }
 
+.executionPanel {
+  border-color: #9bb9ae;
+}
+
+.executionTriggerForm {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+}
+
+.executionTriggerForm p {
+  color: var(--muted);
+  margin: 0;
+  max-width: 680px;
+}
+
+.status.succeeded {
+  background: #e2f3e9;
+  color: #1e6740;
+}
+
+.status.failed {
+  background: #f8e5e1;
+  color: #8f3528;
+}
+
 .resolutionList {
   display: grid;
   list-style: none;
