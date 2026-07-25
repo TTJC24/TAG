@@ -1,0 +1,17 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "connectors/*"
+  - "workflows/*"
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+
+catalog:
+  "@types/node": ^24.0.0
+  typescript: ^5.8.0
+  vitest: ^3.2.0
+
+onlyBuiltDependencies:
+  - esbuild

@@ -1,0 +1,27 @@
+{
+  "name": "@operating-layer/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@operating-layer/agents": "workspace:*",
+    "@operating-layer/connectors": "workspace:*",
+    "@operating-layer/db": "workspace:*",
+    "@operating-layer/issue-intake": "workspace:*",
+    "@operating-layer/observability": "workspace:*",
+    "@operating-layer/workflows": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "^4.20.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,27 @@
+# Dependencies and build output
+node_modules/
+.turbo/
+dist/
+.next/
+coverage/
+*.tsbuildinfo
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Logs and runtime files
+*.log
+*.pid
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local object storage and database artifacts
+.local/
+*.dump
+*.sql.gz

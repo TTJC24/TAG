@@ -1,0 +1,27 @@
+{
+  "name": "operating-layer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Governed multi-entity operations control tower",
+  "packageManager": "pnpm@11.3.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "check": "turbo run typecheck test",
+    "dev": "turbo run dev --parallel",
+    "format:check": "prettier --check .",
+    "test": "turbo run test",
+    "test:feature": "node scripts/feature-test.mjs",
+    "test:smoke": "node scripts/smoke-test.mjs",
+    "typecheck": "turbo run typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "prettier": "^3.5.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

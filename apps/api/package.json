@@ -1,0 +1,32 @@
+{
+  "name": "@operating-layer/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run --passWithNoTests",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@operating-layer/audit": "workspace:*",
+    "@operating-layer/auth": "workspace:*",
+    "@operating-layer/db": "workspace:*",
+    "@operating-layer/issue-intake": "workspace:*",
+    "@operating-layer/observability": "workspace:*",
+    "@operating-layer/schemas": "workspace:*",
+    "@operating-layer/workflows": "workspace:*",
+    "@fastify/cors": "^11.0.0",
+    "fastify": "^5.5.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "tsx": "^4.20.0",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}
