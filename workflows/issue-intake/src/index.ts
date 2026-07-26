@@ -1,5 +1,6 @@
 export * from "./agents.js";
 export * from "./approval.js";
+export * from "./brief.js";
 export * from "./brain-provider.js";
 export * from "./csv.js";
 export * from "./errors.js";
