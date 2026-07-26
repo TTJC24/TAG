@@ -17,6 +17,7 @@ export * from "./gmail-pilot.js";
 export * from "./idempotency.js";
 export * from "./kpi-exceptions.js";
 export * from "./identity.js";
+export * from "./pipedrive-sales.js";
 export * from "./policy.js";
 export * from "./service.js";
 export * from "./traction-bridge.js";
