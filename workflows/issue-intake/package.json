@@ -25,7 +25,8 @@
     "@operating-layer/observability": "workspace:*",
     "@operating-layer/schemas": "workspace:*",
     "@operating-layer/workflows": "workspace:*",
-    "pg": "^8.16.0"
+    "pg": "^8.16.0",
+    "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",

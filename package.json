@@ -16,7 +16,8 @@
     "test": "turbo run test",
     "test:feature": "node scripts/feature-test.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",
-    "typecheck": "turbo run typecheck"
+    "typecheck": "turbo run typecheck",
+    "traction-bridge:sync": "pnpm --filter @operating-layer/api build && node apps/api/dist/traction-bridge-cli.js"
   },
   "devDependencies": {
     "@types/node": "catalog:",

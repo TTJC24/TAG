@@ -14,4 +14,5 @@ export * from "./idempotency.js";
 export * from "./identity.js";
 export * from "./policy.js";
 export * from "./service.js";
+export * from "./traction-bridge.js";
 export * from "./worker.js";
