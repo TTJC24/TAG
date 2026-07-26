@@ -334,3 +334,4 @@ export interface ControlledWriteConnector {
 }
 
 export * from "./company-brain.js";
+export * from "./pipedrive.js";

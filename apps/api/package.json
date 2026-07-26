@@ -9,6 +9,7 @@
     "start": "node dist/main.js",
     "collections:sync": "node dist/collections-cli.js",
     "pipedrive-sales:sync": "node dist/pipedrive-sales-cli.js",
+    "pipedrive-sales:fetch": "node dist/pipedrive-sales-fetch-cli.js",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"

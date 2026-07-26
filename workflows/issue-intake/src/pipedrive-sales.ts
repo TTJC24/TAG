@@ -161,6 +161,72 @@ export function resolvePipedriveSalesConfig(
   };
 }
 
+/**
+ * One Pipedrive account and how its deals route to orgs. The group runs two:
+ * one holds FS (everything -> FS), the other holds BL + USA (routed by
+ * pipeline). Tokens are held per-source, resolved from their own env var so a
+ * secret never sits inside the JSON config blob.
+ */
+export interface PipedriveSource {
+  name: string;
+  apiBase: string;
+  token: string;
+  orgCode?: string; // whole account routes to one org (e.g. the FS account)
+  pipelineToOrgCode?: Record<string, string>; // split by pipeline (e.g. BL/USA)
+}
+
+const pipedriveSourceConfigSchema = z.object({
+  name: z.string().min(1),
+  apiBase: z.string().url(),
+  tokenEnv: z.string().min(1),
+  orgCode: z.string().min(1).optional(),
+  pipelineToOrgCode: z.record(z.string()).optional(),
+});
+
+/**
+ * Resolve the configured Pipedrive accounts. PIPEDRIVE_SOURCES is a JSON array
+ * of {name, apiBase, tokenEnv, orgCode?, pipelineToOrgCode?}; each source's
+ * token is read from the env var it names. A source must route somehow (a fixed
+ * orgCode or a pipeline map), else it is a misconfiguration.
+ */
+export function resolvePipedriveSources(
+  env: Record<string, string | undefined> = process.env,
+): PipedriveSource[] {
+  const raw = env.PIPEDRIVE_SOURCES;
+  if (!raw) {
+    throw new Error("PIPEDRIVE_SOURCES is required (JSON array of accounts)");
+  }
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(raw);
+  } catch {
+    throw new Error("PIPEDRIVE_SOURCES must be valid JSON");
+  }
+  const entries = z.array(pipedriveSourceConfigSchema).parse(parsedJson);
+  return entries.map((entry) => {
+    const token = env[entry.tokenEnv];
+    if (!token) {
+      throw new Error(
+        `Pipedrive source "${entry.name}" needs ${entry.tokenEnv} set`,
+      );
+    }
+    if (!entry.orgCode && !entry.pipelineToOrgCode) {
+      throw new Error(
+        `Pipedrive source "${entry.name}" needs an orgCode or a pipelineToOrgCode map`,
+      );
+    }
+    return {
+      name: entry.name,
+      apiBase: entry.apiBase,
+      token,
+      ...(entry.orgCode ? { orgCode: entry.orgCode } : {}),
+      ...(entry.pipelineToOrgCode
+        ? { pipelineToOrgCode: entry.pipelineToOrgCode }
+        : {}),
+    };
+  });
+}
+
 export interface SalesFollowup {
   orgCode: string;
   dealId: number;
@@ -267,7 +333,7 @@ export async function syncPipedriveDeals(
   config: PipedriveSalesConfig,
   organizationIdsByCode: Record<string, string>,
   asOf: string,
-  opts: { orgCode?: string } = {},
+  opts: { orgCode?: string; pipelineToOrgCode?: Record<string, string> } = {},
 ): Promise<PipedriveSalesSyncResult> {
   const result: PipedriveSalesSyncResult = {
     asOf,
@@ -294,7 +360,7 @@ export async function syncPipedriveDeals(
   const followups = buildSalesFollowups(deals, {
     asOf,
     ...(opts.orgCode ? { orgCode: opts.orgCode } : {}),
-    pipelineToOrgCode: config.pipelineToOrgCode,
+    pipelineToOrgCode: opts.pipelineToOrgCode ?? config.pipelineToOrgCode,
     thresholds: config.thresholds,
   });
   if (followups.length === 0) return result;

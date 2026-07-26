@@ -3,6 +3,7 @@ import {
   buildSalesFollowups,
   reasonsFor,
   resolvePipedriveSalesConfig,
+  resolvePipedriveSources,
   type PipedriveDeal,
 } from "./pipedrive-sales.js";
 
@@ -103,6 +104,50 @@ describe("Sales doorway (Pipedrive)", () => {
     const forced = buildSalesFollowups([unmapped], { asOf: ASOF, orgCode: "BLCS" });
     expect(forced).toHaveLength(1);
     expect(forced[0]!.orgCode).toBe("BLCS");
+  });
+
+  it("resolves two Pipedrive accounts, tokens from their own env vars", () => {
+    const env = {
+      PIPEDRIVE_SOURCES: JSON.stringify([
+        { name: "FS", apiBase: "https://fs.pipedrive.com", tokenEnv: "TOK_FS", orgCode: "FS" },
+        {
+          name: "BL-USA",
+          apiBase: "https://blusa.pipedrive.com",
+          tokenEnv: "TOK_BLUSA",
+          pipelineToOrgCode: { "1": "BLCS", "2": "USA" },
+        },
+      ]),
+      TOK_FS: "fs-secret",
+      TOK_BLUSA: "blusa-secret",
+    };
+    const sources = resolvePipedriveSources(env);
+    expect(sources).toHaveLength(2);
+    expect(sources[0]).toMatchObject({ name: "FS", token: "fs-secret", orgCode: "FS" });
+    expect(sources[1]).toMatchObject({
+      name: "BL-USA",
+      token: "blusa-secret",
+      pipelineToOrgCode: { "1": "BLCS", "2": "USA" },
+    });
+  });
+
+  it("rejects a missing token env and a source that routes nowhere", () => {
+    expect(() => resolvePipedriveSources({})).toThrow(/PIPEDRIVE_SOURCES/);
+    expect(() =>
+      resolvePipedriveSources({
+        PIPEDRIVE_SOURCES: JSON.stringify([
+          { name: "FS", apiBase: "https://fs.pipedrive.com", tokenEnv: "TOK_FS", orgCode: "FS" },
+        ]),
+        // TOK_FS not set
+      }),
+    ).toThrow(/TOK_FS/);
+    expect(() =>
+      resolvePipedriveSources({
+        PIPEDRIVE_SOURCES: JSON.stringify([
+          { name: "X", apiBase: "https://x.pipedrive.com", tokenEnv: "T" },
+        ]),
+        T: "t",
+      }),
+    ).toThrow(/orgCode or a pipelineToOrgCode/);
   });
 
   it("respects a custom stale-day threshold", () => {
