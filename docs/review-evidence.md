@@ -235,7 +235,28 @@ a pending manual proof, not an automated gap or a CI action.
 - Gmail `drafts.create` has an ambiguous provider-accepted/database-not-stored
   crash window because Google accepts no client idempotency key. Network
   enablement remains prohibited until that policy is approved.
-- Administrative dead-letter replay, N-approver collection, approval
-  cancel/expiry, Gmail send, other connector mutations, scheduled connector
-  ingestion, and batch compensation remain deferred under their existing ADR
-  triggers.
+- N-approver collection, approval cancel/expiry, Gmail send, other connector
+  mutations, scheduled connector ingestion, and batch compensation remain
+  deferred under their existing ADR triggers.
+- Administrative dead-letter replay of internal executions is now implemented
+  (ADR 0008); replay of a dead-lettered Gmail-draft execution remains deferred
+  behind the live-pilot work.
+
+## Operator dead-letter replay (ADR 0008)
+
+`apps/api/src/execution-replay.integration.test.ts` proves, against a clean
+PostgreSQL 16 database:
+
+- a dead-lettered internal execution is replayed by a permitted operator to a
+  completed workflow via a fresh immutable command, with the original
+  `execution_failed` result preserved and trace continuity to the origin;
+- the replay is recorded as an immutable `execution_replays` row and an
+  `execution.replay_requested` audit event, and the original dead-letter job is
+  untouched;
+- an operator without `executions.replay` is rejected (403);
+- replay of a workflow that has not failed is rejected (409), and a completed
+  workflow cannot be replayed again;
+- the same idempotency key replays the stored result without minting a second
+  command;
+- another organization's approval is not reachable across the org boundary
+  (404 under RLS).

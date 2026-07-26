@@ -271,6 +271,30 @@ export type ExecutionTriggerResponse = z.infer<
   typeof executionTriggerResponseSchema
 >;
 
+export const executionReplayInputSchema = z.object({
+  organizationId: z.string().uuid(),
+});
+export type ExecutionReplayInput = z.infer<typeof executionReplayInputSchema>;
+
+export const executionReplayResponseSchema = z.object({
+  executionReplayId: z.string().uuid(),
+  executionCommandId: z.string().uuid(),
+  originalExecutionCommandId: z.string().uuid(),
+  deadLetterEventId: z.string().uuid(),
+  outboxEventId: z.string().uuid(),
+  taskId: z.string().uuid(),
+  workflowId: z.string().uuid(),
+  approvalId: z.string().uuid(),
+  recommendationId: z.string().uuid(),
+  actionType: z.string().min(1),
+  status: z.literal("queued"),
+  duplicate: z.boolean(),
+  traceId: z.string().min(1),
+});
+export type ExecutionReplayResponse = z.infer<
+  typeof executionReplayResponseSchema
+>;
+
 export const executionProviderOutputSchema = z.object({
   outcome: z.enum(["succeeded", "failed"]),
   summary: z.string().trim().min(1).max(4000),
