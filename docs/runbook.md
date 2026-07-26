@@ -107,7 +107,11 @@ continuity, bounded-retry dead-letter visibility, ciphertext-at-rest,
 worker-only/RLS credential access, exact scope rejection, replay-safe rotation,
 old-version invalidation, global kill across organizations, startup invariants,
 and token absence from durable audit/trace data. Tests inject in-memory Gmail
-and OAuth-revocation transports and make no Google network request.
+and OAuth-revocation transports and make no Google network request. The suite
+also exercises the supervised-pilot operator path: one-org claim, second-org
+rejection, exact-scope/ciphertext/allowlist preflight, out-of-allowlist
+rejection, credential-level disable, claim release, and immutable lifecycle
+evidence.
 
 ## Continuous integration and merge gate
 
@@ -204,6 +208,291 @@ is allowed to persist.
   result reaches `completed`; an executor failure retries at most three times,
   then atomically records `execution_failed`, an immutable failure result and
   audit event, and a visible `issue.execute` dead-letter.
+
+## First supervised Gmail draft
+
+This is a manual, attended smoke procedure for exactly one named organization,
+one internal recipient, and one draft. It is not a CI procedure and it does
+not authorize general production use. Read ADR 0007 and make a working copy of
+`docs/evidence/gmail-draft-live-pilot-template.md` in the approved evidence
+store before starting.
+
+### Required people and system posture
+
+- One operator has `connectors.admin` for the target organization and
+  `admin.manage` for every active organization.
+- One authorized approver/authorizer can inspect and approve the exact draft.
+- An independent observer watches the Gmail mailbox and teardown.
+- API and worker runtime database identities pass the non-owner,
+  non-superuser, non-`BYPASSRLS` startup checks.
+- Production RSA key material is loaded from the secret manager: public key
+  only in the API, private key only in the worker.
+- The approved Google Workspace OAuth flow requests exactly
+  `https://www.googleapis.com/auth/gmail.compose`. Reject a consent/token
+  response that contains another Gmail scope. Do not use `gmail.send`,
+  `gmail.modify`, or `mail.google.com`.
+- `GMAIL_DRAFT_NETWORK_ENABLED` is absent or `false` on every worker.
+- The global Gmail kill is clear but remains reachable.
+- No connector token, private key, or bearer token is placed in command
+  arguments, source files, tickets, evidence, or chat.
+
+Stop if any condition is untrue.
+
+### 1. Set non-secret identifiers and operator secrets
+
+Use a fresh PowerShell session with history disabled or protected according to
+the organization's workstation policy. Inject
+`OPERATING_LAYER_OPERATOR_BEARER_TOKEN`,
+`OPERATING_LAYER_AUTHORIZER_BEARER_TOKEN`, and
+`GMAIL_DRAFT_OAUTH_ACCESS_TOKEN` directly from the approved secret manager;
+do not type their values into the command line. Set only the non-secret values
+manually:
+
+```powershell
+$env:API_BASE_URL = "https://<api-host>"
+$pilotOrgId = "<organization-uuid>"
+$pilotOrgCode = "<organization-code>"
+$pilotRecipient = "<single-internal-test-address>"
+$enableOperationId = [guid]::NewGuid().ToString()
+if (-not $env:OPERATING_LAYER_OPERATOR_BEARER_TOKEN) { throw "Missing operator token" }
+if (-not $env:OPERATING_LAYER_AUTHORIZER_BEARER_TOKEN) { throw "Missing authorizer token" }
+if (-not $env:GMAIL_DRAFT_OAUTH_ACCESS_TOKEN) { throw "Missing Gmail OAuth token" }
+```
+
+The OAuth access token is read only from
+`GMAIL_DRAFT_OAUTH_ACCESS_TOKEN`. The CLI intentionally has no token flag and
+never returns token plaintext.
+
+### 2. Claim, credential, enable, and preflight
+
+From the repository release commit:
+
+```powershell
+pnpm gmail-draft:pilot enable `
+  --organization-id $pilotOrgId `
+  --organization-code $pilotOrgCode `
+  --recipient $pilotRecipient `
+  --reason "First supervised Gmail drafts.create smoke" `
+  --operation-id $enableOperationId `
+  --confirm-one-org `
+  --confirm-drafts-create-only
+```
+
+Save the non-secret JSON output in the evidence store. Do not continue unless
+`readyForLiveDraft` is `true` and every named check is `true`:
+
+- target pilot claim and connector enabled;
+- active structurally valid credential envelope and matching SHA-256
+  fingerprint;
+- stored/configured scope sets exactly `gmail.compose`;
+- one exact recipient address, no recipient domains, and the expected address
+  accepted;
+- zero other enabled organizations;
+- global kill clear and reachable; and
+- structural no-send.
+
+Re-run the read-only check at any point with:
+
+```powershell
+pnpm gmail-draft:pilot preflight `
+  --organization-id $pilotOrgId `
+  --organization-code $pilotOrgCode `
+  --recipient $pilotRecipient
+```
+
+The database claim and trigger reject an enabled config for another
+organization until teardown. If enable fails partway, the command attempts
+config disable/credential invalidation and claim release. Treat any cleanup
+error as an incident: invoke the disable command in step 8 and, if necessary,
+set the global kill.
+
+### 3. Create and approve one test task
+
+In the web application:
+
+1. Create one issue in the claimed organization with a unique title beginning
+   `LIVE GMAIL DRAFT SMOKE - <UTC timestamp>`.
+2. Use non-sensitive test content. The recommendation must be
+   `draft_external_follow_up`.
+3. Wait for classification/recommendation and inspect all citations.
+4. Resolve the internal approval as approved with a recorded reason.
+5. Record the task, workflow, approval, policy version, and root trace IDs.
+
+Do not reuse a customer escalation, real receivable, or other operational task
+for this smoke.
+
+### 4. Render and inspect the exact preview
+
+On task detail, create one Gmail preview addressed exactly to
+`$pilotRecipient`. Use a unique subject containing the task ID and UTC
+timestamp. Before proceeding, the operator and observer compare the rendered
+recipient, subject, and body with the intended smoke content and record the
+preview ID and payload hash.
+
+Preview persists the exact payload and moves the workflow to
+`awaiting_external_authorization`; it does not create an external command or
+call Google.
+
+### 5. Prove a quiet execution queue
+
+Stop all ordinary workers. Using the migration/operations read-only database
+session—not an application runtime credential—run:
+
+```sql
+SELECT
+  command.id,
+  command.organization_id,
+  command.task_id,
+  command.trace_id
+FROM operating_layer.execution_commands AS command
+LEFT JOIN operating_layer.execution_results AS result
+  ON result.organization_id = command.organization_id
+ AND result.execution_command_id = command.id
+LEFT JOIN operating_layer.gmail_draft_execution_abandonments AS abandonment
+  ON abandonment.organization_id = command.organization_id
+ AND abandonment.execution_command_id = command.id
+WHERE command.provider_name = 'gmail_draft'
+  AND result.id IS NULL
+  AND abandonment.id IS NULL;
+```
+
+The result must be empty because authorization has not happened. If any row is
+present, do not start a network-enabled worker; disable the pilot and
+investigate.
+
+Choose and record one fresh authorization idempotency key. Use the explicit API
+procedure in step 7 so the key can be replayed exactly; preserve the root trace
+as `X-Trace-Id`.
+
+### 6. Start one supervised live worker
+
+In a dedicated terminal with the approved worker database URL and private key
+already loaded from the secret manager:
+
+```powershell
+$env:GMAIL_DRAFT_NETWORK_ENABLED = "true"
+$env:WORKER_ID = "supervised-gmail-draft-<change-id>"
+pnpm --filter @operating-layer/worker start
+```
+
+Run exactly one network-enabled worker. It must remain attended until teardown.
+Do not start the worker until the quiet-queue check is empty.
+
+### 7. Authorize once and verify
+
+Authorize the immutable preview with an explicit, recorded idempotency key. Set
+the non-secret IDs from task detail and run:
+
+```powershell
+$previewId = "<preview-uuid>"
+$rootTraceId = "<task-root-trace-id>"
+$authorizationKey = [guid]::NewGuid().ToString()
+$authorizationHeaders = @{
+  Authorization = "Bearer $env:OPERATING_LAYER_AUTHORIZER_BEARER_TOKEN"
+  "Content-Type" = "application/json"
+  "Idempotency-Key" = $authorizationKey
+  "X-Trace-Id" = $rootTraceId
+}
+$authorizationBody = @{
+  organizationId = $pilotOrgId
+  reason = "Authorize exactly one supervised unsent Gmail draft"
+} | ConvertTo-Json
+$authorizationResult = Invoke-RestMethod `
+  -Method Post `
+  -Uri "$env:API_BASE_URL/v1/gmail-draft-previews/$previewId/authorization" `
+  -Headers $authorizationHeaders `
+  -Body $authorizationBody
+$authorizationResult | ConvertTo-Json -Depth 10
+```
+
+Save only the non-secret response in the evidence store. The authorization
+creates one outbox command; the worker may then call only
+`users.drafts.create`.
+
+Wait for task detail to reach `completed`, then verify all of the following:
+
+1. Gmail Drafts contains exactly one item with the expected recipient, subject,
+   and body.
+2. Task detail contains one immutable `gmail_draft.created` audit event whose
+   metadata includes the returned draft ID, preview ID, authorization ID,
+   command ID, payload hash, and `drafts.create` capability.
+3. The root trace is unchanged across intake, approval, preview,
+   authorization, outbox/worker processing, execution result, and audit.
+4. The audit chain verifier succeeds for the organization.
+
+Replay the authorization with the _same_ idempotency key and identical body:
+
+```powershell
+$replayResult = Invoke-RestMethod `
+  -Method Post `
+  -Uri "$env:API_BASE_URL/v1/gmail-draft-previews/$previewId/authorization" `
+  -Headers $authorizationHeaders `
+  -Body $authorizationBody
+$replayResult | ConvertTo-Json -Depth 10
+```
+
+It must return `duplicate: true` with the stored prior IDs, and Gmail must
+still contain exactly one matching draft. Never retry with a new key after an
+ambiguous timeout. Google does not accept the operating layer's idempotency
+key; first inspect Gmail by exact subject and draft ID.
+
+Search API, worker, trace, and audit output for the token fingerprint and, in a
+controlled secret-scanning tool, the token value. Record only the negative
+result and query reference; never paste the token into evidence or a general
+log-search field.
+
+### 8. Tear down immediately
+
+Whether the draft succeeds or fails, disable the pilot before ending the
+session:
+
+```powershell
+$disableOperationId = [guid]::NewGuid().ToString()
+pnpm gmail-draft:pilot disable `
+  --organization-id $pilotOrgId `
+  --organization-code $pilotOrgCode `
+  --reason "End first supervised Gmail draft smoke" `
+  --operation-id $disableOperationId
+```
+
+The command first writes a disabled config and synchronously invalidates the
+credential, then releases the one-org claim. Do not stop until its preflight
+reports:
+
+- `pilotClaimActive: false`;
+- `targetConnectorEnabled: false`;
+- `activeCredentialPresent: false`;
+- `allOtherOrganizationsDisabled: true`; and
+- `disabledByDefault: true`.
+
+Allow the bounded OAuth revocation job to finish, then stop the live worker:
+
+```powershell
+Remove-Item Env:GMAIL_DRAFT_NETWORK_ENABLED -ErrorAction SilentlyContinue
+Remove-Item Env:GMAIL_DRAFT_OAUTH_ACCESS_TOKEN -ErrorAction SilentlyContinue
+Remove-Item Env:OPERATING_LAYER_OPERATOR_BEARER_TOKEN -ErrorAction SilentlyContinue
+Remove-Item Env:OPERATING_LAYER_AUTHORIZER_BEARER_TOKEN -ErrorAction SilentlyContinue
+Remove-Item Env:CONNECTOR_CREDENTIAL_PRIVATE_KEY_DER_B64 -ErrorAction SilentlyContinue
+```
+
+Close the terminal and confirm the normal worker environment still has network
+execution disabled. A previously active credential version must now fail local
+load even if provider revocation is delayed.
+
+### 9. Roll back the draft
+
+Rollback is deliberately manual because the connector has no delete or send
+capability:
+
+1. Open the exact mailbox in Gmail.
+2. Open **Drafts**.
+3. Find the item by the recorded unique subject and confirm its Gmail draft ID
+   when available.
+4. Open it, choose **Discard draft**, and confirm it no longer appears.
+5. Record the UTC time and observer in the evidence copy.
+
+Nothing was sent, so no recipient-side compensation is needed. Do not add a
+delete capability merely to automate this one rollback.
 
 ## Recover local services
 

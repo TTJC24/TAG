@@ -1,6 +1,6 @@
 # Security and Control Model
 
-Status: Approved through the disabled-by-default Phase 3 Gmail draft slice with provisional role assignments
+Status: Approved through the disabled-by-default Gmail draft slice and supervised live-pilot tooling with provisional role assignments
 Date: 2026-07-25
 
 ## Security objectives
@@ -107,6 +107,16 @@ scope is requested. Google's compose scope can authorize sending and there is
 no draft-create-only scope, so the closed provider capability set and fixed
 drafts-create HTTP transport are required controls. Both organization
 configuration and worker network transport ship disabled.
+
+For the first supervised live draft, a singleton PostgreSQL pilot claim binds
+enablement to one named organization. Claim and preflight require
+`connectors.admin` for the target and `admin.manage` for every active
+organization. While claimed, application and database guards reject an enabled
+configuration for any other organization. The operator command permits one
+exact recipient address and no domain allowlist, verifies non-secret
+ciphertext, scope, kill, and no-send facts, and tears down by invalidating the
+credential before releasing the claim. This does not enable the connector by
+default or authorize general production use.
 
 ## Audit integrity
 

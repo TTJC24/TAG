@@ -29,8 +29,10 @@ import {
   processNextOutboxJob,
   type GmailCredentialRuntime,
 } from "@operating-layer/issue-intake";
+import { GmailDraftPilotOperator } from "./gmail-draft-pilot-client.js";
 import { buildApi } from "./server.js";
 
+const blcsId = "10000000-0000-4000-8000-000000000001";
 const usaId = "10000000-0000-4000-8000-000000000003";
 const fsiId = "10000000-0000-4000-8000-000000000002";
 const cultivusId = "10000000-0000-4000-8000-000000000004";
@@ -188,7 +190,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     });
     expect(response.statusCode, response.body).toBe(202);
     return {
-      ...response.json<{ configVersionId: string }>(),
+      ...response.json<{ configVersionId: string; enabled: boolean }>(),
       accessToken: provisioned?.accessToken ?? null,
     };
   }
@@ -1462,5 +1464,244 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         status: "dead_letter",
       }),
     );
+  });
+
+  it("enables one named live-pilot organization, proves preflight, and credential-kills on disable", async () => {
+    for (const organizationId of [blcsId, fsiId, usaId, cultivusId]) {
+      const disabled = await configure(false, organizationId);
+      expect(disabled.enabled).toBe(false);
+    }
+    const initialCleanup = await drainOutbox(
+      workerPool,
+      "live-pilot-initial-cleanup",
+      40,
+      internalProvider,
+      undefined,
+      credentialRuntime,
+    );
+    expect(initialCleanup.failed).toBe(0);
+    expect(initialCleanup.deadLetter).toBe(0);
+
+    const operator = new GmailDraftPilotOperator(async (request) => {
+      const response = await app.inject({
+        method: request.method,
+        url: request.path,
+        headers: {
+          "x-dev-user-email": adminEmail,
+          "content-type": "application/json",
+          ...request.headers,
+        },
+        payload: JSON.stringify(request.body),
+      });
+      return {
+        statusCode: response.statusCode,
+        body: response.json(),
+      };
+    });
+    const accessToken = `mock-live-pilot-token-${randomUUID()}`;
+    const recipient = "internal-test@company.example";
+    const operationId = `live-pilot-enable-${randomUUID()}`;
+    const enabled = await operator.enable({
+      target: {
+        organizationId: usaId,
+        organizationCode: "USA",
+      },
+      recipient,
+      accessToken,
+      reason: "Supervised one-draft live-pilot feature proof",
+      operationId,
+      traceId: "trace-live-pilot-enable",
+    });
+    expect(JSON.stringify(enabled)).not.toContain(accessToken);
+    expect(enabled.preflight).toMatchObject({
+      organizationId: usaId,
+      organizationCode: "USA",
+      pilotClaimActive: true,
+      pilotClaimedForTarget: true,
+      targetConnectorEnabled: true,
+      activeCredentialPresent: true,
+      credentialEnvelopeValid: true,
+      credentialFingerprintMatches: true,
+      exactComposeScope: true,
+      exactSingleRecipientAllowlist: true,
+      expectedRecipientAllowed: true,
+      otherEnabledOrganizationCount: 0,
+      allOtherOrganizationsDisabled: true,
+      globalKillCleared: true,
+      killSwitchReachable: true,
+      structuralNoSend: true,
+      readyForLiveDraft: true,
+      disabledByDefault: false,
+    });
+
+    const stored = await adminPool.query<{
+      target_organization_id: string;
+      ciphertext: string;
+      token_fingerprint: string;
+      granted_scopes: string[];
+      enabled: boolean;
+      allowed_recipient_addresses: string[];
+      allowed_recipient_domains: string[];
+    }>(
+      `SELECT
+         pilot.target_organization_id,
+         credential.ciphertext,
+         credential.token_fingerprint,
+         credential.granted_scopes,
+         config.enabled,
+         config.allowed_recipient_addresses,
+         config.allowed_recipient_domains
+       FROM operating_layer.gmail_draft_live_pilot_control pilot
+       JOIN operating_layer.gmail_draft_credential_bindings credential_binding
+         ON credential_binding.organization_id = pilot.target_organization_id
+       JOIN operating_layer.gmail_draft_credential_versions credential
+         ON credential.id = credential_binding.active_credential_version_id
+        AND credential.organization_id = credential_binding.organization_id
+       JOIN operating_layer.gmail_draft_connector_bindings config_binding
+         ON config_binding.organization_id = pilot.target_organization_id
+       JOIN operating_layer.gmail_draft_connector_config_versions config
+         ON config.id = config_binding.active_config_version_id
+        AND config.organization_id = config_binding.organization_id
+       WHERE pilot.singleton`,
+    );
+    expect(stored.rows[0]).toMatchObject({
+      target_organization_id: usaId,
+      enabled: true,
+      granted_scopes: [GMAIL_COMPOSE_OAUTH_SCOPE],
+      allowed_recipient_addresses: [recipient],
+      allowed_recipient_domains: [],
+    });
+    expect(stored.rows[0]!.ciphertext).not.toContain(accessToken);
+    expect(stored.rows[0]!.token_fingerprint).not.toBe(accessToken);
+
+    const secondOrganizationEnable = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/gmail-draft/config",
+      headers: {
+        "x-dev-user-email": adminEmail,
+        "idempotency-key": `second-pilot-org-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: fsiId,
+        enabled: true,
+        allowedRecipientAddresses: [recipient],
+        allowedRecipientDomains: [],
+        reason: "Must be rejected while USA owns the live pilot",
+      },
+    });
+    expect(secondOrganizationEnable.statusCode).toBe(409);
+    expect(secondOrganizationEnable.json()).toMatchObject({
+      error: "gmail_draft_live_pilot_org_locked",
+    });
+
+    const task = await createApprovedTask("pilot-allowlist");
+    const outsideAllowlist = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${task.approvalId}/gmail-draft-preview`,
+      headers: {
+        "x-dev-user-email": executiveEmail,
+        "idempotency-key": `pilot-outside-allowlist-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: usaId,
+        to: "not-authorized@outside.example",
+        subject: "Must not preview",
+        body: "The one-address live-pilot allowlist must reject this.",
+      },
+    });
+    expect(outsideAllowlist.statusCode).toBe(422);
+
+    const disabled = await operator.disable({
+      target: {
+        organizationId: usaId,
+        organizationCode: "USA",
+      },
+      reason: "End supervised one-draft live pilot and kill credential",
+      operationId: `live-pilot-disable-${randomUUID()}`,
+      traceId: "trace-live-pilot-disable",
+    });
+    expect(disabled.preflight).toMatchObject({
+      pilotClaimActive: false,
+      pilotClaimedForTarget: false,
+      targetConnectorEnabled: false,
+      activeCredentialPresent: false,
+      allOtherOrganizationsDisabled: true,
+      killSwitchReachable: true,
+      structuralNoSend: true,
+      readyForLiveDraft: false,
+      disabledByDefault: true,
+    });
+    const finalCleanup = await drainOutbox(
+      workerPool,
+      "live-pilot-final-cleanup",
+      40,
+      internalProvider,
+      undefined,
+      credentialRuntime,
+    );
+    expect(finalCleanup.failed).toBe(0);
+    expect(finalCleanup.deadLetter).toBe(0);
+    await expect(
+      loadExecutionCredential(workerPool, credentialRuntime, {
+        organizationId: usaId,
+        userId: executiveId,
+        credentialVersionId: enabled.credential.credentialVersionId,
+        traceId: "trace-live-pilot-killed-credential",
+        requestId: randomUUID(),
+      }),
+    ).rejects.toThrow(/not active|unavailable/i);
+
+    const evidence = await adminPool.query<{
+      pilot_event_count: string;
+      claim_audit_count: string;
+      release_audit_count: string;
+      active_credential_version_id: string | null;
+      config_enabled: boolean;
+    }>(
+      `SELECT
+         (
+           SELECT count(*)::text
+           FROM operating_layer.gmail_draft_live_pilot_events event
+           WHERE event.organization_id = $1
+             AND event.event_type IN ('claimed', 'released')
+         ) AS pilot_event_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.organization_id = $1
+             AND audit.event_type = 'gmail_draft.live_pilot_claimed'
+         ) AS claim_audit_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.organization_id = $1
+             AND audit.event_type = 'gmail_draft.live_pilot_released'
+         ) AS release_audit_count,
+         credential_binding.active_credential_version_id,
+         config.enabled AS config_enabled
+       FROM operating_layer.gmail_draft_credential_bindings credential_binding
+       JOIN operating_layer.gmail_draft_connector_bindings config_binding
+         ON config_binding.organization_id = credential_binding.organization_id
+       JOIN operating_layer.gmail_draft_connector_config_versions config
+         ON config.id = config_binding.active_config_version_id
+        AND config.organization_id = config_binding.organization_id
+       WHERE credential_binding.organization_id = $1`,
+      [usaId],
+    );
+    expect(evidence.rows[0]).toMatchObject({
+      pilot_event_count: "2",
+      claim_audit_count: "1",
+      release_audit_count: "1",
+      active_credential_version_id: null,
+      config_enabled: false,
+    });
+    await expect(
+      adminPool.query(
+        `UPDATE operating_layer.gmail_draft_live_pilot_events
+         SET reason = 'tampered'
+         WHERE organization_id = $1`,
+        [usaId],
+      ),
+    ).rejects.toThrow(/immutable/i);
   });
 });

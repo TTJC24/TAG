@@ -7,6 +7,7 @@ export * from "./execution-worker.js";
 export * from "./gmail-draft.js";
 export * from "./gmail-credential.js";
 export * from "./gmail-credential-worker.js";
+export * from "./gmail-pilot.js";
 export * from "./idempotency.js";
 export * from "./identity.js";
 export * from "./policy.js";

@@ -1,13 +1,13 @@
 # Consolidated Review Evidence
 
-Status: Provider-boundary validation closeout map
+Status: Supervised Gmail draft live-pilot tooling closeout map
 
 Date: 2026-07-25
 
 This is the criterion-to-test index for the implemented slices described by
 `docs/phase1-implementation.md`, `docs/phase2-scope-proposal.md`, and ADRs
-0002 through 0006. Test names below are exact. The feature command starts from
-an empty PostgreSQL 16 database, applies migrations `0001` through `0008`,
+0002 through 0007. Test names below are exact. The feature command starts from
+an empty PostgreSQL 16 database, applies migrations `0001` through `0009`,
 loads deterministic seed data, and runs separate non-owner API and worker
 roles.
 
@@ -34,8 +34,9 @@ Status meanings:
 | Structural no-send                                         | `packages/executors/src/index.test.ts` — `makes messages.send unreachable at the type, object, prototype, route-target, and request levels`; `apps/api/src/gmail-draft.integration.test.ts` — `ships disabled, exposes drafts.create only, and preserves internal execution`             | Compile-time key assertions, object/prototype reflection, fixed URL inspection, capability inspection, and a real `messages.send` route request prove no send surface exists; the route returns `404`.               | Automated adversarial |
 | Credential ciphertext containment                          | `apps/api/src/gmail-draft.integration.test.ts` — `cannot recover raw credential bytes, cross organization boundaries, broaden scope, or reuse a rotated version`; `packages/connectors/src/index.test.ts` — `rejects decryption with the wrong organization or an unrelated private key` | Raw PostgreSQL bytes are compared with plaintext, an unrelated private key attempts decryption, and incorrect organization-bound AAD is used; recovery fails.                                                        | Automated adversarial |
 | Organization and global kill switches                      | `apps/api/src/gmail-draft.integration.test.ts` — `halts a mid-flight command when disabled and returns to internal execution`; `blocks attempted execution in every organization after the global kill`                                                                                  | Already-authorized external commands are processed after organization disable and after a global kill across USA/FSI; provider call count remains zero and immutable abandonments are recorded.                      | Automated adversarial |
+| One-organization live-pilot lock                           | `apps/api/src/gmail-draft.integration.test.ts` — `enables one named live-pilot organization, proves preflight, and credential-kills on disable`                                                                                                                                          | With USA holding the explicit pilot claim, an FSI enable is attempted and rejected before credential/config use; teardown proves the claim is released and no active credential remains.                             | Automated adversarial |
 
-All eight standing guarantees have a dedicated adversarial negative-path test.
+All nine standing guarantees have a dedicated adversarial negative-path test.
 
 ## Provider-output boundary inventory
 
@@ -172,6 +173,27 @@ payload itself is never persisted.
 | No real Google network request occurs in tests                                                         | All feature cases inject in-memory draft/revocation transports; executor unit test stubs `fetch` and inspects the single drafts endpoint.                                                                                               | Automated adversarial |
 | Common-valid but Gmail-invalid provider output cannot materialize                                      | `apps/api/src/gmail-draft.integration.test.ts` — `rejects common-valid but Gmail-invalid provider output before materialization`                                                                                                        | Automated adversarial |
 
+## Supervised Gmail draft live-pilot tooling
+
+| Acceptance criterion                                                             | Specific test file and case                                                                                                                                | Status                |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| Malformed downstream response still invokes fail-closed cleanup                  | `apps/api/src/gmail-draft-pilot-client.test.ts` — `kills any potentially committed credential when a downstream response is malformed`                     | Automated adversarial |
+| Enable claims exactly one named organization                                     | `apps/api/src/gmail-draft.integration.test.ts` — `enables one named live-pilot organization, proves preflight, and credential-kills on disable`            | Automated positive    |
+| A second organization cannot be enabled while the claim is active                | Same case — attempts an FSI config enable while USA owns the claim and expects `gmail_draft_live_pilot_org_locked`                                         | Automated adversarial |
+| Preflight proves ciphertext envelope, exact compose scope, and token fingerprint | Same case — inspects aggregate preflight plus privileged ciphertext/scope metadata without decrypting or returning token plaintext                         | Automated adversarial |
+| Preflight proves one exact address, no domains, and every other org disabled     | Same case                                                                                                                                                  | Automated positive    |
+| Structural no-send and fixed drafts-create endpoint remain closed                | Same case plus `packages/executors/src/index.test.ts` — `makes messages.send unreachable at the type, object, prototype, route-target, and request levels` | Automated adversarial |
+| Recipient outside the single-address allowlist is rejected                       | Same live-pilot case creates an approved task and receives `422` for a different address                                                                   | Automated adversarial |
+| Disable synchronously kills local credential use and releases the claim          | Same case — loads the prior credential version after disable and expects rejection; aggregate preflight reports the disabled posture                       | Automated adversarial |
+| Claim/release facts and audit are immutable                                      | Same case — verifies exact lifecycle/audit counts and attempts privileged mutation of the lifecycle event                                                  | Automated adversarial |
+| Test cleanup consumes its own bounded revocation work                            | Same case drains and asserts the initial/final cleanup outbox with zero failures/dead letters                                                              | Automated positive    |
+| Automated suite makes no Google call                                             | Same case uses the in-process API client, mock credential runtime, deterministic provider, and no network-enabled worker                                   | Automated adversarial |
+| One real draft, mailbox verification, replay check, teardown, and manual discard | `docs/runbook.md` using a copy of `docs/evidence/gmail-draft-live-pilot-template.md`; deliberately outside CI and pending operator execution               | Manual                |
+
+The feature proof validates the operator tooling, not a live mailbox result. The
+connector and worker network transport remain disabled by default and in CI.
+No real credential or completed live-run evidence belongs in this repository.
+
 ## Repository validation gates
 
 | Criterion                                        | Proof                       | Status            |
@@ -186,9 +208,11 @@ payload itself is never persisted.
 
 ## GAP summary
 
-No open review-evidence gaps remain. Classification, recommendation, common
-execution, and Gmail-specific execution output validation each have an
-adversarial feature proof against clean PostgreSQL 16.
+No automated review-evidence gap remains for the operator tooling.
+Classification, recommendation, common execution, Gmail-specific execution,
+and the live-pilot enable/preflight/disable controls each have an adversarial
+feature proof against clean PostgreSQL 16. The one real draft is intentionally
+a pending manual proof, not an automated gap or a CI action.
 
 ## Manual evidence
 
@@ -196,6 +220,10 @@ adversarial feature proof against clean PostgreSQL 16.
   exercised by the deterministic local feature suite.
 - CSV upload/result browser interaction is compiled and smoke-tested but does
   not have browser automation.
+- The first real Gmail draft, mailbox inspection, replay observation,
+  credential teardown, secret-containment review, and manual draft discard use
+  the supervised runbook and blank evidence template. No live call occurs in
+  CI.
 
 ## Integrity boundaries and explicit deferrals
 

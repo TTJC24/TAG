@@ -34,6 +34,8 @@ export interface ExternalExecutionProvider extends ExecutionProvider {
 export const GMAIL_COMPOSE_OAUTH_SCOPE =
   "https://www.googleapis.com/auth/gmail.compose";
 export const GMAIL_DRAFT_CAPABILITIES = ["drafts.create"] as const;
+export const GMAIL_DRAFT_CREATE_ENDPOINT =
+  "https://gmail.googleapis.com/gmail/v1/users/me/drafts";
 
 export interface GmailDraftPayload {
   capability: "drafts.create";
@@ -66,18 +68,15 @@ export class GoogleGmailDraftCreateTransport implements GmailDraftCreateTranspor
   async createDraft(
     request: GmailDraftCreateRequest,
   ): Promise<GmailDraftCreateResult> {
-    const response = await fetch(
-      "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
-      {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${request.accessToken}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ message: { raw: request.raw } }),
-        signal: AbortSignal.timeout(15_000),
+    const response = await fetch(GMAIL_DRAFT_CREATE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${request.accessToken}`,
+        "content-type": "application/json",
       },
-    );
+      body: JSON.stringify({ message: { raw: request.raw } }),
+      signal: AbortSignal.timeout(15_000),
+    });
     if (!response.ok) {
       throw new Error(
         `Gmail drafts.create failed with HTTP ${response.status}`,
@@ -265,6 +264,36 @@ export class DisabledExternalExecutionProvider implements ExternalExecutionProvi
   ): Promise<never> {
     throw new Error("External execution providers are disabled");
   }
+}
+
+export function inspectGmailDraftStructuralSafety(): {
+  capabilities: readonly ["drafts.create"];
+  oauthScopes: readonly [typeof GMAIL_COMPOSE_OAUTH_SCOPE];
+  endpoint: typeof GMAIL_DRAFT_CREATE_ENDPOINT;
+  hasSendSurface: boolean;
+  structuralNoSend: boolean;
+} {
+  const providerMethods = Object.getOwnPropertyNames(
+    GmailDraftExecutionProvider.prototype,
+  );
+  const transportMethods = Object.getOwnPropertyNames(
+    GoogleGmailDraftCreateTransport.prototype,
+  );
+  const hasSendSurface =
+    providerMethods.some((name) => /send/i.test(name)) ||
+    transportMethods.some((name) => /send/i.test(name)) ||
+    /messages\/send/i.test(GMAIL_DRAFT_CREATE_ENDPOINT);
+  return {
+    capabilities: GMAIL_DRAFT_CAPABILITIES,
+    oauthScopes: [GMAIL_COMPOSE_OAUTH_SCOPE],
+    endpoint: GMAIL_DRAFT_CREATE_ENDPOINT,
+    hasSendSurface,
+    structuralNoSend:
+      GMAIL_DRAFT_CAPABILITIES.length === 1 &&
+      GMAIL_DRAFT_CAPABILITIES[0] === "drafts.create" &&
+      GMAIL_DRAFT_CREATE_ENDPOINT.endsWith("/drafts") &&
+      !hasSendSurface,
+  };
 }
 
 export function resolveExecutionProvider(

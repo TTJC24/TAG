@@ -88,6 +88,25 @@ export async function configureGmailDraftConnector(
       await client.query(
         "SELECT pg_advisory_xact_lock(hashtext('gmail-draft-global-kill'))",
       );
+      const pilotControl = await client.query<{
+        target_organization_id: string | null;
+      }>(
+        `SELECT target_organization_id
+         FROM gmail_draft_live_pilot_control
+         WHERE singleton`,
+      );
+      const pilotTarget = pilotControl.rows[0]?.target_organization_id ?? null;
+      if (
+        input.enabled &&
+        pilotTarget !== null &&
+        pilotTarget !== input.organizationId
+      ) {
+        throw new DomainError(
+          409,
+          "gmail_draft_live_pilot_org_locked",
+          "The live Gmail pilot permits exactly one enabled organization",
+        );
+      }
       const credentialState = await client.query<{
         active_credential_version_id: string | null;
         killed: boolean;

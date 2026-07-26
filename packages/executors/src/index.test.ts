@@ -7,6 +7,7 @@ import {
   GmailDraftExecutionProvider,
   GoogleGmailDraftCreateTransport,
   GMAIL_COMPOSE_OAUTH_SCOPE,
+  inspectGmailDraftStructuralSafety,
   renderGmailDraftRaw,
   resolveExecutionProvider,
   type GmailDraftCreateTransport,
@@ -156,6 +157,12 @@ describe("execution provider seam", () => {
     expect("send" in provider).toBe(false);
     expect("messages.send" in transport).toBe(false);
     expect("messages.send" in provider).toBe(false);
+    expect(inspectGmailDraftStructuralSafety()).toMatchObject({
+      capabilities: ["drafts.create"],
+      oauthScopes: [GMAIL_COMPOSE_OAUTH_SCOPE],
+      hasSendSurface: false,
+      structuralNoSend: true,
+    });
     await expect(
       transport.createDraft({
         raw: "base64url-message",

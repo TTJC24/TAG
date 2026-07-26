@@ -14,11 +14,13 @@ import {
   getCsvBatch,
   getExecutiveQueue,
   getTaskDetail,
+  inspectGmailDraftPilotPreflight,
   resolveApproval,
   requestInternalExecution,
   revokeGmailCredential,
   resolveApplicationPrincipal,
   setGmailGlobalKill,
+  setGmailDraftPilotClaim,
   storeGmailCredential,
   uploadCsvBatch,
 } from "@operating-layer/issue-intake";
@@ -335,6 +337,43 @@ export async function buildApi(
     });
     return reply.status(202).send(response);
   });
+
+  app.post("/v1/connectors/gmail-draft/pilot/claim", async (request, reply) => {
+    const principal = await principalFor(request);
+    const idempotencyKey = headerValue(request, "idempotency-key");
+    if (!idempotencyKey) {
+      throw new DomainError(
+        400,
+        "idempotency_key_required",
+        "Idempotency-Key is required",
+      );
+    }
+    const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+    const response = await setGmailDraftPilotClaim(dependencies.pool, {
+      principal,
+      input: request.body as never,
+      idempotencyKey,
+      context: { traceId, requestId: request.id },
+    });
+    return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
+
+  app.post(
+    "/v1/connectors/gmail-draft/pilot/preflight",
+    async (request, reply) => {
+      const principal = await principalFor(request);
+      const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+      const response = await inspectGmailDraftPilotPreflight(
+        dependencies.pool,
+        {
+          principal,
+          input: request.body as never,
+          context: { traceId, requestId: request.id },
+        },
+      );
+      return reply.status(200).send(response);
+    },
+  );
 
   app.post<{
     Params: { approvalId: string };

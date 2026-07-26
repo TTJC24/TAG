@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Approved through the disabled-by-default Phase 3 Gmail draft slice
+Status: Approved through the disabled-by-default Gmail draft slice and supervised live-pilot tooling
 Date: 2026-07-25
 Repository codename: `operating-layer` (not a permanent product name)
 

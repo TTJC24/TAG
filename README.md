@@ -26,8 +26,10 @@ manual issue intake
   -> executive queue and task detail
 ```
 
-Production connector enablement, live model calls, external sending, and
-ERP/accounting writes are intentionally absent.
+General production connector enablement, live model calls, external sending,
+and ERP/accounting writes are intentionally absent. The repository includes a
+guarded, operator-executed procedure for one supervised Gmail draft; the real
+call remains manual, disabled by default, and outside CI.
 
 ## Local development
 
@@ -70,7 +72,10 @@ It also proves the Gmail-draft connector remains disabled by default, exact
 preview creates nothing, allowlist/isolation and second authorization are
 enforced, stable result replay does not call the provider twice, kill-switch
 fallback remains internal, failures dead-letter visibly, and no send
-capability exists.
+capability exists. It additionally proves the one-organization live-pilot
+claim, exact-scope/ciphertext/allowlist preflight, second-organization
+rejection, fail-closed disable, and immediate credential unusability using
+mock transports only.
 
 GitHub Actions runs formatting, workspace type checks and unit tests, the
 feature suite against a clean PostgreSQL 16 database, and the production build
@@ -88,6 +93,9 @@ The first external-write boundary is recorded in
 [ADR 0005](docs/decisions/0005-gmail-draft-external-write.md); its credential
 boundary is recorded in
 [ADR 0006](docs/decisions/0006-connector-credential-and-kill-switch-hardening.md).
+The first supervised live-draft controls and manual procedure are recorded in
+[ADR 0007](docs/decisions/0007-supervised-gmail-draft-live-pilot.md) and
+[the runbook](docs/runbook.md#first-supervised-gmail-draft).
 
 ## Safety boundary
 

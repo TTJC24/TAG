@@ -391,6 +391,68 @@ export const gmailGlobalKillInputSchema = z.object({
   reason: z.string().trim().min(3).max(1000),
 });
 
+export const gmailDraftPilotClaimInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  action: z.enum(["claim", "release"]),
+  reason: z.string().trim().min(3).max(1000),
+});
+export type GmailDraftPilotClaimInput = z.infer<
+  typeof gmailDraftPilotClaimInputSchema
+>;
+
+export const gmailDraftPilotClaimResponseSchema = z.object({
+  organizationId: z.string().uuid(),
+  organizationCode: z.string().trim().min(1).max(50),
+  action: z.enum(["claimed", "released"]),
+  claimVersion: z.number().int().positive(),
+  duplicate: z.boolean(),
+  traceId: z.string().min(1),
+});
+export type GmailDraftPilotClaimResponse = z.infer<
+  typeof gmailDraftPilotClaimResponseSchema
+>;
+
+export const gmailDraftPilotPreflightInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  expectedOrganizationCode: z.string().trim().min(1).max(50),
+  expectedRecipient: gmailAddressSchema.optional(),
+  expectedCredentialFingerprint: z
+    .string()
+    .length(64)
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
+});
+export type GmailDraftPilotPreflightInput = z.infer<
+  typeof gmailDraftPilotPreflightInputSchema
+>;
+
+export const gmailDraftPilotPreflightResponseSchema = z.object({
+  organizationId: z.string().uuid(),
+  organizationCode: z.string().trim().min(1).max(50),
+  organizationName: z.string().trim().min(1),
+  pilotClaimActive: z.boolean(),
+  pilotClaimedForTarget: z.boolean(),
+  targetConnectorEnabled: z.boolean(),
+  activeCredentialPresent: z.boolean(),
+  credentialEnvelopeValid: z.boolean(),
+  credentialFingerprintMatches: z.boolean().nullable(),
+  exactComposeScope: z.boolean(),
+  exactSingleRecipientAllowlist: z.boolean(),
+  expectedRecipientAllowed: z.boolean().nullable(),
+  otherEnabledOrganizationCount: z.number().int().nonnegative(),
+  allOtherOrganizationsDisabled: z.boolean(),
+  globalKillCleared: z.boolean(),
+  killSwitchReachable: z.boolean(),
+  structuralNoSend: z.boolean(),
+  readyForLiveDraft: z.boolean(),
+  disabledByDefault: z.boolean(),
+  checks: z.record(z.boolean()),
+  traceId: z.string().min(1),
+});
+export type GmailDraftPilotPreflightResponse = z.infer<
+  typeof gmailDraftPilotPreflightResponseSchema
+>;
+
 export const gmailDraftPreviewInputSchema = z.object({
   organizationId: z.string().uuid(),
   to: gmailAddressSchema,
