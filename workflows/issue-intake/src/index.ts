@@ -1,6 +1,7 @@
 export * from "./agents.js";
 export * from "./approval.js";
 export * from "./ar-aging.js";
+export * from "./ar-collections.js";
 export * from "./brief.js";
 export * from "./brain-provider.js";
 export * from "./csv.js";
