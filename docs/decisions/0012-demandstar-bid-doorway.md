@@ -46,3 +46,18 @@ messages into governed USA intake:
   same governed pipeline; no parallel path.
 - Automating the mailbox pull (Gmail API read-only) is a follow-up requiring
   owner-approved OAuth; the parser and pipeline are unchanged by it.
+
+## Amendment (2026-07-26): Pipedrive is canonical for pursuit state
+
+Owner decision: the email feed is announcement intake only. Pipedrive is the
+canonical record of which bids are being pursued and their state (consistent
+with scoreboard's source-of-truth hierarchy: Pipedrive = sales/pipeline
+truth). Consequences:
+
+- No backfill of historical DemandStar mail into intake; current state is
+  read from Pipedrive, not reconstructed from announcements.
+- A bid task's job is to guarantee a timely bid/no-bid decision, recorded in
+  Pipedrive; the task description directs the actor there and does not
+  duplicate deal state.
+- When brain grounding is enabled, recommendations naturally consult
+  Pipedrive-backed brain data, closing the loop without a second integration.

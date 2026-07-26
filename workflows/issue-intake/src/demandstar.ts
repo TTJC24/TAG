@@ -220,7 +220,7 @@ function describeBid(bid: ParsedBid, message: DemandstarMessage): string {
     bid.dueText ? `Responses due: ${bid.dueText}` : null,
     bid.scope ? `Scope: ${bid.scope}` : null,
     `Announced: ${message.date} (message ${message.id}, kind ${bid.kind}).`,
-    `A response, no-bid decision, or delegation must be recorded before the deadline.`,
+    `Pipedrive is canonical for pursuit state: check for an existing deal before acting, and record the bid/no-bid decision there. This task tracks that the decision happens before the deadline; it does not duplicate deal state.`,
   ].filter((line): line is string => line !== null);
   return clampText(lines.join("\n"), 3, 10_000);
 }
