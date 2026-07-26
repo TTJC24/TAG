@@ -1,0 +1,90 @@
+# Production deployment for the owner's droplet, alongside company-brain.
+#   docker compose -f compose.production.yaml --env-file .env.production up -d
+# The origin publishes NO ports; the only way in is the Cloudflare tunnel,
+# which is also what makes AUTH_MODE=cloudflare_access trustworthy.
+name: operating-layer
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set in .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?set in .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.production}
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD:?set in .env.production}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?set in .env.production}
+      OWNER_EMAIL: ${OWNER_EMAIL:?set in .env.production}
+      OWNER_NAME: ${OWNER_NAME:?set in .env.production}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/migrations/0001_core.sql:/docker-entrypoint-initdb.d/0001_core.sql:ro
+      - ./infrastructure/migrations/0002_phase1_vertical_slice.sql:/docker-entrypoint-initdb.d/0002_phase1_vertical_slice.sql:ro
+      - ./infrastructure/migrations/0003_phase1_closeout.sql:/docker-entrypoint-initdb.d/0003_phase1_closeout.sql:ro
+      - ./infrastructure/migrations/0004_phase2_approval_resolution.sql:/docker-entrypoint-initdb.d/0004_phase2_approval_resolution.sql:ro
+      - ./infrastructure/migrations/0005_phase2_internal_execution.sql:/docker-entrypoint-initdb.d/0005_phase2_internal_execution.sql:ro
+      - ./infrastructure/migrations/0006_phase2_csv_batch_intake.sql:/docker-entrypoint-initdb.d/0006_phase2_csv_batch_intake.sql:ro
+      - ./infrastructure/migrations/0007_phase3_gmail_draft.sql:/docker-entrypoint-initdb.d/0007_phase3_gmail_draft.sql:ro
+      - ./infrastructure/migrations/0008_phase3_connector_credentials.sql:/docker-entrypoint-initdb.d/0008_phase3_connector_credentials.sql:ro
+      - ./infrastructure/migrations/0009_gmail_live_pilot_operator_controls.sql:/docker-entrypoint-initdb.d/0009_gmail_live_pilot_operator_controls.sql:ro
+      - ./infrastructure/migrations/0010_ops_dead_letter_replay.sql:/docker-entrypoint-initdb.d/0010_ops_dead_letter_replay.sql:ro
+      - ./infrastructure/production/init/9000_runtime_roles.sh:/docker-entrypoint-initdb.d/9000_runtime_roles.sh:ro
+      - ./infrastructure/production/init/9001_governance_core.sql:/docker-entrypoint-initdb.d/9001_governance_core.sql:ro
+      - ./infrastructure/production/init/9002_owner_user.sh:/docker-entrypoint-initdb.d/9002_owner_user.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile
+      target: api
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: postgresql://operating_layer_runtime:${RUNTIME_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      AUTH_MODE: cloudflare_access
+      PORT: "3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile
+      target: worker
+    restart: unless-stopped
+    env_file: .env.production
+    environment:
+      DATABASE_URL: postgresql://operating_layer_worker_runtime:${WORKER_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile
+      target: web
+    restart: unless-stopped
+    environment:
+      API_BASE_URL: http://api:3001
+    depends_on:
+      - api
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set in .env.production}
+    depends_on:
+      - web
+      - api
+
+volumes:
+  postgres-data:

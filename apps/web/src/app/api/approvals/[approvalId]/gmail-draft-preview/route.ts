@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
+import { identityHeaders } from "../../../../../lib/identity";
 
 const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:3001";
-const developmentEmail =
-  process.env.DEV_USER_EMAIL ?? "executive@local.operating-layer";
 
 export async function POST(
   request: Request,
@@ -18,7 +17,7 @@ export async function POST(
         "content-type": "application/json",
         "idempotency-key":
           request.headers.get("idempotency-key") ?? randomUUID(),
-        "x-dev-user-email": developmentEmail,
+        ...(await identityHeaders()),
         "x-trace-id": request.headers.get("x-trace-id") ?? randomUUID(),
       },
       body: await request.text(),

@@ -11,6 +11,8 @@
 
 BEGIN;
 
+SET search_path TO operating_layer, public;
+
 -- 1. Allow the re-open transition for the issue_intake workflow type.
 INSERT INTO workflow_allowed_transitions (workflow_type, from_state, to_state)
 VALUES ('issue_intake', 'execution_failed', 'executing')

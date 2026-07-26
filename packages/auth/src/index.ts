@@ -71,6 +71,32 @@ export class DevelopmentHeaderIdentityProvider implements IdentityProvider {
   }
 }
 
+/**
+ * Trusts the identity header Cloudflare Access injects after its own login
+ * (the pattern the company-brain droplet already uses). SAFE ONLY when the
+ * origin is reachable exclusively through the Cloudflare tunnel — anyone who
+ * can reach the origin directly could forge the header, so the deployment
+ * must not publish the API/web ports. Verifying the Cf-Access-Jwt-Assertion
+ * signature is the documented hardening follow-up.
+ */
+export class CloudflareAccessIdentityProvider implements IdentityProvider {
+  readonly kind = "cloudflare_access";
+
+  async authenticate(request: IdentityRequest): Promise<ExternalIdentity> {
+    const email = request.headers["cf-access-authenticated-user-email"];
+    if (!email || email.trim().length === 0) {
+      throw new AuthenticationError(
+        "Cloudflare Access identity header is missing",
+      );
+    }
+    return {
+      issuer: "cloudflare-access",
+      subject: email.trim().toLowerCase(),
+      email: email.trim().toLowerCase(),
+    };
+  }
+}
+
 export interface GoogleWorkspaceOidcOptions {
   issuer: string;
   audience: string;

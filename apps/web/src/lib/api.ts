@@ -1,6 +1,6 @@
+import { identityHeaders } from "./identity";
+
 const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:3001";
-const developmentEmail =
-  process.env.DEV_USER_EMAIL ?? "executive@local.operating-layer";
 
 export const defaultOrganizationId =
   process.env.DEFAULT_ORGANIZATION_ID ?? "10000000-0000-4000-8000-000000000001";
@@ -13,7 +13,7 @@ export async function operatingLayerApi<T>(
     ...init,
     cache: "no-store",
     headers: {
-      "x-dev-user-email": developmentEmail,
+      ...(await identityHeaders()),
       ...init.headers,
     },
   });

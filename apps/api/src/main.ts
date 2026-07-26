@@ -1,4 +1,5 @@
 import {
+  CloudflareAccessIdentityProvider,
   DevelopmentHeaderIdentityProvider,
   GoogleWorkspaceOidcProvider,
   type IdentityProvider,
@@ -11,6 +12,11 @@ import { RsaEnvelopeCredentialEncryptor } from "@operating-layer/connectors";
 import { buildApi } from "./server.js";
 
 function identityProviderFromEnvironment(): IdentityProvider {
+  if (process.env.AUTH_MODE === "cloudflare_access") {
+    // Origin must be reachable only through the Cloudflare tunnel; see
+    // docs/deploy-runbook.md before enabling.
+    return new CloudflareAccessIdentityProvider();
+  }
   if (process.env.AUTH_MODE === "oidc") {
     const issuer = process.env.OIDC_ISSUER;
     const audience = process.env.OIDC_AUDIENCE;
