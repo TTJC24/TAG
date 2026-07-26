@@ -32,6 +32,7 @@ import { buildApi } from "./server.js";
 
 const usaId = "10000000-0000-4000-8000-000000000003";
 const fsiId = "10000000-0000-4000-8000-000000000002";
+const cultivusId = "10000000-0000-4000-8000-000000000004";
 const fsiOperatorId = "20000000-0000-4000-8000-000000000004";
 const executiveId = "20000000-0000-4000-8000-000000000002";
 const adminEmail = "admin@local.operating-layer";
@@ -94,7 +95,10 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     await adminPool.end();
   });
 
-  async function createApprovedTask(label: string): Promise<ApprovedTask> {
+  async function createApprovedTask(
+    label: string,
+    organizationId = usaId,
+  ): Promise<ApprovedTask> {
     const traceId = `trace-gmail-${label}-${randomUUID()}`;
     const intake = await app.inject({
       method: "POST",
@@ -105,7 +109,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         "x-trace-id": traceId,
       },
       payload: {
-        organizationId: usaId,
+        organizationId,
         title: `${label}: customer follow-up draft`,
         description:
           "Prepare a customer email draft for review. Do not send it.",
@@ -129,7 +133,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
 
     const detail = await app.inject({
       method: "GET",
-      url: `/v1/tasks/${intakeBody.taskId}?organizationId=${usaId}`,
+      url: `/v1/tasks/${intakeBody.taskId}?organizationId=${organizationId}`,
       headers: { "x-dev-user-email": executiveEmail },
     });
     expect(detail.statusCode, detail.body).toBe(200);
@@ -146,7 +150,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         "idempotency-key": `gmail-approve-${label}-${randomUUID()}`,
       },
       payload: {
-        organizationId: usaId,
+        organizationId,
         decision: "approved",
         reason: "Cited facts support preparing an unsent draft.",
       },
@@ -160,8 +164,10 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     };
   }
 
-  async function configure(enabled: boolean) {
-    const provisioned = enabled ? await provisionCredential() : null;
+  async function configure(enabled: boolean, organizationId = usaId) {
+    const provisioned = enabled
+      ? await provisionCredential({ organizationId })
+      : null;
     const response = await app.inject({
       method: "POST",
       url: "/v1/connectors/gmail-draft/config",
@@ -170,7 +176,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         "idempotency-key": `gmail-config-${randomUUID()}`,
       },
       payload: {
-        organizationId: usaId,
+        organizationId,
         enabled,
         allowedRecipientAddresses: [],
         allowedRecipientDomains: enabled ? ["example.com"] : [],
@@ -215,9 +221,12 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     return { response: credential, accessToken, idempotencyKey };
   }
 
-  async function previewAndAuthorize(task: ApprovedTask) {
+  async function previewAndAuthorize(
+    task: ApprovedTask,
+    organizationId = usaId,
+  ) {
     const payload = {
-      organizationId: usaId,
+      organizationId,
       to: "customer@example.com",
       subject: "Exact approved follow-up",
       body: "Hello,\n\nThis exact content remains an unsent Gmail draft.",
@@ -230,7 +239,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         "idempotency-key": `gmail-preview-${randomUUID()}`,
         "x-trace-id": "different-http-trace-is-not-the-root",
       },
-      payload,
+      payload: { ...payload, organizationId },
     });
     expect(preview.statusCode, preview.body).toBe(202);
     const previewBody = preview.json<{
@@ -249,7 +258,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
       pool,
       {
         userId: "20000000-0000-4000-8000-000000000002",
-        organizationIds: [usaId],
+        organizationIds: [organizationId],
       },
       async (client) => {
         const commands = await client.query(
@@ -269,7 +278,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     expect(beforeAuthorization).toEqual({ commands: 0, results: 0 });
     const queueBeforeAuthorization = await app.inject({
       method: "GET",
-      url: `/v1/executive-queue?organizationId=${usaId}`,
+      url: `/v1/executive-queue?organizationId=${organizationId}`,
       headers: { "x-dev-user-email": executiveEmail },
     });
     const queueBody = queueBeforeAuthorization.json<{
@@ -290,7 +299,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         "idempotency-key": authorizationKey,
       },
       payload: {
-        organizationId: usaId,
+        organizationId,
         reason: "Exact recipient, subject, and body are authorized as a draft.",
       },
     });
@@ -311,6 +320,33 @@ describe("Phase 3 Gmail draft external-write slice", () => {
       "https://www.googleapis.com/auth/gmail.compose",
     );
     expect(GMAIL_DRAFT_CAPABILITIES).not.toContain("messages.send");
+    const seededState = await adminPool.query<{
+      configured: boolean;
+      credential_bound: boolean;
+      globally_killed: boolean;
+    }>(
+      `SELECT
+         EXISTS (
+           SELECT 1
+           FROM operating_layer.gmail_draft_connector_bindings
+           WHERE organization_id = $1
+         ) AS configured,
+         EXISTS (
+           SELECT 1
+           FROM operating_layer.gmail_draft_credential_bindings
+           WHERE organization_id = $1
+             AND active_credential_version_id IS NOT NULL
+         ) AS credential_bound,
+         killed AS globally_killed
+       FROM operating_layer.gmail_draft_global_kill_switch
+       WHERE singleton`,
+      [usaId],
+    );
+    expect(seededState.rows[0]).toEqual({
+      configured: false,
+      credential_bound: false,
+      globally_killed: false,
+    });
 
     const task = await createApprovedTask("disabled-default");
     const blockedPreview = await app.inject({
@@ -364,8 +400,11 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     expect(sendRoute.statusCode).toBe(404);
   });
 
-  it("encrypts credentials, restricts scopes and worker access, and invalidates rotations", async () => {
+  it("cannot recover raw credential bytes, cross organization boundaries, broaden scope, or reuse a rotated version", async () => {
     await assertGmailCredentialStartup(workerPool, credentialRuntime);
+    await expect(
+      assertGmailCredentialStartup(pool, credentialRuntime),
+    ).rejects.toThrow(/permission denied|worker role/i);
     const first = await provisionCredential({
       accessToken: `first-plaintext-token-${"a".repeat(40)}`,
       idempotencyKey: `credential-idempotency-${randomUUID()}`,
@@ -377,18 +416,54 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     }>();
 
     const raw = await adminPool.query<{
+      algorithm: string;
       ciphertext: string;
+      nonce: string;
+      authentication_tag: string;
       wrapped_data_key: string;
       token_fingerprint: string;
     }>(
-      `SELECT ciphertext, wrapped_data_key, token_fingerprint
+      `SELECT algorithm, ciphertext, nonce, authentication_tag,
+              wrapped_data_key, token_fingerprint
        FROM operating_layer.gmail_draft_credential_versions
        WHERE id = $1`,
       [firstBody.credentialVersionId],
     );
-    expect(raw.rows[0]?.ciphertext).not.toContain(first.accessToken);
-    expect(raw.rows[0]?.wrapped_data_key).not.toContain(first.accessToken);
-    expect(raw.rows[0]?.token_fingerprint).toHaveLength(64);
+    const rawCredential = raw.rows[0]!;
+    expect(rawCredential.algorithm).toBe("rsa-oaep-sha256+aes-256-gcm-v1");
+    expect(rawCredential.ciphertext).not.toContain(first.accessToken);
+    expect(rawCredential.wrapped_data_key).not.toContain(first.accessToken);
+    expect(
+      Buffer.from(rawCredential.ciphertext, "base64").equals(
+        Buffer.from(first.accessToken, "utf8"),
+      ),
+    ).toBe(false);
+    expect(rawCredential.token_fingerprint).toHaveLength(64);
+
+    const unrelatedKeyPair = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { format: "der", type: "spki" },
+      privateKeyEncoding: { format: "der", type: "pkcs8" },
+    });
+    const unrelatedDecryptor = new RsaEnvelopeCredentialDecryptor(
+      unrelatedKeyPair.privateKey.toString("base64"),
+    );
+    expect(() =>
+      unrelatedDecryptor.decrypt(
+        {
+          algorithm: "rsa-oaep-sha256+aes-256-gcm-v1",
+          ciphertext: rawCredential.ciphertext,
+          nonce: rawCredential.nonce,
+          authenticationTag: rawCredential.authentication_tag,
+          wrappedDataKey: rawCredential.wrapped_data_key,
+          fingerprint: rawCredential.token_fingerprint,
+        },
+        {
+          organizationId: usaId,
+          credentialVersionId: firstBody.credentialVersionId,
+        },
+      ),
+    ).toThrow();
 
     const duplicate = await provisionCredential({
       accessToken: first.accessToken,
@@ -409,6 +484,20 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     expect(broaderScope.response.statusCode).toBe(400);
     expect(broaderScope.response.body).not.toContain(broaderScope.accessToken);
 
+    const crossOrgApi = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/gmail-draft/credentials/revoke",
+      headers: {
+        "x-dev-user-email": "fsi-operator@local.operating-layer",
+        "idempotency-key": `cross-org-credential-revoke-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: usaId,
+        reason: "Attempt to revoke another organization's credential",
+      },
+    });
+    expect(crossOrgApi.statusCode).toBe(403);
+
     await expect(
       pool.query(
         "SELECT id FROM operating_layer.gmail_draft_credential_versions",
@@ -426,6 +515,36 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         ).rowCount,
     );
     expect(hiddenByRls).toBe(0);
+    const bindingHiddenFromApplicationRole = await withOrganizationScope(
+      pool,
+      { userId: fsiOperatorId, organizationIds: [fsiId] },
+      async (client) =>
+        (
+          await client.query(
+            `SELECT active_credential_version_id
+             FROM gmail_draft_credential_bindings
+             WHERE organization_id = $1`,
+            [usaId],
+          )
+        ).rowCount,
+    );
+    expect(bindingHiddenFromApplicationRole).toBe(0);
+    await expect(
+      withWorkerOrganizationScope(
+        workerPool,
+        { userId: fsiOperatorId, organizationIds: [fsiId] },
+        async (client) =>
+          client.query(
+            "SELECT * FROM load_gmail_draft_credential($1, $2, $3, $4)",
+            [
+              firstBody.credentialVersionId,
+              usaId,
+              "execution",
+              "trace-cross-org-load-forbidden",
+            ],
+          ),
+      ),
+    ).rejects.toThrow(/organization access denied/i);
 
     const second = await provisionCredential({
       accessToken: `second-plaintext-token-${"b".repeat(40)}`,
@@ -438,6 +557,30 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     expect(secondBody.replacedCredentialVersionId).toBe(
       firstBody.credentialVersionId,
     );
+    const rotationState = await adminPool.query<{
+      version_count: string;
+      active_credential_version_id: string;
+      first_version_count: string;
+      second_version_count: string;
+    }>(
+      `SELECT
+         count(version.id) AS version_count,
+         binding.active_credential_version_id,
+         count(version.id) FILTER (WHERE version.id = $2) AS first_version_count,
+         count(version.id) FILTER (WHERE version.id = $3) AS second_version_count
+       FROM operating_layer.gmail_draft_credential_bindings binding
+       JOIN operating_layer.gmail_draft_credential_versions version
+         ON version.organization_id = binding.organization_id
+       WHERE binding.organization_id = $1
+       GROUP BY binding.active_credential_version_id`,
+      [usaId, firstBody.credentialVersionId, secondBody.credentialVersionId],
+    );
+    expect(rotationState.rows[0]).toEqual({
+      version_count: "2",
+      active_credential_version_id: secondBody.credentialVersionId,
+      first_version_count: "1",
+      second_version_count: "1",
+    });
     await expect(
       loadExecutionCredential(workerPool, credentialRuntime, {
         organizationId: usaId,
@@ -888,6 +1031,53 @@ describe("Phase 3 Gmail draft external-write slice", () => {
       failureConfig.accessToken,
     );
     expect(safeFailure.rows[0]?.safe_error_message).toContain("[REDACTED]");
+    const durableLeakSurface = await adminPool.query<{
+      serialized_output: string;
+    }>(
+      `SELECT concat_ws(
+         '',
+         coalesce((
+           SELECT string_agg(to_jsonb(event)::text, '')
+           FROM operating_layer.audit_events event
+           WHERE event.organization_id = $1
+             AND event.trace_id = $2
+         ), ''),
+         coalesce((
+           SELECT string_agg(to_jsonb(job)::text, '')
+           FROM operating_layer.outbox_events job
+           WHERE job.organization_id = $1
+             AND job.trace_id = $2
+         ), ''),
+         coalesce((
+           SELECT string_agg(to_jsonb(transition)::text, '')
+           FROM operating_layer.workflow_transitions transition
+           WHERE transition.organization_id = $1
+             AND transition.trace_id = $2
+         ), ''),
+         coalesce((
+           SELECT string_agg(to_jsonb(command)::text, '')
+           FROM operating_layer.execution_commands command
+           WHERE command.organization_id = $1
+             AND command.trace_id = $2
+         ), ''),
+         coalesce((
+           SELECT string_agg(to_jsonb(result)::text, '')
+           FROM operating_layer.execution_results result
+           WHERE result.organization_id = $1
+             AND result.trace_id = $2
+         ), ''),
+         coalesce((
+           SELECT string_agg(to_jsonb(event)::text, '')
+           FROM operating_layer.gmail_draft_credential_lifecycle_events event
+           WHERE event.organization_id = $1
+             AND event.trace_id = $2
+         ), '')
+       ) AS serialized_output`,
+      [usaId, task.traceId],
+    );
+    expect(durableLeakSurface.rows[0]?.serialized_output).not.toContain(
+      failureConfig.accessToken,
+    );
 
     const queue = await app.inject({
       method: "GET",
@@ -906,31 +1096,24 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     );
   });
 
-  it("globally kills every organization credential without enabling network access", async () => {
+  it("blocks attempted execution in every organization after the global kill", async () => {
     await configure(true);
-    const fsiCredential = await provisionCredential({
-      organizationId: fsiId,
-      accessToken: `fsi-global-kill-token-${"c".repeat(40)}`,
-    });
-    expect(fsiCredential.response.statusCode, fsiCredential.response.body).toBe(
-      202,
+    await configure(true, fsiId);
+    const usaTask = await createApprovedTask("global-kill-usa", usaId);
+    const fsiTask = await createApprovedTask("global-kill-fsi", fsiId);
+    const usaAuthorization = await previewAndAuthorize(usaTask, usaId);
+    const fsiAuthorization = await previewAndAuthorize(fsiTask, fsiId);
+    const activeBeforeKill = await adminPool.query<{
+      organization_id: string;
+      active_credential_version_id: string;
+    }>(
+      `SELECT organization_id, active_credential_version_id
+       FROM operating_layer.gmail_draft_credential_bindings
+       WHERE organization_id IN ($1, $2)
+       ORDER BY organization_id`,
+      [usaId, fsiId],
     );
-    const fsiConfig = await app.inject({
-      method: "POST",
-      url: "/v1/connectors/gmail-draft/config",
-      headers: {
-        "x-dev-user-email": adminEmail,
-        "idempotency-key": `fsi-config-${randomUUID()}`,
-      },
-      payload: {
-        organizationId: fsiId,
-        enabled: true,
-        allowedRecipientAddresses: [],
-        allowedRecipientDomains: ["example.com"],
-        reason: "Enable only to prove the global kill boundary",
-      },
-    });
-    expect(fsiConfig.statusCode, fsiConfig.body).toBe(202);
+    expect(activeBeforeKill.rows).toHaveLength(2);
 
     const traceId = `trace-global-kill-${randomUUID()}`;
     const killed = await app.inject({
@@ -967,6 +1150,17 @@ describe("Phase 3 Gmail draft external-write slice", () => {
       [usaId, fsiId],
     );
     expect(state.rows[0]).toMatchObject({ killed: true, active_count: "0" });
+    for (const credential of activeBeforeKill.rows) {
+      await expect(
+        loadExecutionCredential(workerPool, credentialRuntime, {
+          organizationId: credential.organization_id,
+          userId: executiveId,
+          credentialVersionId: credential.active_credential_version_id,
+          traceId: `trace-global-kill-load-${credential.organization_id}`,
+          requestId: `request-global-kill-load-${credential.organization_id}`,
+        }),
+      ).rejects.toThrow(/not active/i);
+    }
 
     const rejectedEnable = await app.inject({
       method: "POST",
@@ -985,15 +1179,59 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     });
     expect(rejectedEnable.statusCode).toBe(409);
 
+    let draftCreateCalls = 0;
+    const forbiddenProvider = new GmailDraftExecutionProvider({
+      async createDraft() {
+        draftCreateCalls += 1;
+        throw new Error("Global kill failed to block drafts.create");
+      },
+    });
     const drain = await drainOutbox(
       workerPool,
       "global-kill-revoker",
-      20,
+      40,
       internalProvider,
-      undefined,
+      forbiddenProvider,
       credentialRuntime,
     );
     expect(drain.failed).toBe(0);
+    expect(draftCreateCalls).toBe(0);
+    for (const proof of [
+      {
+        task: usaTask,
+        organizationId: usaId,
+        executionCommandId:
+          usaAuthorization.authorizationBody.executionCommandId,
+      },
+      {
+        task: fsiTask,
+        organizationId: fsiId,
+        executionCommandId:
+          fsiAuthorization.authorizationBody.executionCommandId,
+      },
+    ]) {
+      const detail = await app.inject({
+        method: "GET",
+        url: `/v1/tasks/${proof.task.taskId}?organizationId=${proof.organizationId}`,
+        headers: { "x-dev-user-email": executiveEmail },
+      });
+      expect(detail.statusCode, detail.body).toBe(200);
+      expect(
+        detail.json<{
+          task: { status: string };
+          gmailDraftAbandonments: Array<{
+            execution_command_id: string;
+          }>;
+          executionResults: unknown[];
+        }>(),
+      ).toMatchObject({
+        task: { status: "approved" },
+        gmailDraftAbandonments: [
+          { execution_command_id: proof.executionCommandId },
+        ],
+        executionResults: [],
+      });
+    }
     const audited = await adminPool.query<{ organization_id: string }>(
       `SELECT organization_id
        FROM operating_layer.audit_events
@@ -1017,5 +1255,33 @@ describe("Phase 3 Gmail draft external-write slice", () => {
       },
     });
     expect(cleared.statusCode, cleared.body).toBe(202);
+
+    await configure(true, cultivusId);
+    const privilegedClient = await adminPool.connect();
+    try {
+      await privilegedClient.query("BEGIN");
+      await privilegedClient.query(
+        `SELECT set_config(
+           'app.gmail_credential_binding_guard',
+           'gmail_credential_binding:v1',
+           true
+         )`,
+      );
+      await privilegedClient.query(
+        `UPDATE operating_layer.gmail_draft_credential_bindings
+         SET active_credential_version_id = NULL
+         WHERE organization_id = $1`,
+        [cultivusId],
+      );
+      await privilegedClient.query("COMMIT");
+    } catch (error) {
+      await privilegedClient.query("ROLLBACK");
+      throw error;
+    } finally {
+      privilegedClient.release();
+    }
+    await expect(
+      assertGmailCredentialStartup(workerPool, credentialRuntime),
+    ).rejects.toThrow(/startup invariant failed/i);
   });
 });

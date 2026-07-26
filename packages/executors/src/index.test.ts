@@ -9,7 +9,16 @@ import {
   GMAIL_COMPOSE_OAUTH_SCOPE,
   renderGmailDraftRaw,
   resolveExecutionProvider,
+  type GmailDraftCreateTransport,
 } from "./index.js";
+
+type AssertFalse<T extends false> = T;
+type GmailTransportHasNoSend = AssertFalse<
+  "send" extends keyof GmailDraftCreateTransport ? true : false
+>;
+type GmailProviderHasNoSend = AssertFalse<
+  "send" extends keyof GmailDraftExecutionProvider ? true : false
+>;
 
 const action = {
   organizationId: "10000000-0000-4000-8000-000000000001",
@@ -126,7 +135,9 @@ describe("execution provider seam", () => {
     );
   });
 
-  it("fixes the real transport to Gmail drafts.create and exposes no send request", async () => {
+  it("makes messages.send unreachable at the type, object, prototype, route-target, and request levels", async () => {
+    const transportHasNoSend: GmailTransportHasNoSend = false;
+    const providerHasNoSend: GmailProviderHasNoSend = false;
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -138,6 +149,13 @@ describe("execution provider seam", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const transport = new GoogleGmailDraftCreateTransport();
+    const provider = new GmailDraftExecutionProvider(transport);
+    expect(transportHasNoSend).toBe(false);
+    expect(providerHasNoSend).toBe(false);
+    expect("send" in transport).toBe(false);
+    expect("send" in provider).toBe(false);
+    expect("messages.send" in transport).toBe(false);
+    expect("messages.send" in provider).toBe(false);
     await expect(
       transport.createDraft({
         raw: "base64url-message",
@@ -160,5 +178,8 @@ describe("execution provider seam", () => {
     expect(
       Object.getOwnPropertyNames(GoogleGmailDraftCreateTransport.prototype),
     ).toEqual(["constructor", "createDraft"]);
+    expect(
+      Object.getOwnPropertyNames(GmailDraftExecutionProvider.prototype),
+    ).toEqual(["constructor", "execute"]);
   });
 });

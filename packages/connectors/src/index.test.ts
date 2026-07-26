@@ -1,6 +1,8 @@
 import { generateKeyPairSync } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { inspect } from "node:util";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  EphemeralConnectorCredential,
   GMAIL_COMPOSE_SCOPE,
   RsaEnvelopeCredentialDecryptor,
   RsaEnvelopeCredentialEncryptor,
@@ -9,6 +11,10 @@ import {
 } from "./index.js";
 
 describe("connector credential boundary", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   function keyPair() {
     const pair = generateKeyPairSync("rsa", {
       modulusLength: 2048,
@@ -25,8 +31,9 @@ describe("connector credential boundary", () => {
     };
   }
 
-  it("round-trips only with the organization/version AAD and stores ciphertext", () => {
+  it("rejects decryption with the wrong organization or an unrelated private key", () => {
     const { encryptor, decryptor } = keyPair();
+    const unrelated = keyPair();
     const context = {
       organizationId: "10000000-0000-4000-8000-000000000001",
       credentialVersionId: "70000000-0000-4000-8000-000000000001",
@@ -41,21 +48,65 @@ describe("connector credential boundary", () => {
         organizationId: "10000000-0000-4000-8000-000000000002",
       }),
     ).toThrow();
+    expect(() => unrelated.decryptor.decrypt(envelope, context)).toThrow();
   });
 
-  it("pins the exact Gmail scope and redacts secrets from safe text", () => {
-    expect(() =>
-      assertExactGmailCredentialScopes([GMAIL_COMPOSE_SCOPE]),
-    ).not.toThrow();
+  it("rejects a missing or malformed worker private key before runtime", () => {
+    expect(() => new RsaEnvelopeCredentialDecryptor("")).toThrow(
+      /private decryption key is required/i,
+    );
+    expect(
+      () =>
+        new RsaEnvelopeCredentialDecryptor(
+          Buffer.from("not-a-private-key", "utf8").toString("base64"),
+        ),
+    ).toThrow();
+  });
+
+  it("rejects every scope set that is not exactly gmail.compose", () => {
     expect(() =>
       assertExactGmailCredentialScopes([
         GMAIL_COMPOSE_SCOPE,
         "https://www.googleapis.com/auth/gmail.modify",
       ]),
     ).toThrow(/exactly/i);
+    expect(() =>
+      assertExactGmailCredentialScopes(["https://mail.google.com/"]),
+    ).toThrow(/exactly/i);
+    expect(() => assertExactGmailCredentialScopes([])).toThrow(/exactly/i);
+  });
+
+  it("redacts a credential object and an echoed token under structured logging duress", () => {
     const token = "token-that-must-not-escape";
+    const credential = new EphemeralConnectorCredential(token);
+    const captured: string[] = [];
+    vi.spyOn(console, "error").mockImplementation((...values: unknown[]) => {
+      captured.push(
+        values
+          .map((value) =>
+            typeof value === "string" ? value : inspect(value, { depth: 10 }),
+          )
+          .join(" "),
+      );
+    });
+
+    console.error({
+      name: "adversarial.credential.log",
+      traceId: "trace-redaction-under-duress",
+      credential,
+      safeError: redactSensitiveText(`provider echoed ${credential.reveal()}`, [
+        credential.reveal(),
+      ]),
+    });
+    captured.push(JSON.stringify({ credential }));
+    captured.push(String(credential));
+
+    const completeOutput = captured.join("\n");
+    expect(completeOutput).not.toContain(token);
+    expect(completeOutput).toContain("[REDACTED]");
     expect(redactSensitiveText(`provider echoed ${token}`, [token])).toBe(
       "provider echoed [REDACTED]",
     );
+    credential.dispose();
   });
 });
