@@ -332,3 +332,5 @@ export interface ControlledWriteConnector {
     executionReference: string,
   ): Promise<{ rolledBack: boolean; rollbackReference?: string }>;
 }
+
+export * from "./company-brain.js";

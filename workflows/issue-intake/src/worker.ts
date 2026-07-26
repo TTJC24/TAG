@@ -16,11 +16,8 @@ import {
   type ExecutionProvider,
 } from "@operating-layer/executors";
 import { evaluateDeclarativeApprovalPolicy } from "@operating-layer/workflows";
-import {
-  ClassificationAgent,
-  DeterministicModelProvider,
-  RecommendationAgent,
-} from "./agents.js";
+import { ClassificationAgent, RecommendationAgent } from "./agents.js";
+import { resolveModelProvider } from "./brain-provider.js";
 import { loadActiveApprovalPolicy } from "./policy.js";
 import {
   finalizeInternalExecutionFailure,
@@ -68,7 +65,7 @@ interface WorkflowTaskRow {
   observed_at: Date | string;
 }
 
-const provider = new DeterministicModelProvider();
+const provider = resolveModelProvider();
 const classificationAgent = new ClassificationAgent(provider);
 const recommendationAgent = new RecommendationAgent(provider);
 
