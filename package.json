@@ -19,7 +19,8 @@
     "typecheck": "turbo run typecheck",
     "traction-bridge:sync": "pnpm --filter @operating-layer/api build && node apps/api/dist/traction-bridge-cli.js",
     "kpi-exceptions:scan": "pnpm --filter @operating-layer/api build && node apps/api/dist/kpi-exceptions-cli.js",
-    "brief:generate": "pnpm --filter @operating-layer/api build && node apps/api/dist/brief-cli.js"
+    "brief:generate": "pnpm --filter @operating-layer/api build && node apps/api/dist/brief-cli.js",
+    "demandstar:sync": "pnpm --filter @operating-layer/api build && node apps/api/dist/demandstar-cli.js"
   },
   "devDependencies": {
     "@types/node": "catalog:",

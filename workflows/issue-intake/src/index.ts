@@ -3,6 +3,7 @@ export * from "./approval.js";
 export * from "./brief.js";
 export * from "./brain-provider.js";
 export * from "./csv.js";
+export * from "./demandstar.js";
 export * from "./errors.js";
 export * from "./execution.js";
 export * from "./execution-replay.js";
