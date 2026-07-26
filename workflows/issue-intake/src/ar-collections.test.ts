@@ -70,11 +70,11 @@ describe("Collections doorway", () => {
   it("routes FS -> org code, sets step, due date, and idempotency key", () => {
     const drafts = buildCollectionsDrafts(aging);
     const acme = drafts.find((d) => d.customerId === "ACME001")!;
-    expect(acme.orgCode).toBe("FSI"); // FS (Acumatica) -> FSI (OS canonical code)
+    expect(acme.orgCode).toBe("FS"); // FS (Acumatica) -> FS (OS canonical code)
     expect(acme.pastDue).toBe(130);
     expect(acme.step).toBe(2); // worst bucket 31-60 -> step 2
     expect(acme.dueDate).toBe("2026-05-31"); // oldest overdue invoice
-    expect(acme.idempotencyKey).toBe("collections:FSI:2026-07-06:ACME001");
+    expect(acme.idempotencyKey).toBe("collections:FS:2026-07-06:ACME001");
     expect(acme.title).toContain("past due");
 
     const old = drafts.find((d) => d.customerId === "OLD002")!;

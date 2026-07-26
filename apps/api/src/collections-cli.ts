@@ -23,8 +23,8 @@ import {
  *   DATABASE_URL=<operating-layer runtime database>
  * Optional:
  *   COLLECTIONS_MIN_PAST_DUE=25          (skip trivial balances)
- *   COLLECTIONS_ORG_CODE=FSI             (force the org; else derived from the
- *                                         export's Company/Branch via the FS->FSI
+ *   COLLECTIONS_ORG_CODE=FS             (force the org; else derived from the
+ *                                         export's Company/Branch via the FS->FS
  *                                         boundary map)
  *
  * Export the report from Acumatica as CSV (AR Aging - Detailed). Re-running the

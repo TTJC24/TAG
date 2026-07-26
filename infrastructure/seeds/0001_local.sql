@@ -18,7 +18,7 @@ VALUES
   (
     '10000000-0000-4000-8000-000000000002',
     'Fastening Specialists',
-    'FSI',
+    'FS',
     'active'
   ),
   (
@@ -176,7 +176,7 @@ VALUES
     '20000000-0000-4000-8000-000000000004',
     'local',
     'local-fsi-operator',
-    'Local FSI Operator',
+    'Local FS Operator',
     'fsi-operator@local.operating-layer',
     'active'
   ),

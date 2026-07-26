@@ -36,7 +36,7 @@ export const TRACTION_ISSUE_STATUSES = [
 ] as const;
 
 const DEFAULT_ORG_CODE_MAP: Record<string, string> = {
-  FS: "FSI",
+  FS: "FS",
   BL: "BLCS",
   USA: "USA",
 };

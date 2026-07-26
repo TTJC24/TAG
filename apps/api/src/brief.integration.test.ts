@@ -92,7 +92,7 @@ describe("machine-generated morning brief", () => {
     expect(brief).toContain("Recommended:");
 
     // Every organization the admin can read gets a section.
-    expect(brief).toMatch(/## .*\(FSI\)/);
+    expect(brief).toMatch(/## .*\(FS\)/);
     expect(brief).toMatch(/## .*\(USA\)/);
 
     // Scoping: restricting to one organization drops the others.
@@ -101,7 +101,7 @@ describe("machine-generated morning brief", () => {
       generatedAt: "2026-07-26T06:00:00.000Z",
     });
     expect(scoped).toMatch(/## .*\(BLCS\)/);
-    expect(scoped).not.toMatch(/## .*\(FSI\)/);
+    expect(scoped).not.toMatch(/## .*\(FS\)/);
   });
 
   it("refuses organizations the user cannot read", async () => {
@@ -110,7 +110,7 @@ describe("machine-generated morning brief", () => {
       subject: operatorEmail,
       email: operatorEmail,
     });
-    // The BLCS operator is not a member of FSI; asking for it must fail, not
+    // The BLCS operator is not a member of FS; asking for it must fail, not
     // silently render.
     const fsiId = "10000000-0000-4000-8000-000000000002";
     await expect(

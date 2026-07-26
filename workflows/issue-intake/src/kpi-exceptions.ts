@@ -36,7 +36,7 @@ export const kpiExceptionDefinitionSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-]{2,63}$/)
     .describe("stable slug, e.g. stale-opportunities-fs"),
   name: z.string().min(3).max(120),
-  entityCode: z.enum(["BLCS", "FSI", "USA", "CULTIVUS"]),
+  entityCode: z.enum(["BLCS", "FS", "USA", "CULTIVUS"]),
   certified: z.boolean(),
   promotionEvidence: z.string().min(1).optional(),
   sql: z.string().min(10),

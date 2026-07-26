@@ -42,7 +42,7 @@ export function toBrainScope(
   entityCode: string | undefined,
 ): CompanyBrainScope {
   switch (entityCode) {
-    case "FSI":
+    case "FS":
       return "fs";
     case "BLCS":
       return "blcs";

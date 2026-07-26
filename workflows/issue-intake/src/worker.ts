@@ -55,7 +55,7 @@ interface WorkflowTaskRow {
   financial_exposure: string | null;
   financial_exposure_currency: string | null;
   created_by_actor_id: string;
-  organization_code: "BLCS" | "FSI" | "USA" | "CULTIVUS";
+  organization_code: "BLCS" | "FS" | "USA" | "CULTIVUS";
   source_system_id: string;
   source_type: string;
   source_record_id: string;

@@ -194,7 +194,7 @@ describe("TractionOS issue bridge", () => {
     expect(drained.deadLetter).toBe(0);
 
     // The FS issue (escalation wording) stops at the human approval gate and
-    // is visible in FSI's executive queue; the BL issue was internal-only and
+    // is visible in FS's executive queue; the BL issue was internal-only and
     // ran the full governed pipeline to completion in BLCS.
     const fsQueue = await app.inject({
       method: "GET",
@@ -226,10 +226,10 @@ describe("TractionOS issue bridge", () => {
       expect.objectContaining({
         title: "Freight quotes stale for two weeks",
         status: "awaiting_approval",
-        code: "FSI",
+        code: "FS",
       }),
     ]);
-    const fsTask = synced.rows.find((row) => row.code === "FSI");
+    const fsTask = synced.rows.find((row) => row.code === "FS");
     expect(fsTask!.description).toContain(
       `Traction issue id: ${tabledFsIssue}`,
     );

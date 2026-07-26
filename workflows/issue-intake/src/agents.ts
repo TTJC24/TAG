@@ -16,7 +16,7 @@ import {
 } from "@operating-layer/schemas";
 
 export interface ClassificationAgentInput {
-  entityCode: "BLCS" | "FSI" | "USA" | "CULTIVUS";
+  entityCode: "BLCS" | "FS" | "USA" | "CULTIVUS";
   title: string;
   description: string;
   financialExposure?: number;

@@ -17,7 +17,7 @@ import {
  *   TRACTION_BRIDGE_USER_EMAIL=<provisioned operating-layer user>
  *   DATABASE_URL=<operating-layer runtime database>
  * Optional:
- *   TRACTION_BRIDGE_ORG_CODE_MAP='{"FS":"FSI","BL":"BLCS","USA":"USA"}'
+ *   TRACTION_BRIDGE_ORG_CODE_MAP='{"FS":"FS","BL":"BLCS","USA":"USA"}'
  *   TRACTION_BRIDGE_BATCH_LIMIT=100
  *
  * The bridge additionally forces its Traction session read-only; the live

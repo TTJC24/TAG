@@ -319,8 +319,8 @@ describe("operator dead-letter replay of internal execution", () => {
 
   it("does not leak another organization's approval across the org boundary", async () => {
     const { approvalId } = await createApprovedFixture("trace-replay-crossorg");
-    // admin is a member of FSI too, so the permission check passes for fsiId,
-    // but the blcs approval must not be visible under the FSI scope.
+    // admin is a member of FS too, so the permission check passes for fsiId,
+    // but the blcs approval must not be visible under the FS scope.
     const response = await app.inject({
       method: "POST",
       url: `/v1/approvals/${approvalId}/executions/replay`,

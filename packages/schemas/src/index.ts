@@ -7,7 +7,7 @@ export const organizationCodeSchema = z
   .max(32)
   .regex(/^[A-Z0-9_+-]+$/);
 
-export const entityCodeSchema = z.enum(["BLCS", "FSI", "USA", "CULTIVUS"]);
+export const entityCodeSchema = z.enum(["BLCS", "FS", "USA", "CULTIVUS"]);
 export type EntityCode = z.infer<typeof entityCodeSchema>;
 
 export const taskStatusSchema = z.enum([

@@ -104,7 +104,7 @@ describe("company-brain grounded model provider", () => {
   });
 
   it("maps organization codes onto brain memory scopes", () => {
-    expect(toBrainScope("FSI")).toBe("fs");
+    expect(toBrainScope("FS")).toBe("fs");
     expect(toBrainScope("BLCS")).toBe("blcs");
     expect(toBrainScope("USA")).toBe("usa");
     expect(toBrainScope("CULTIVUS")).toBe("shared");

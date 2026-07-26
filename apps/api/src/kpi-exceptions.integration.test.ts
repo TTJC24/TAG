@@ -25,7 +25,7 @@ const adminEmail = "admin@local.operating-layer";
 const certifiedDefinition: KpiExceptionDefinition = {
   id: "stale-opportunities-fs-test",
   name: "Stale opportunities (test-certified)",
-  entityCode: "FSI",
+  entityCode: "FS",
   certified: true,
   promotionEvidence: "test fixture ledger entry",
   sql: "SELECT deal_id, opportunity, owner, stage, days_stale FROM stale_deals",

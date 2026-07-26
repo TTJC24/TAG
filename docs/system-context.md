@@ -171,19 +171,17 @@ close checklist per entity: [UNKNOWN — get the ClickUp close-list templates].
 How the above lands against what is actually deployed. Owner confirmation needed
 on the entity model before it is changed.
 
-- **Entity model — decided: keep `FSI`, map at the boundary.** Production seeded
-  four orgs: Big League Construction Supply `BLCS`, Fastening Specialists `FSI`,
-  Utility Supply Associates `USA`, Cultivus `CULTIVUS`. TractionOS/Acumatica call
-  Fastening Specialists **`FS`**. `FSI` is the OS's **canonical entity code**,
-  baked into the schema enum (`z.enum(["BLCS","FSI","USA","CULTIVUS"])`) and ~15
-  spots across services, seeds, and tests — so `FSI` is NOT renamed. Instead the
-  external label `FS` is translated to `FSI` **at each doorway** (the Traction
-  bridge already does `{"FS":"FSI"}`; the Collections doorway does the same).
-  `FSI` here means **Fastening Specialists**; it is unrelated to the finance-only
-  **FSI Acquisition Corp** propco, which is not an OS org. **Coaching** and **FSI
-  Acquisition** stay finance/close entities, not OS orgs. Do not introduce a
-  "Clark Holdings" org — it is not a real entity. (A cosmetic `FSI→FS` rename
-  remains possible later as a deliberate, scheduled refactor.)
+- **Entity codes — corrected to `FS`.** The operating-layer orgs and their
+  canonical codes are: **BLCS** (Big League Construction Supply), **FS**
+  (Fastening Specialists), **USA** (Utility Supply Associates), **CULTIVUS**
+  (Cultivus Plus). Fastening Specialists was initially mis-seeded with code
+  `FSI`; that was wrong, because **`FSI` denotes a real distinct entity — FSI
+  Acquisition Corp, the real-estate propco** — so the code was corrected `FSI ->
+  FS` across the schema enum (`z.enum(["BLCS","FS","USA","CULTIVUS"])`), services,
+  seeds, and tests, and in the production database. Acumatica/TractionOS already
+  use `FS`, so the doorways map `FS -> FS` (identity) and `BL/BLC -> BLCS`. FSI
+  Acquisition Corp and Coaching remain finance/close entities, **not** OS orgs.
+  Do not introduce a "Clark Holdings" org — it is not a real entity.
 - **Collections module, sharpened.** First target = **FS + BL**, source = Acumatica
   AR aging + `AR3020PL`. No live Acumatica connector exists yet, so **v1 rides the
   CSV batch-intake doorway** (weekly aging export) — exactly the "file first, brain
