@@ -1,45 +1,56 @@
 import { randomUUID } from "node:crypto";
 import {
-  assertSafeRuntimeDatabaseIdentity,
+  assertWorkerDatabaseIdentity,
   createDatabasePool,
 } from "@operating-layer/db";
 import {
+  assertGmailCredentialStartup,
+  DisabledOAuthTokenRevoker,
+  GoogleOAuthTokenRevoker,
   IDEMPOTENCY_REAPER_INTERVAL_MS,
   processNextOutboxJob,
   reapExpiredIdempotencyKeys,
 } from "@operating-layer/issue-intake";
 import {
   DisabledGmailDraftExecutionProvider,
-  EnvironmentConnectorSecretResolver,
   GmailDraftExecutionProvider,
   GoogleGmailDraftCreateTransport,
   resolveExecutionProvider,
 } from "@operating-layer/executors";
+import { RsaEnvelopeCredentialDecryptor } from "@operating-layer/connectors";
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.WORKER_DATABASE_URL ?? process.env.DATABASE_URL;
 if (!databaseUrl) {
   throw new Error("DATABASE_URL is required");
 }
 
 const pool = createDatabasePool(databaseUrl);
 try {
-  await assertSafeRuntimeDatabaseIdentity(pool);
+  await assertWorkerDatabaseIdentity(pool);
 } catch (error) {
   await pool.end();
   throw error;
 }
+const privateKey = process.env.CONNECTOR_CREDENTIAL_PRIVATE_KEY_DER_B64;
+if (!privateKey) {
+  await pool.end();
+  throw new Error("CONNECTOR_CREDENTIAL_PRIVATE_KEY_DER_B64 is required");
+}
+const networkEnabled = process.env.GMAIL_DRAFT_NETWORK_ENABLED === "true";
+const credentialRuntime = {
+  decryptor: new RsaEnvelopeCredentialDecryptor(privateKey),
+  revoker: networkEnabled
+    ? new GoogleOAuthTokenRevoker()
+    : new DisabledOAuthTokenRevoker(),
+};
+await assertGmailCredentialStartup(pool, credentialRuntime);
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const executionProvider = resolveExecutionProvider(
   process.env.EXECUTION_PROVIDER ?? "deterministic_internal",
 );
-const gmailDraftProvider =
-  process.env.GMAIL_DRAFT_NETWORK_ENABLED === "true"
-    ? new GmailDraftExecutionProvider(
-        new GoogleGmailDraftCreateTransport(
-          new EnvironmentConnectorSecretResolver(),
-        ),
-      )
-    : new DisabledGmailDraftExecutionProvider();
+const gmailDraftProvider = networkEnabled
+  ? new GmailDraftExecutionProvider(new GoogleGmailDraftCreateTransport())
+  : new DisabledGmailDraftExecutionProvider();
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000);
 let stopping = false;
 let nextReaperAt = 0;
@@ -75,6 +86,7 @@ async function loop(): Promise<void> {
       workerId,
       executionProvider,
       gmailDraftProvider,
+      credentialRuntime,
     );
     if (result === "idle") {
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));

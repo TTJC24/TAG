@@ -25,19 +25,45 @@ application is at `http://localhost:3000`; API health is at
 
 ## Database identities
 
-Local Compose initializes PostgreSQL with two distinct identities:
+Local Compose initializes PostgreSQL with three distinct identities:
 
 - `operating_layer` is the migration/administration identity and must never be
   used as `DATABASE_URL` by an application process.
 - `operating_layer_runtime` is the non-owner, non-superuser, non-`BYPASSRLS`
-  API/worker identity configured by `.env.example`.
+  API identity configured by `.env.example`.
+- `operating_layer_worker_runtime` is the separate non-owner worker login. It
+  may assume `operating_layer_worker`, the only role granted access to load
+  organization-scoped encrypted credential envelopes.
 
 API and worker startup query PostgreSQL role and table-ownership metadata
 before accepting work. Startup fails with an
 `UnsafeRuntimeDatabaseIdentityError` if the connection is a superuser, has
 `BYPASSRLS`, or owns any RLS-protected table. Production must provision a
-credentialed runtime role with the same invariants; migrations remain a
-separate deployment step under a migration identity.
+credentialed runtime role with the same invariants; the worker additionally
+requires membership in `operating_layer_worker`. Migrations remain a separate
+deployment step under a migration identity.
+
+## Connector encryption keys
+
+Generate separate non-production RSA key material for local use; do not commit
+the output or place production keys in `.env.example`.
+
+```powershell
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out connector-private.pem
+openssl pkey -in connector-private.pem -pubout -out connector-public.pem
+openssl pkcs8 -topk8 -nocrypt -in connector-private.pem -outform DER |
+  openssl base64 -A
+openssl pkey -pubin -in connector-public.pem -outform DER |
+  openssl base64 -A
+```
+
+Set the public output as `CONNECTOR_CREDENTIAL_PUBLIC_KEY_DER_B64` for the API.
+Set the private output as `CONNECTOR_CREDENTIAL_PRIVATE_KEY_DER_B64` only for
+the worker. Set `WORKER_DATABASE_URL` to the dedicated worker login. Delete the
+temporary PEM files after transferring the keys into the local secret store.
+API startup refuses a missing public key; worker startup refuses a missing
+private key, a non-worker DB role, unsafe legacy references, or an enabled
+connector without an active encrypted credential.
 
 ## Seed identities
 
@@ -77,8 +103,11 @@ It additionally proves the disabled-by-default Gmail-draft branch: exact
 preview without materialization, approval/config/authorization gates,
 recipient allowlist, API plus RLS isolation, stored-result replay without a
 second provider call, kill-switch fallback to internal execution, trace/audit
-continuity, and bounded-retry dead-letter visibility. Tests inject an in-memory
-transport and make no Google network request.
+continuity, bounded-retry dead-letter visibility, ciphertext-at-rest,
+worker-only/RLS credential access, exact scope rejection, replay-safe rotation,
+old-version invalidation, global kill across organizations, startup invariants,
+and token absence from durable audit/trace data. Tests inject in-memory Gmail
+and OAuth-revocation transports and make no Google network request.
 
 ## Continuous integration and merge gate
 
@@ -156,10 +185,16 @@ is allowed to persist.
   requested. Google's compose scope can itself authorize sending; because no
   draft-only scope exists, the fixed drafts-create transport and credential
   controls are part of the safety boundary.
-- Organization config stores only an `env://VARIABLE_NAME` secret reference.
-  The referenced token is resolved in the worker at invocation time and must
-  never be stored in source, PostgreSQL, an audit event, a prompt, or browser
-  state.
+- Credential plaintext is RSA-OAEP/AES-256-GCM envelope-encrypted before
+  persistence. PostgreSQL stores ciphertext plus non-secret fingerprint/scope
+  metadata. Only the dedicated worker DB role can load a scoped envelope, and
+  only the worker process receives the private key. Decryption occurs for one
+  execution call; tokens never enter source, audit metadata, traces, prompts,
+  browser state, or safe error fields.
+- Organization disable, explicit revoke, and rotation synchronously invalidate
+  the active credential before queuing bounded OAuth revocation. The global
+  Gmail kill switch invalidates every organization binding. Clearing it never
+  resurrects credentials.
 - Preview stores the exact recipient, subject, body, and hash but queues no
   external command. A second authorized action creates the Gmail command.
   The worker rechecks the active config and allowlist immediately before the

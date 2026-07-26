@@ -8,8 +8,11 @@ The executable TypeScript contract is in `packages/connectors`.
 - The only implemented write capability is Gmail `drafts.create`, behind its
   accepted ADR and disabled by default. Every other adapter remains read-only
   or a placeholder.
-- Every call carries organization, source-system, trace, idempotency, and secret references.
-- The connector runtime resolves secrets; connector results and agent inputs never contain credentials.
+- Every call carries organization, source-system, trace, and idempotency
+  context. Credential plaintext is never part of a serializable action.
+- Credential storage uses immutable organization-scoped envelope versions.
+  Only the worker role loads/decrypts one at execution time; connector results,
+  logs, audit events, traces, and agent inputs never contain credentials.
 - External IDs and source timestamps are preserved.
 - Raw payload bytes are written as immutable versions before the sync cursor advances.
 - Incremental cursors advance only after raw, normalized, audit, and sync-run state commits.
@@ -35,3 +38,6 @@ The Acumatica, Pipedrive, and Google Drive adapter directories remain
 placeholders until these facts are approved. Gmail draft creation is a narrow
 execution provider, not a general Gmail connector: it declares only
 `drafts.create`, uses the compose scope, and has no send operation.
+Its scope allowlist is exact (not a subset check), its transport exposes only
+`createDraft`, and organization/global kill paths invalidate local use before
+queuing bounded OAuth revocation.

@@ -137,3 +137,49 @@ export async function withOrganizationScope<T>(
     client.release();
   }
 }
+
+export async function withWorkerOrganizationScope<T>(
+  pool: DatabasePool,
+  scope: OrganizationScope,
+  operation: (client: DatabaseClient) => Promise<T>,
+): Promise<T> {
+  if (scope.organizationIds.length === 0) {
+    throw new Error("At least one explicit organization is required");
+  }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL ROLE operating_layer_worker");
+    await client.query("SELECT set_config('app.organization_ids', $1, true)", [
+      toPostgresUuidArray(scope.organizationIds),
+    ]);
+    await client.query("SELECT set_config('app.user_id', $1, true)", [
+      scope.userId,
+    ]);
+    await client.query("SET LOCAL search_path TO operating_layer, public");
+    const result = await operation(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function assertWorkerDatabaseIdentity(
+  pool: DatabasePool,
+): Promise<RuntimeDatabaseIdentity> {
+  const identity = await assertSafeRuntimeDatabaseIdentity(pool);
+  const membership = await pool.query<{ is_worker: boolean }>(
+    `SELECT pg_has_role(current_user, 'operating_layer_worker', 'member')
+       AS is_worker`,
+  );
+  if (!membership.rows[0]?.is_worker) {
+    throw new Error(
+      `Worker database identity "${identity.roleName}" is not a member of operating_layer_worker`,
+    );
+  }
+  return identity;
+}

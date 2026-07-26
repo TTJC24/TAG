@@ -195,8 +195,9 @@ compensation become common.
 
 Execution uses a provider-neutral `ExecutionProvider` contract over a typed
 action and trace/idempotency context. `deterministic_internal` remains the
-default. The Gmail implementation declares only `drafts.create`, uses only the
-compose OAuth scope, and receives a secret reference rather than a credential.
+default. The Gmail implementation declares only `drafts.create`, uses exactly
+the compose OAuth scope, and receives a non-serializable ephemeral credential
+loaded/decrypted by the dedicated worker role for one invocation.
 All provider output is untrusted and schema-validated. The Gmail provider is
 disabled by default at both the organization binding and worker network
 boundary; tests inject an in-memory transport and never call Google.
@@ -260,7 +261,10 @@ verifyAction
 rollbackAction
 ```
 
-Each operation accepts organization scope, trace ID, idempotency key, and secret reference. Results include source identity, observed/source timestamps, cursor, content hash, and structured errors. Connector tokens are resolved by the connector runtime and never cross into agent context.
+Each operation accepts organization scope, trace ID, and idempotency context.
+Credential management is a separate envelope-encryption boundary. Results
+include source identity, observed/source timestamps, cursor, content hash, and
+structured errors. Connector tokens never cross into agent context.
 
 ## Audit-log design
 

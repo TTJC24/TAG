@@ -2,8 +2,9 @@
 
 This file maps the governed internal slices and the first disabled-by-default
 Gmail-draft external-write slice to executable evidence. The feature suite starts from
-an empty PostgreSQL 16 database, applies migrations `0001` through `0007`,
-loads deterministic seed data, and runs through the non-owner runtime role.
+an empty PostgreSQL 16 database, applies migrations `0001` through `0008`,
+loads deterministic seed data, and runs through separate non-owner API and
+worker runtime roles.
 
 ## Gmail draft external-write evidence
 
@@ -22,6 +23,13 @@ loads deterministic seed data, and runs through the non-owner runtime role.
 | Immutable audit and root trace            | Success test asserts approval, preview, authorization, execution, and `gmail_draft.created` share the intake trace; created event records capability, authorization, and draft ID                                   | Automated                     |
 | Task detail and queue                     | Detail response includes config state, exact previews, authorizations, abandonments, command/result and draft ID/link; queue counts `awaiting_external_authorization` and exposes execution dead letters            | Automated + build             |
 | No real network in tests                  | Feature tests inject an in-memory `GmailDraftCreateTransport`; production network transport is not instantiated by API/tests and worker runtime defaults disabled                                                   | Structural + automated        |
+| Ciphertext at rest                        | `encrypts credentials...` reads the credential row through the migration role and proves ciphertext/wrapped key do not contain the submitted token; API runtime has no table access                                 | Automated + DB grants         |
+| Worker-only, organization-scoped load     | Same test proves API query denial, zero cross-org rows under worker RLS, successful active-version load, and rejected prior-version load after rotation                                                             | Automated + RLS               |
+| Exact OAuth scope                         | Typed service and database constraint accept exactly `gmail.compose`; feature test rejects a credential that adds `gmail.modify` without reflecting the token                                                       | Automated + DB constraint     |
+| Rotation and revocation                   | Rotation returns the replaced ID, leaves the new credential immediately usable, makes the old version unusable, and publishes a bounded mocked OAuth-revocation job                                                 | Automated                     |
+| Organization/global kill                  | Organization test proves synchronous invalidation plus internal fallback; global test invalidates active bindings in USA and FSI and audits both under one trace                                                    | Automated                     |
+| Credential telemetry is metadata-only     | Feature tests assert plaintext absent from raw envelope fields and durable audit/trace text; load/use/revoke events contain IDs, fingerprint, purpose, scope, outcome, and trace only                               | Automated                     |
+| Startup invariants                        | Worker startup assertion is exercised with the dedicated worker login and refuses unsafe identity/key/storage conditions; no configuration or key enables network execution                                         | Automated + structural        |
 | Workspace and migration verification      | `pnpm typecheck`, `pnpm build`, and `pnpm test:feature` against clean PostgreSQL 16                                                                                                                                 | Automated commands            |
 | Pull-request verification                 | GitHub Actions check `verify` runs formatting, typecheck, unit tests, clean PostgreSQL feature tests, and build                                                                                                     | Hosted check                  |
 

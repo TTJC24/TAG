@@ -85,7 +85,9 @@ Start with [the current state](docs/current-state.md), [architecture](docs/archi
 [security model](docs/security.md), [Phase 1 implementation record](docs/phase1-implementation.md),
 and [Phase 2 decision](docs/phase2-scope-proposal.md).
 The first external-write boundary is recorded in
-[ADR 0005](docs/decisions/0005-gmail-draft-external-write.md).
+[ADR 0005](docs/decisions/0005-gmail-draft-external-write.md); its credential
+boundary is recorded in
+[ADR 0006](docs/decisions/0006-connector-credential-and-kill-switch-hardening.md).
 
 ## Safety boundary
 
@@ -96,12 +98,18 @@ The first external-write boundary is recorded in
   method, route, or capability, and no separate `gmail.send`/broader scope is
   requested. Google requires the compose scope for draft creation; the fixed
   drafts-create transport is therefore a required control.
-- Credentials are represented only by secret references.
+- Connector credentials use RSA-OAEP/AES-256-GCM envelope encryption.
+  PostgreSQL stores ciphertext and metadata only; the API has the public key
+  and only the dedicated worker role has execution-time decrypt/load access.
 - PostgreSQL stores operating-layer state; source systems remain authoritative.
 - `workflows.current_state` is authoritative; `tasks.status` is updated only by
   the guarded transition function and is checked for projection drift.
 - API and worker processes refuse to start as a PostgreSQL superuser,
   `BYPASSRLS` role, or owner of an RLS-protected table.
+- Gmail credentials are immutable, organization-scoped versions behind a
+  guarded binding. Rotation invalidates the prior version without downtime;
+  organization disable, explicit revoke, and the global Gmail switch make
+  credentials unusable before bounded OAuth revocation is attempted.
 - Each audit event links to the prior stored hash and hashes its canonical
   event payload. The independent verifier checks linkage, event hashes,
   sequence, and stream head.

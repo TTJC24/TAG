@@ -93,7 +93,14 @@ call. The worker validates all provider output as untrusted data before one
 immutable terminal result. Multi-approver collection is not implemented even
 though the policy schema can represent the requirement.
 
-The Gmail credential remains a secret reference until the worker resolves it.
+The Gmail credential is envelope-encrypted with a random AES-256-GCM data key
+wrapped by an RSA-OAEP-SHA256 public key. PostgreSQL stores ciphertext and
+metadata only. The API has encryption-only key material; the separate worker
+environment holds the private key, and only the dedicated worker database role
+can load an organization-scoped envelope at execution time. Immutable
+credential versions and lifecycle facts record rotation, invalidation,
+revocation, load, and use without token plaintext.
+
 The adapter declares only `drafts.create` and the compose OAuth scope. No send
 API, capability, or route exists, and no separate `gmail.send`/broader Gmail
 scope is requested. Google's compose scope can authorize sending and there is
@@ -175,8 +182,12 @@ Before production:
 API and worker startup fails closed when `current_user` is a superuser, has
 `BYPASSRLS`, or owns an RLS-protected table. Runtime uses the non-owner
 `operating_layer_runtime` role; migration ownership remains separate. Workers
-claim jobs only through the narrow `claim_outbox_job` security-definer
-function and process each claimed job under an explicit organization scope.
+use the distinct `operating_layer_worker_runtime` login and must be members of
+`operating_layer_worker`. Only that role can load/use credential envelopes.
+Workers claim jobs through the narrow `claim_outbox_job` security-definer
+function and process each job under an explicit organization scope. Startup
+also rejects unsafe legacy credential references and an enabled connector with
+no active encrypted credential.
 
 ## Explicit prohibitions
 

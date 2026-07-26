@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import { z, ZodError } from "zod";
 import type { IdentityProvider } from "@operating-layer/auth";
 import type { DatabasePool } from "@operating-layer/db";
+import type { ConnectorCredentialEncryptor } from "@operating-layer/connectors";
 import {
   createManualIssue,
   authorizeGmailDraft,
@@ -15,13 +16,17 @@ import {
   getTaskDetail,
   resolveApproval,
   requestInternalExecution,
+  revokeGmailCredential,
   resolveApplicationPrincipal,
+  setGmailGlobalKill,
+  storeGmailCredential,
   uploadCsvBatch,
 } from "@operating-layer/issue-intake";
 
 export interface ApiDependencies {
   pool: DatabasePool;
   identityProvider: IdentityProvider;
+  credentialEncryptor?: ConnectorCredentialEncryptor;
   logger?: boolean;
 }
 
@@ -264,6 +269,71 @@ export async function buildApi(
       context: { traceId, requestId: request.id },
     });
     return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
+
+  app.post("/v1/connectors/gmail-draft/credentials", async (request, reply) => {
+    if (!dependencies.credentialEncryptor) {
+      throw new DomainError(
+        503,
+        "credential_encryption_unavailable",
+        "Connector credential encryption is unavailable",
+      );
+    }
+    const principal = await principalFor(request);
+    const idempotencyKey = headerValue(request, "idempotency-key");
+    if (!idempotencyKey) {
+      throw new DomainError(
+        400,
+        "idempotency_key_required",
+        "Idempotency-Key is required",
+      );
+    }
+    const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+    const response = await storeGmailCredential(
+      dependencies.pool,
+      dependencies.credentialEncryptor,
+      {
+        principal,
+        input: request.body as never,
+        idempotencyKey,
+        context: { traceId, requestId: request.id },
+      },
+    );
+    return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
+
+  app.post(
+    "/v1/connectors/gmail-draft/credentials/revoke",
+    async (request, reply) => {
+      const principal = await principalFor(request);
+      const idempotencyKey = headerValue(request, "idempotency-key");
+      if (!idempotencyKey) {
+        throw new DomainError(
+          400,
+          "idempotency_key_required",
+          "Idempotency-Key is required",
+        );
+      }
+      const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+      const response = await revokeGmailCredential(dependencies.pool, {
+        principal,
+        input: request.body as never,
+        idempotencyKey,
+        context: { traceId, requestId: request.id },
+      });
+      return reply.status(response.duplicate ? 200 : 202).send(response);
+    },
+  );
+
+  app.post("/v1/connectors/gmail-draft/global-kill", async (request, reply) => {
+    const principal = await principalFor(request);
+    const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+    const response = await setGmailGlobalKill(dependencies.pool, {
+      principal,
+      input: request.body,
+      context: { traceId, requestId: request.id },
+    });
+    return reply.status(202).send(response);
   });
 
   app.post<{

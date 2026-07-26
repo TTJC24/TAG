@@ -24,8 +24,10 @@ Implement one connector capability: Gmail `drafts.create`.
   full-mail scopes.
 - Configuration is organization-scoped, immutable, versioned, and activated
   through a guarded binding. The absence of a binding means disabled.
-- Credential values never enter PostgreSQL, browser state, a prompt, or audit
-  metadata. Configuration stores only an `env://...` secret reference.
+- Credential plaintext never enters PostgreSQL, browser state, a prompt, or
+  audit metadata. ADR 0006 replaces environment references with an
+  application-level RSA/AES envelope; only the dedicated worker role can load
+  ciphertext and only the worker environment holds the private decryption key.
 - Runtime network execution is separately disabled unless
   `GMAIL_DRAFT_NETWORK_ENABLED=true`; no seed or example enables it.
 

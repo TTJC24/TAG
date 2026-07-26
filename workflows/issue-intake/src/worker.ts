@@ -27,6 +27,11 @@ import {
   processInternalExecutionJob,
 } from "./execution-worker.js";
 import { finalizeCsvRowFailure, processCsvBatchRow } from "./csv.js";
+import {
+  processCredentialRevocationJob,
+  recordCredentialRevocationFailure,
+  type GmailCredentialRuntime,
+} from "./gmail-credential-worker.js";
 
 export interface OutboxJob {
   id: string;
@@ -797,6 +802,7 @@ export async function processNextOutboxJob(
   workerId: string,
   executionProvider: ExecutionProvider = resolveExecutionProvider(),
   gmailDraftProvider: ExecutionProvider = new DisabledGmailDraftExecutionProvider(),
+  credentialRuntime?: GmailCredentialRuntime,
 ): Promise<"idle" | "published" | "failed" | "dead_letter"> {
   const job = await claimNextOutboxJob(pool, workerId);
   if (!job) {
@@ -810,7 +816,15 @@ export async function processNextOutboxJob(
         job,
         executionProvider,
         gmailDraftProvider,
+        credentialRuntime,
       );
+      return "published";
+    }
+    if (job.topic === "gmail.credential.revoke") {
+      if (!credentialRuntime) {
+        throw new Error("Gmail credential runtime is unavailable");
+      }
+      await processCredentialRevocationJob(pool, job, credentialRuntime);
       return "published";
     }
     await withOrganizationScope(
@@ -835,6 +849,12 @@ export async function processNextOutboxJob(
       );
       return "dead_letter";
     }
+    if (
+      job.topic === "gmail.credential.revoke" &&
+      job.attempts >= job.max_attempts
+    ) {
+      await recordCredentialRevocationFailure(pool, job);
+    }
     return recordJobFailure(pool, job, error);
   }
 }
@@ -845,6 +865,7 @@ export async function drainOutbox(
   maximumJobs = 100,
   executionProvider: ExecutionProvider = resolveExecutionProvider(),
   gmailDraftProvider: ExecutionProvider = new DisabledGmailDraftExecutionProvider(),
+  credentialRuntime?: GmailCredentialRuntime,
 ): Promise<{
   published: number;
   failed: number;
@@ -857,6 +878,7 @@ export async function drainOutbox(
       workerId,
       executionProvider,
       gmailDraftProvider,
+      credentialRuntime,
     );
     if (result === "idle") {
       break;

@@ -18,6 +18,7 @@ services:
       - ./infrastructure/migrations/0005_phase2_internal_execution.sql:/docker-entrypoint-initdb.d/0005_phase2_internal_execution.sql:ro
       - ./infrastructure/migrations/0006_phase2_csv_batch_intake.sql:/docker-entrypoint-initdb.d/0006_phase2_csv_batch_intake.sql:ro
       - ./infrastructure/migrations/0007_phase3_gmail_draft.sql:/docker-entrypoint-initdb.d/0007_phase3_gmail_draft.sql:ro
+      - ./infrastructure/migrations/0008_phase3_connector_credentials.sql:/docker-entrypoint-initdb.d/0008_phase3_connector_credentials.sql:ro
       - ./infrastructure/seeds/0001_local.sql:/docker-entrypoint-initdb.d/9001_local_seed.sql:ro
     healthcheck:
       test:

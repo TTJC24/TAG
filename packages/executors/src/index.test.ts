@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { EphemeralConnectorCredential } from "@operating-layer/connectors";
 import {
   DeterministicInternalExecutionProvider,
   DisabledGmailDraftExecutionProvider,
@@ -56,8 +57,7 @@ describe("execution provider seam", () => {
   });
 
   it("exposes only drafts.create and renders the exact authorized payload", async () => {
-    const requests: Array<{ raw: string; credentialSecretReference: string }> =
-      [];
+    const requests: Array<{ raw: string; accessToken: string }> = [];
     const provider = new GmailDraftExecutionProvider({
       async createDraft(request) {
         requests.push(request);
@@ -76,10 +76,17 @@ describe("execution provider seam", () => {
       subject: "Approved follow-up",
       body: "Line one\nLine two",
       renderedPayloadHash: "b".repeat(64),
-      credentialSecretReference: "env://GMAIL_TEST_TOKEN",
     };
     await expect(
-      provider.execute({ ...action, payload }, context),
+      provider.execute(
+        { ...action, payload },
+        {
+          ...context,
+          connectorCredential: new EphemeralConnectorCredential(
+            "test-token-never-logged",
+          ),
+        },
+      ),
     ).resolves.toMatchObject({
       outcome: "succeeded",
       output: {
@@ -92,10 +99,13 @@ describe("execution provider seam", () => {
     expect(provider.capabilities).toEqual(["drafts.create"]);
     expect(provider.oauthScopes).toEqual([GMAIL_COMPOSE_OAUTH_SCOPE]);
     expect(Object.keys(provider)).not.toContain("send");
+    expect(
+      Object.getOwnPropertyNames(GmailDraftExecutionProvider.prototype),
+    ).toEqual(["constructor", "execute"]);
     expect(requests).toEqual([
       {
         raw: renderGmailDraftRaw(payload),
-        credentialSecretReference: "env://GMAIL_TEST_TOKEN",
+        accessToken: "test-token-never-logged",
       },
     ]);
     const decoded = Buffer.from(
@@ -127,16 +137,11 @@ describe("execution provider seam", () => {
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const transport = new GoogleGmailDraftCreateTransport({
-      async resolve(reference) {
-        expect(reference).toBe("env://GMAIL_TEST_TOKEN");
-        return "test-token-never-logged";
-      },
-    });
+    const transport = new GoogleGmailDraftCreateTransport();
     await expect(
       transport.createDraft({
         raw: "base64url-message",
-        credentialSecretReference: "env://GMAIL_TEST_TOKEN",
+        accessToken: "test-token-never-logged",
       }),
     ).resolves.toEqual({
       draftId: "draft-fixed-1",
@@ -152,5 +157,8 @@ describe("execution provider seam", () => {
       }),
     );
     expect(fetchMock.mock.calls[0]?.[0]).not.toContain("send");
+    expect(
+      Object.getOwnPropertyNames(GoogleGmailDraftCreateTransport.prototype),
+    ).toEqual(["constructor", "createDraft"]);
   });
 });

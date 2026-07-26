@@ -1,3 +1,5 @@
+import type { EphemeralConnectorCredential } from "@operating-layer/connectors";
+
 export interface ExecutionAction {
   organizationId: string;
   taskId: string;
@@ -15,6 +17,7 @@ export interface ExecutionContext {
   requestId: string;
   commandId: string;
   idempotencyKey: string;
+  connectorCredential?: EphemeralConnectorCredential;
 }
 
 export interface ExecutionProvider {
@@ -40,12 +43,11 @@ export interface GmailDraftPayload {
   subject: string;
   body: string;
   renderedPayloadHash: string;
-  credentialSecretReference: string;
 }
 
 export interface GmailDraftCreateRequest {
   raw: string;
-  credentialSecretReference: string;
+  accessToken: string;
 }
 
 export interface GmailDraftCreateResult {
@@ -60,42 +62,16 @@ export interface GmailDraftCreateTransport {
   ): Promise<GmailDraftCreateResult>;
 }
 
-export interface ConnectorSecretResolver {
-  resolve(secretReference: string): Promise<string>;
-}
-
-export class EnvironmentConnectorSecretResolver implements ConnectorSecretResolver {
-  async resolve(secretReference: string): Promise<string> {
-    if (!secretReference.startsWith("env://")) {
-      throw new Error("Only env:// connector secret references are supported");
-    }
-    const variableName = secretReference.slice("env://".length);
-    if (!/^[A-Z][A-Z0-9_]{2,100}$/.test(variableName)) {
-      throw new Error("Invalid connector secret environment reference");
-    }
-    const value = process.env[variableName];
-    if (!value) {
-      throw new Error("Connector secret reference could not be resolved");
-    }
-    return value;
-  }
-}
-
 export class GoogleGmailDraftCreateTransport implements GmailDraftCreateTransport {
-  constructor(private readonly secrets: ConnectorSecretResolver) {}
-
   async createDraft(
     request: GmailDraftCreateRequest,
   ): Promise<GmailDraftCreateResult> {
-    const accessToken = await this.secrets.resolve(
-      request.credentialSecretReference,
-    );
     const response = await fetch(
       "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
       {
         method: "POST",
         headers: {
-          authorization: `Bearer ${accessToken}`,
+          authorization: `Bearer ${request.accessToken}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({ message: { raw: request.raw } }),
@@ -172,9 +148,7 @@ function parseGmailDraftPayload(value: unknown): GmailDraftPayload {
     !("body" in value) ||
     typeof value.body !== "string" ||
     !("renderedPayloadHash" in value) ||
-    typeof value.renderedPayloadHash !== "string" ||
-    !("credentialSecretReference" in value) ||
-    typeof value.credentialSecretReference !== "string"
+    typeof value.renderedPayloadHash !== "string"
   ) {
     throw new Error("Gmail draft execution payload is invalid");
   }
@@ -192,12 +166,16 @@ export class GmailDraftExecutionProvider implements ExternalExecutionProvider {
 
   async execute(
     action: ExecutionAction,
-    _context: ExecutionContext,
+    context: ExecutionContext,
   ): Promise<unknown> {
     const payload = parseGmailDraftPayload(action.payload);
+    const credential = context.connectorCredential;
+    if (!credential) {
+      throw new Error("Execution-time connector credential is required");
+    }
     const result = await this.transport.createDraft({
       raw: renderGmailDraftRaw(payload),
-      credentialSecretReference: payload.credentialSecretReference,
+      accessToken: credential.reveal(),
     });
     return {
       outcome: "succeeded",

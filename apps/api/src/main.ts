@@ -7,6 +7,7 @@ import {
   assertSafeRuntimeDatabaseIdentity,
   createDatabasePool,
 } from "@operating-layer/db";
+import { RsaEnvelopeCredentialEncryptor } from "@operating-layer/connectors";
 import { buildApi } from "./server.js";
 
 function identityProviderFromEnvironment(): IdentityProvider {
@@ -43,9 +44,15 @@ try {
   await pool.end();
   throw error;
 }
+const credentialPublicKey = process.env.CONNECTOR_CREDENTIAL_PUBLIC_KEY_DER_B64;
+if (!credentialPublicKey) {
+  await pool.end();
+  throw new Error("CONNECTOR_CREDENTIAL_PUBLIC_KEY_DER_B64 is required");
+}
 const app = await buildApi({
   pool,
   identityProvider: identityProviderFromEnvironment(),
+  credentialEncryptor: new RsaEnvelopeCredentialEncryptor(credentialPublicKey),
   logger: true,
 });
 

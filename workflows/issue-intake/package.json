@@ -19,6 +19,7 @@
     "@operating-layer/agents": "workspace:*",
     "@operating-layer/audit": "workspace:*",
     "@operating-layer/auth": "workspace:*",
+    "@operating-layer/connectors": "workspace:*",
     "@operating-layer/db": "workspace:*",
     "@operating-layer/executors": "workspace:*",
     "@operating-layer/observability": "workspace:*",

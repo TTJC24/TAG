@@ -10,7 +10,13 @@ import {
   gmailDraftProviderOutputSchema,
   type ExecutionProviderOutput,
 } from "@operating-layer/schemas";
+import { redactSensitiveText } from "@operating-layer/connectors";
 import type { OutboxJob } from "./worker.js";
+import {
+  loadExecutionCredential,
+  recordExecutionCredentialUse,
+  type GmailCredentialRuntime,
+} from "./gmail-credential-worker.js";
 
 interface ExecutionCommandRow {
   id: string;
@@ -38,7 +44,8 @@ interface ExecutionCommandRow {
   connector_enabled: boolean | null;
   allowed_recipient_addresses: string[] | null;
   allowed_recipient_domains: string[] | null;
-  credential_secret_reference: string | null;
+  active_credential_version_id: string | null;
+  globally_killed: boolean;
   authorized_by_user_id: string | null;
 }
 
@@ -100,7 +107,8 @@ async function prepareExecution(
            config.enabled AS connector_enabled,
            config.allowed_recipient_addresses,
            config.allowed_recipient_domains,
-           config.credential_secret_reference,
+           credential_binding.active_credential_version_id,
+           kill.killed AS globally_killed,
            draft_authorization.authorized_by_user_id
          FROM execution_commands command
          JOIN approvals approval
@@ -123,6 +131,9 @@ async function prepareExecution(
          LEFT JOIN gmail_draft_connector_config_versions config
            ON config.id = binding.active_config_version_id
           AND config.organization_id = binding.organization_id
+         LEFT JOIN gmail_draft_credential_bindings credential_binding
+           ON credential_binding.organization_id = command.organization_id
+         JOIN gmail_draft_global_kill_switch kill ON kill.singleton
          WHERE command.id = $1
            AND command.organization_id = $2`,
         [job.aggregate_id, job.organization_id],
@@ -171,6 +182,8 @@ async function prepareExecution(
       if (command.provider_name === "gmail_draft") {
         const configMatches =
           command.connector_enabled === true &&
+          command.globally_killed === false &&
+          command.active_credential_version_id !== null &&
           command.connector_config_version_id !== null &&
           command.connector_config_version_id ===
             command.active_config_version_id;
@@ -245,7 +258,7 @@ async function prepareExecution(
           !command.subject ||
           command.body === null ||
           !command.rendered_payload_hash ||
-          !command.credential_secret_reference
+          !command.active_credential_version_id
         ) {
           throw new Error("Authorized Gmail draft payload is incomplete");
         }
@@ -330,8 +343,6 @@ async function prepareExecution(
                   subject: command.subject,
                   body: command.body,
                   renderedPayloadHash: command.rendered_payload_hash,
-                  credentialSecretReference:
-                    command.credential_secret_reference,
                 },
               }
             : {}),
@@ -501,6 +512,7 @@ export async function processInternalExecutionJob(
   job: OutboxJob,
   internalProvider: ExecutionProvider,
   gmailDraftProvider: ExecutionProvider,
+  credentialRuntime?: GmailCredentialRuntime,
 ): Promise<void> {
   const prepared = await prepareExecution(
     pool,
@@ -517,20 +529,53 @@ export async function processInternalExecutionJob(
       : internalProvider;
 
   let untrustedOutput: unknown;
+  const credential =
+    prepared.command.provider_name === "gmail_draft"
+      ? await loadExecutionCredential(
+          pool,
+          credentialRuntime ??
+            (() => {
+              throw new Error("Gmail credential runtime is unavailable");
+            })(),
+          {
+            organizationId: prepared.command.organization_id,
+            userId: job.requested_by_user_id,
+            credentialVersionId: prepared.command.active_credential_version_id!,
+            traceId: job.trace_id,
+            requestId: job.request_id,
+          },
+        )
+      : undefined;
+  const redactionSecrets = credential ? [credential.reveal()] : [];
   try {
     untrustedOutput = await provider.execute(prepared.action, {
       traceId: job.trace_id,
       requestId: job.request_id,
       commandId: prepared.command.id,
       idempotencyKey: job.idempotency_key,
+      ...(credential ? { connectorCredential: credential } : {}),
     });
   } catch (error) {
+    if (prepared.command.provider_name === "gmail_draft") {
+      await recordExecutionCredentialUse(pool, {
+        organizationId: prepared.command.organization_id,
+        userId: job.requested_by_user_id,
+        credentialVersionId: prepared.command.active_credential_version_id!,
+        traceId: job.trace_id,
+        requestId: job.request_id,
+        outcome: "failed",
+      });
+    }
     throw new ExecutionAttemptError(
-      error instanceof Error ? error.message : "Execution provider failed",
+      error instanceof Error
+        ? redactSensitiveText(error.message, redactionSecrets)
+        : "Execution provider failed",
       "executor_call_failed",
       {},
       prepared.startedAt,
     );
+  } finally {
+    credential?.dispose();
   }
 
   let output: ExecutionProviderOutput;
@@ -562,6 +607,17 @@ export async function processInternalExecutionJob(
       output.output,
       prepared.startedAt,
     );
+  }
+
+  if (prepared.command.provider_name === "gmail_draft") {
+    await recordExecutionCredentialUse(pool, {
+      organizationId: prepared.command.organization_id,
+      userId: job.requested_by_user_id,
+      credentialVersionId: prepared.command.active_credential_version_id!,
+      traceId: job.trace_id,
+      requestId: job.request_id,
+      outcome: output.outcome,
+    });
   }
 
   await persistExecutionOutcome(pool, job, provider, prepared, output, null);

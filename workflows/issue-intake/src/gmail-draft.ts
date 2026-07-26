@@ -59,7 +59,6 @@ export async function configureGmailDraftConnector(
     enabled: input.enabled,
     allowedRecipientAddresses: addresses,
     allowedRecipientDomains: domains,
-    credentialSecretReference: input.credentialSecretReference,
     oauthScopes: [GMAIL_COMPOSE_SCOPE],
     reason: input.reason,
   });
@@ -86,6 +85,31 @@ export async function configureGmailDraftConnector(
         return { ...claim.response, duplicate: true };
       }
 
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext('gmail-draft-global-kill'))",
+      );
+      const credentialState = await client.query<{
+        active_credential_version_id: string | null;
+        killed: boolean;
+      }>(
+        `SELECT binding.active_credential_version_id, kill.killed
+         FROM gmail_draft_global_kill_switch kill
+         LEFT JOIN gmail_draft_credential_bindings binding
+           ON binding.organization_id = $1
+         WHERE kill.singleton`,
+        [input.organizationId],
+      );
+      const credential = credentialState.rows[0];
+      if (
+        input.enabled &&
+        (!credential?.active_credential_version_id || credential.killed)
+      ) {
+        throw new DomainError(
+          409,
+          "gmail_draft_credential_unavailable",
+          "An active, scope-constrained Gmail credential is required",
+        );
+      }
       const configVersionId = randomUUID();
       const configured = await client.query<{
         config_version_id: string;
@@ -103,7 +127,7 @@ export async function configureGmailDraftConnector(
           input.enabled,
           addresses,
           domains,
-          input.credentialSecretReference,
+          input.enabled ? "credential://gmail-draft/active" : null,
           requestHash,
           input.reason,
         ],
@@ -111,6 +135,23 @@ export async function configureGmailDraftConnector(
       const row = configured.rows[0];
       if (!row) {
         throw new Error("Gmail draft configuration was not persisted");
+      }
+      let invalidatedCredentialVersionId: string | null = null;
+      let revocationOutboxEventId: string | null = null;
+      if (!input.enabled) {
+        const invalidated = await client.query<{
+          invalidated_credential_version_id: string | null;
+          revocation_outbox_event_id: string | null;
+        }>("SELECT * FROM invalidate_gmail_draft_credential($1, $2, $3, $4)", [
+          input.organizationId,
+          input.reason,
+          command.context.traceId,
+          command.context.requestId,
+        ]);
+        invalidatedCredentialVersionId =
+          invalidated.rows[0]?.invalidated_credential_version_id ?? null;
+        revocationOutboxEventId =
+          invalidated.rows[0]?.revocation_outbox_event_id ?? null;
       }
 
       await appendAuditEvent(client, {
@@ -136,6 +177,33 @@ export async function configureGmailDraftConnector(
           allowedRecipientAddresses: addresses,
           allowedRecipientDomains: domains,
           oauthScopes: [GMAIL_COMPOSE_SCOPE],
+          invalidatedCredentialVersionId,
+          revocationOutboxEventId,
+          reason: input.reason,
+        },
+        occurredAt: new Date().toISOString(),
+      });
+      await appendAuditEvent(client, {
+        organizationId: input.organizationId,
+        actorType: "user",
+        actorId: command.principal.userId,
+        eventType: input.enabled
+          ? "gmail_draft.connector_enabled"
+          : "gmail_draft.connector_disabled",
+        sourceRecordIds: [],
+        inputHash: requestHash,
+        outputHash: sha256({
+          configVersionId,
+          enabled: row.enabled,
+          invalidatedCredentialVersionId,
+        }),
+        traceId: command.context.traceId,
+        requestId: command.context.requestId,
+        metadata: {
+          configVersionId,
+          enabled: row.enabled,
+          invalidatedCredentialVersionId,
+          revocationOutboxEventId,
           reason: input.reason,
         },
         occurredAt: new Date().toISOString(),
@@ -230,6 +298,8 @@ export async function createGmailDraftPreview(
         connector_enabled: boolean | null;
         allowed_recipient_addresses: string[] | null;
         allowed_recipient_domains: string[] | null;
+        active_credential_version_id: string | null;
+        globally_killed: boolean;
       }>(
         `SELECT
            workflow.id AS workflow_id,
@@ -242,7 +312,9 @@ export async function createGmailDraftPreview(
            binding.active_config_version_id AS connector_config_version_id,
            config.enabled AS connector_enabled,
            config.allowed_recipient_addresses,
-           config.allowed_recipient_domains
+           config.allowed_recipient_domains,
+           credential_binding.active_credential_version_id,
+           kill.killed AS globally_killed
          FROM approvals approval
          JOIN workflows workflow
            ON workflow.id = approval.workflow_id
@@ -256,6 +328,9 @@ export async function createGmailDraftPreview(
          LEFT JOIN gmail_draft_connector_config_versions config
            ON config.id = binding.active_config_version_id
           AND config.organization_id = binding.organization_id
+         LEFT JOIN gmail_draft_credential_bindings credential_binding
+           ON credential_binding.organization_id = approval.organization_id
+         JOIN gmail_draft_global_kill_switch kill ON kill.singleton
          WHERE approval.id = $1
            AND approval.organization_id = $2
            AND approval.status = 'approved'
@@ -271,7 +346,12 @@ export async function createGmailDraftPreview(
           "An approved external-draft recommendation is required",
         );
       }
-      if (!context.connector_enabled || !context.connector_config_version_id) {
+      if (
+        !context.connector_enabled ||
+        !context.connector_config_version_id ||
+        !context.active_credential_version_id ||
+        context.globally_killed
+      ) {
         throw new DomainError(
           409,
           "gmail_draft_connector_disabled",

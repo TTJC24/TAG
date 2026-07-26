@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { verifyAuditChain } from "@operating-layer/audit";
 import { DevelopmentHeaderIdentityProvider } from "@operating-layer/auth";
@@ -6,8 +6,14 @@ import {
   assertSafeRuntimeDatabaseIdentity,
   createDatabasePool,
   withOrganizationScope,
+  withWorkerOrganizationScope,
   type DatabasePool,
 } from "@operating-layer/db";
+import {
+  GMAIL_COMPOSE_SCOPE,
+  RsaEnvelopeCredentialDecryptor,
+  RsaEnvelopeCredentialEncryptor,
+} from "@operating-layer/connectors";
 import {
   DeterministicInternalExecutionProvider,
   GmailDraftExecutionProvider,
@@ -17,7 +23,10 @@ import {
 } from "@operating-layer/executors";
 import {
   drainOutbox,
+  assertGmailCredentialStartup,
+  loadExecutionCredential,
   processNextOutboxJob,
+  type GmailCredentialRuntime,
 } from "@operating-layer/issue-intake";
 import { buildApi } from "./server.js";
 
@@ -39,21 +48,41 @@ interface ApprovedTask {
 describe("Phase 3 Gmail draft external-write slice", () => {
   let adminPool: DatabasePool;
   let pool: DatabasePool;
+  let workerPool: DatabasePool;
   let app: Awaited<ReturnType<typeof buildApi>>;
+  let credentialRuntime: GmailCredentialRuntime;
+  let tokenCounter = 0;
   const internalProvider = new DeterministicInternalExecutionProvider();
 
   beforeAll(async () => {
     const databaseUrl = process.env.DATABASE_URL_TEST;
     const runtimeDatabaseUrl = process.env.DATABASE_URL_RUNTIME_TEST;
-    if (!databaseUrl || !runtimeDatabaseUrl) {
+    const workerDatabaseUrl = process.env.DATABASE_URL_WORKER_TEST;
+    if (!databaseUrl || !runtimeDatabaseUrl || !workerDatabaseUrl) {
       throw new Error("Feature-test database URLs are required");
     }
+    const keyPair = generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: { format: "der", type: "spki" },
+      privateKeyEncoding: { format: "der", type: "pkcs8" },
+    });
+    const encryptor = new RsaEnvelopeCredentialEncryptor(
+      keyPair.publicKey.toString("base64"),
+    );
+    credentialRuntime = {
+      decryptor: new RsaEnvelopeCredentialDecryptor(
+        keyPair.privateKey.toString("base64"),
+      ),
+      revoker: { enabled: true, async revoke() {} },
+    };
     adminPool = createDatabasePool(databaseUrl);
     pool = createDatabasePool(runtimeDatabaseUrl);
+    workerPool = createDatabasePool(workerDatabaseUrl);
     await assertSafeRuntimeDatabaseIdentity(pool);
     app = await buildApi({
       pool,
       identityProvider: new DevelopmentHeaderIdentityProvider(),
+      credentialEncryptor: encryptor,
       logger: false,
     });
   });
@@ -61,6 +90,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
   afterAll(async () => {
     await app.close();
     await pool.end();
+    await workerPool.end();
     await adminPool.end();
   });
 
@@ -87,10 +117,12 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     expect(intake.statusCode, intake.body).toBe(202);
     const intakeBody = intake.json<{ taskId: string; workflowId: string }>();
     const drained = await drainOutbox(
-      pool,
+      workerPool,
       `gmail-setup-${label}`,
       20,
       internalProvider,
+      undefined,
+      credentialRuntime,
     );
     expect(drained.failed).toBe(0);
     expect(drained.deadLetter).toBe(0);
@@ -129,6 +161,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
   }
 
   async function configure(enabled: boolean) {
+    const provisioned = enabled ? await provisionCredential() : null;
     const response = await app.inject({
       method: "POST",
       url: "/v1/connectors/gmail-draft/config",
@@ -141,14 +174,45 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         enabled,
         allowedRecipientAddresses: [],
         allowedRecipientDomains: enabled ? ["example.com"] : [],
-        credentialSecretReference: enabled ? "env://GMAIL_TEST_TOKEN" : null,
         reason: enabled
           ? "Enable controlled Phase 3 feature test"
           : "Exercise the organization kill switch",
       },
     });
     expect(response.statusCode, response.body).toBe(202);
-    return response.json<{ configVersionId: string }>();
+    return {
+      ...response.json<{ configVersionId: string }>(),
+      accessToken: provisioned?.accessToken ?? null,
+    };
+  }
+
+  async function provisionCredential(input?: {
+    organizationId?: string;
+    accessToken?: string;
+    grantedScopes?: string[];
+    idempotencyKey?: string;
+  }) {
+    tokenCounter += 1;
+    const accessToken =
+      input?.accessToken ??
+      `gmail-test-token-${tokenCounter}-${"x".repeat(32)}`;
+    const idempotencyKey =
+      input?.idempotencyKey ?? `gmail-credential-${randomUUID()}`;
+    const credential = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/gmail-draft/credentials",
+      headers: {
+        "x-dev-user-email": adminEmail,
+        "idempotency-key": idempotencyKey,
+      },
+      payload: {
+        organizationId: input?.organizationId ?? usaId,
+        accessToken,
+        grantedScopes: input?.grantedScopes ?? [GMAIL_COMPOSE_SCOPE],
+        reason: "Provision encrypted feature-test credential",
+      },
+    });
+    return { response: credential, accessToken, idempotencyKey };
   }
 
   async function previewAndAuthorize(task: ApprovedTask) {
@@ -276,7 +340,13 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     });
     expect(internal.statusCode, internal.body).toBe(202);
     expect(
-      await processNextOutboxJob(pool, "disabled-internal", internalProvider),
+      await processNextOutboxJob(
+        workerPool,
+        "disabled-internal",
+        internalProvider,
+        undefined,
+        credentialRuntime,
+      ),
     ).toBe("published");
     const detail = await app.inject({
       method: "GET",
@@ -294,12 +364,169 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     expect(sendRoute.statusCode).toBe(404);
   });
 
+  it("encrypts credentials, restricts scopes and worker access, and invalidates rotations", async () => {
+    await assertGmailCredentialStartup(workerPool, credentialRuntime);
+    const first = await provisionCredential({
+      accessToken: `first-plaintext-token-${"a".repeat(40)}`,
+      idempotencyKey: `credential-idempotency-${randomUUID()}`,
+    });
+    expect(first.response.statusCode, first.response.body).toBe(202);
+    const firstBody = first.response.json<{
+      credentialVersionId: string;
+      duplicate: boolean;
+    }>();
+
+    const raw = await adminPool.query<{
+      ciphertext: string;
+      wrapped_data_key: string;
+      token_fingerprint: string;
+    }>(
+      `SELECT ciphertext, wrapped_data_key, token_fingerprint
+       FROM operating_layer.gmail_draft_credential_versions
+       WHERE id = $1`,
+      [firstBody.credentialVersionId],
+    );
+    expect(raw.rows[0]?.ciphertext).not.toContain(first.accessToken);
+    expect(raw.rows[0]?.wrapped_data_key).not.toContain(first.accessToken);
+    expect(raw.rows[0]?.token_fingerprint).toHaveLength(64);
+
+    const duplicate = await provisionCredential({
+      accessToken: first.accessToken,
+      idempotencyKey: first.idempotencyKey,
+    });
+    expect(duplicate.response.statusCode, duplicate.response.body).toBe(200);
+    expect(duplicate.response.json()).toMatchObject({
+      credentialVersionId: firstBody.credentialVersionId,
+      duplicate: true,
+    });
+
+    const broaderScope = await provisionCredential({
+      grantedScopes: [
+        GMAIL_COMPOSE_SCOPE,
+        "https://www.googleapis.com/auth/gmail.modify",
+      ],
+    });
+    expect(broaderScope.response.statusCode).toBe(400);
+    expect(broaderScope.response.body).not.toContain(broaderScope.accessToken);
+
+    await expect(
+      pool.query(
+        "SELECT id FROM operating_layer.gmail_draft_credential_versions",
+      ),
+    ).rejects.toThrow(/permission denied/i);
+    const hiddenByRls = await withWorkerOrganizationScope(
+      workerPool,
+      { userId: fsiOperatorId, organizationIds: [fsiId] },
+      async (client) =>
+        (
+          await client.query(
+            "SELECT id FROM gmail_draft_credential_versions WHERE id = $1",
+            [firstBody.credentialVersionId],
+          )
+        ).rowCount,
+    );
+    expect(hiddenByRls).toBe(0);
+
+    const second = await provisionCredential({
+      accessToken: `second-plaintext-token-${"b".repeat(40)}`,
+    });
+    expect(second.response.statusCode, second.response.body).toBe(202);
+    const secondBody = second.response.json<{
+      credentialVersionId: string;
+      replacedCredentialVersionId: string;
+    }>();
+    expect(secondBody.replacedCredentialVersionId).toBe(
+      firstBody.credentialVersionId,
+    );
+    await expect(
+      loadExecutionCredential(workerPool, credentialRuntime, {
+        organizationId: usaId,
+        userId: executiveId,
+        credentialVersionId: firstBody.credentialVersionId,
+        traceId: "trace-old-credential-must-not-load",
+        requestId: "request-old-credential-must-not-load",
+      }),
+    ).rejects.toThrow(/not active/i);
+    const activeCredential = await loadExecutionCredential(
+      workerPool,
+      credentialRuntime,
+      {
+        organizationId: usaId,
+        userId: executiveId,
+        credentialVersionId: secondBody.credentialVersionId,
+        traceId: "trace-new-credential-load",
+        requestId: "request-new-credential-load",
+      },
+    );
+    expect(activeCredential).toBeDefined();
+    activeCredential.dispose();
+
+    const durableText = await adminPool.query<{ durable_text: string }>(
+      `SELECT
+         coalesce(string_agg(metadata::text || trace_id || request_id, ''), '')
+           AS durable_text
+       FROM operating_layer.audit_events
+       WHERE organization_id = $1`,
+      [usaId],
+    );
+    expect(durableText.rows[0]?.durable_text).not.toContain(first.accessToken);
+    expect(durableText.rows[0]?.durable_text).not.toContain(second.accessToken);
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/gmail-draft/credentials/revoke",
+      headers: {
+        "x-dev-user-email": adminEmail,
+        "idempotency-key": `explicit-revoke-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: usaId,
+        reason: "Exercise explicit local invalidation and OAuth revocation",
+      },
+    });
+    expect(revoked.statusCode, revoked.body).toBe(202);
+    expect(revoked.json()).toMatchObject({
+      invalidatedCredentialVersionId: secondBody.credentialVersionId,
+    });
+    await expect(
+      loadExecutionCredential(workerPool, credentialRuntime, {
+        organizationId: usaId,
+        userId: executiveId,
+        credentialVersionId: secondBody.credentialVersionId,
+        traceId: "trace-revoked-credential-must-not-load",
+        requestId: "request-revoked-credential-must-not-load",
+      }),
+    ).rejects.toThrow(/not active/i);
+
+    const drained = await drainOutbox(
+      workerPool,
+      "credential-rotation-revoker",
+      10,
+      internalProvider,
+      undefined,
+      credentialRuntime,
+    );
+    expect(drained.failed).toBe(0);
+    const revocationAudit = await adminPool.query<{ event_type: string }>(
+      `SELECT event_type FROM operating_layer.audit_events
+       WHERE organization_id = $1
+         AND event_type IN (
+           'gmail_draft.credential_revocation_requested',
+           'gmail_draft.credential_revoked'
+         )`,
+      [usaId],
+    );
+    expect(revocationAudit.rows.map((row) => row.event_type)).toContain(
+      "gmail_draft.credential_revoked",
+    );
+  });
+
   it("previews exactly, enforces allowlist and isolation, authorizes once, and materializes one replay-safe draft", async () => {
     const connectorConfig = await configure(true);
     const task = await createApprovedTask("successful-draft");
     await expect(
       withOrganizationScope(
-        pool,
+        workerPool,
         { userId: executiveId, organizationIds: [usaId] },
         async (client) => {
           const workflow = await client.query<{ version: number }>(
@@ -430,10 +657,11 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     const gmailProvider = new GmailDraftExecutionProvider(transport);
     expect(
       await processNextOutboxJob(
-        pool,
+        workerPool,
         "gmail-success",
         internalProvider,
         gmailProvider,
+        credentialRuntime,
       ),
     ).toBe("published");
     expect(calls).toBe(1);
@@ -446,10 +674,11 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     );
     expect(
       await processNextOutboxJob(
-        pool,
+        workerPool,
         "gmail-redelivery",
         internalProvider,
         gmailProvider,
+        credentialRuntime,
       ),
     ).toBe("published");
     expect(calls).toBe(1);
@@ -512,7 +741,7 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     const { authorizationBody } = await previewAndAuthorize(task);
     await expect(
       withOrganizationScope(
-        pool,
+        workerPool,
         { userId: fsiOperatorId, organizationIds: [fsiId] },
         async (client) =>
           client.query(
@@ -529,6 +758,15 @@ describe("Phase 3 Gmail draft external-write slice", () => {
       ),
     ).rejects.toThrow(/organization access denied/);
     await configure(false);
+    const disabledCredential = await adminPool.query<{
+      active_credential_version_id: string | null;
+    }>(
+      `SELECT active_credential_version_id
+       FROM operating_layer.gmail_draft_credential_bindings
+       WHERE organization_id = $1`,
+      [usaId],
+    );
+    expect(disabledCredential.rows[0]?.active_credential_version_id).toBeNull();
 
     let calls = 0;
     const gmailProvider = new GmailDraftExecutionProvider({
@@ -543,10 +781,11 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     });
     expect(
       await processNextOutboxJob(
-        pool,
+        workerPool,
         "gmail-kill-switch",
         internalProvider,
         gmailProvider,
+        credentialRuntime,
       ),
     ).toBe("published");
     expect(calls).toBe(0);
@@ -578,28 +817,37 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     });
     expect(internal.statusCode, internal.body).toBe(202);
     expect(
-      await processNextOutboxJob(pool, "gmail-kill-internal", internalProvider),
+      await processNextOutboxJob(
+        workerPool,
+        "gmail-kill-internal",
+        internalProvider,
+        undefined,
+        credentialRuntime,
+      ),
     ).toBe("published");
   });
 
   it("retries a failed drafts.create within bounds and exposes the dead letter", async () => {
-    await configure(true);
+    const failureConfig = await configure(true);
     const task = await createApprovedTask("dead-letter");
     const { authorizationBody } = await previewAndAuthorize(task);
     let calls = 0;
     const failingProvider = new GmailDraftExecutionProvider({
-      async createDraft() {
+      async createDraft(request) {
         calls += 1;
-        throw new Error("Synthetic Gmail drafts.create outage");
+        throw new Error(
+          `Synthetic Gmail drafts.create outage ${request.accessToken}`,
+        );
       },
     });
 
     expect(
       await processNextOutboxJob(
-        pool,
+        workerPool,
         "gmail-failure-1",
         internalProvider,
         failingProvider,
+        credentialRuntime,
       ),
     ).toBe("failed");
     await adminPool.query(
@@ -608,10 +856,11 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     );
     expect(
       await processNextOutboxJob(
-        pool,
+        workerPool,
         "gmail-failure-2",
         internalProvider,
         failingProvider,
+        credentialRuntime,
       ),
     ).toBe("failed");
     await adminPool.query(
@@ -620,13 +869,25 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     );
     expect(
       await processNextOutboxJob(
-        pool,
+        workerPool,
         "gmail-failure-3",
         internalProvider,
         failingProvider,
+        credentialRuntime,
       ),
     ).toBe("dead_letter");
     expect(calls).toBe(3);
+    const safeFailure = await adminPool.query<{
+      safe_error_message: string | null;
+    }>(
+      `SELECT safe_error_message
+       FROM operating_layer.outbox_events WHERE id = $1`,
+      [authorizationBody.outboxEventId],
+    );
+    expect(safeFailure.rows[0]?.safe_error_message).not.toContain(
+      failureConfig.accessToken,
+    );
+    expect(safeFailure.rows[0]?.safe_error_message).toContain("[REDACTED]");
 
     const queue = await app.inject({
       method: "GET",
@@ -643,5 +904,118 @@ describe("Phase 3 Gmail draft external-write slice", () => {
         status: "dead_letter",
       }),
     );
+  });
+
+  it("globally kills every organization credential without enabling network access", async () => {
+    await configure(true);
+    const fsiCredential = await provisionCredential({
+      organizationId: fsiId,
+      accessToken: `fsi-global-kill-token-${"c".repeat(40)}`,
+    });
+    expect(fsiCredential.response.statusCode, fsiCredential.response.body).toBe(
+      202,
+    );
+    const fsiConfig = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/gmail-draft/config",
+      headers: {
+        "x-dev-user-email": adminEmail,
+        "idempotency-key": `fsi-config-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: fsiId,
+        enabled: true,
+        allowedRecipientAddresses: [],
+        allowedRecipientDomains: ["example.com"],
+        reason: "Enable only to prove the global kill boundary",
+      },
+    });
+    expect(fsiConfig.statusCode, fsiConfig.body).toBe(202);
+
+    const traceId = `trace-global-kill-${randomUUID()}`;
+    const killed = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/gmail-draft/global-kill",
+      headers: {
+        "x-dev-user-email": adminEmail,
+        "x-trace-id": traceId,
+      },
+      payload: {
+        killed: true,
+        reason: "Feature-test global connector shutdown",
+      },
+    });
+    expect(killed.statusCode, killed.body).toBe(202);
+    expect(killed.json()).toMatchObject({
+      killed: true,
+      affectedOrganizations: 2,
+      traceId,
+    });
+    const state = await adminPool.query<{
+      killed: boolean;
+      active_count: string;
+    }>(
+      `SELECT
+         kill.killed,
+         count(binding.active_credential_version_id)
+           FILTER (WHERE binding.organization_id IN ($1, $2)) AS active_count
+       FROM operating_layer.gmail_draft_global_kill_switch kill
+       LEFT JOIN operating_layer.gmail_draft_credential_bindings binding
+         ON true
+       WHERE kill.singleton
+       GROUP BY kill.killed`,
+      [usaId, fsiId],
+    );
+    expect(state.rows[0]).toMatchObject({ killed: true, active_count: "0" });
+
+    const rejectedEnable = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/gmail-draft/config",
+      headers: {
+        "x-dev-user-email": adminEmail,
+        "idempotency-key": `config-during-global-kill-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: usaId,
+        enabled: true,
+        allowedRecipientAddresses: [],
+        allowedRecipientDomains: ["example.com"],
+        reason: "Must remain disabled during the global kill",
+      },
+    });
+    expect(rejectedEnable.statusCode).toBe(409);
+
+    const drain = await drainOutbox(
+      workerPool,
+      "global-kill-revoker",
+      20,
+      internalProvider,
+      undefined,
+      credentialRuntime,
+    );
+    expect(drain.failed).toBe(0);
+    const audited = await adminPool.query<{ organization_id: string }>(
+      `SELECT organization_id
+       FROM operating_layer.audit_events
+       WHERE event_type = 'gmail_draft.global_kill_enabled'
+         AND trace_id = $1
+       ORDER BY organization_id`,
+      [traceId],
+    );
+    expect(audited.rows.map((row) => row.organization_id)).toEqual([
+      fsiId,
+      usaId,
+    ]);
+
+    const cleared = await app.inject({
+      method: "POST",
+      url: "/v1/connectors/gmail-draft/global-kill",
+      headers: { "x-dev-user-email": adminEmail },
+      payload: {
+        killed: false,
+        reason: "Clear the feature-test switch; credentials stay invalidated",
+      },
+    });
+    expect(cleared.statusCode, cleared.body).toBe(202);
   });
 });

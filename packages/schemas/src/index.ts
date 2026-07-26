@@ -304,21 +304,19 @@ export const gmailDraftConnectorConfigInputSchema = z
           ),
       )
       .max(100),
-    credentialSecretReference: z.string().trim().min(3).max(500).nullable(),
     reason: z.string().trim().min(3).max(1000),
   })
   .superRefine((value, context) => {
     if (
       value.enabled &&
-      (!value.credentialSecretReference ||
-        value.allowedRecipientAddresses.length +
-          value.allowedRecipientDomains.length ===
-          0)
+      value.allowedRecipientAddresses.length +
+        value.allowedRecipientDomains.length ===
+        0
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "enabled Gmail draft configuration requires a secret reference and recipient allowlist",
+          "enabled Gmail draft configuration requires a recipient allowlist",
       });
     }
   });
@@ -344,6 +342,54 @@ export const gmailDraftConnectorConfigResponseSchema = z.object({
 export type GmailDraftConnectorConfigResponse = z.infer<
   typeof gmailDraftConnectorConfigResponseSchema
 >;
+
+export const gmailCredentialInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  accessToken: z.string().min(16).max(20_000),
+  grantedScopes: z.array(z.string()).min(1).max(20),
+  reason: z.string().trim().min(3).max(1000),
+});
+export type GmailCredentialInput = z.infer<typeof gmailCredentialInputSchema>;
+
+export const gmailCredentialResponseSchema = z.object({
+  credentialVersionId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  versionNumber: z.number().int().positive(),
+  replacedCredentialVersionId: z.string().uuid().nullable(),
+  revocationOutboxEventId: z.string().uuid().nullable(),
+  grantedScopes: z.tuple([
+    z.literal("https://www.googleapis.com/auth/gmail.compose"),
+  ]),
+  duplicate: z.boolean(),
+  traceId: z.string().min(1),
+});
+export type GmailCredentialResponse = z.infer<
+  typeof gmailCredentialResponseSchema
+>;
+
+export const gmailCredentialRevokeInputSchema = z.object({
+  organizationId: z.string().uuid(),
+  reason: z.string().trim().min(3).max(1000),
+});
+export type GmailCredentialRevokeInput = z.infer<
+  typeof gmailCredentialRevokeInputSchema
+>;
+
+export const gmailCredentialRevokeResponseSchema = z.object({
+  organizationId: z.string().uuid(),
+  invalidatedCredentialVersionId: z.string().uuid().nullable(),
+  revocationOutboxEventId: z.string().uuid().nullable(),
+  duplicate: z.boolean(),
+  traceId: z.string().min(1),
+});
+export type GmailCredentialRevokeResponse = z.infer<
+  typeof gmailCredentialRevokeResponseSchema
+>;
+
+export const gmailGlobalKillInputSchema = z.object({
+  killed: z.boolean(),
+  reason: z.string().trim().min(3).max(1000),
+});
 
 export const gmailDraftPreviewInputSchema = z.object({
   organizationId: z.string().uuid(),

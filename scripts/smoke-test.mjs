@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
+import { generateKeyPairSync } from "node:crypto";
 
 const repoPath = process.cwd();
 const composeArgs = [
@@ -12,6 +13,13 @@ const composeArgs = [
 ];
 const databaseUrl =
   "postgresql://operating_layer_runtime:local-runtime-only@localhost:55432/operating_layer_test";
+const workerDatabaseUrl =
+  "postgresql://operating_layer_worker_runtime:local-worker-only@localhost:55432/operating_layer_test";
+const connectorKeyPair = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  publicKeyEncoding: { format: "der", type: "spki" },
+  privateKeyEncoding: { format: "der", type: "pkcs8" },
+});
 const children = [];
 
 function run(command, args) {
@@ -128,6 +136,8 @@ try {
       AUTH_MODE: "local",
       API_PORT: "3301",
       DATABASE_URL: databaseUrl,
+      CONNECTOR_CREDENTIAL_PUBLIC_KEY_DER_B64:
+        connectorKeyPair.publicKey.toString("base64"),
     },
   );
   const web = startNode(
@@ -143,7 +153,9 @@ try {
 
   const healthResponse = await waitFor("http://localhost:3301/health");
   startNode(path.join(repoPath, "apps/worker/dist/main.js"), [], repoPath, {
-    DATABASE_URL: databaseUrl,
+    WORKER_DATABASE_URL: workerDatabaseUrl,
+    CONNECTOR_CREDENTIAL_PRIVATE_KEY_DER_B64:
+      connectorKeyPair.privateKey.toString("base64"),
     WORKER_ID: "process-smoke-worker",
     WORKER_POLL_INTERVAL_MS: "100",
   });

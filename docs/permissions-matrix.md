@@ -5,27 +5,27 @@ to business approval
 
 These are role templates, not final assignments. Organization membership always limits the rows a role can access. A system administrator does not automatically become a financial approver.
 
-| Capability                         | System admin          | Executive     | Operations manager | Operator       | Approver      | Auditor       |
-| ---------------------------------- | --------------------- | ------------- | ------------------ | -------------- | ------------- | ------------- |
-| View authorized tasks/sources      | Yes                   | Yes           | Yes                | Yes            | Yes           | Yes           |
-| View cross-entity dashboard        | By membership         | By membership | By membership      | No by default  | By membership | By membership |
-| Create manual issue                | Yes                   | Yes           | Yes                | Yes            | Yes           | No            |
-| Upload controlled CSV batch        | Yes                   | Yes           | Yes                | Yes            | No            | Read only     |
-| Edit internal task                 | Yes                   | Yes           | Yes                | Owned/assigned | No by default | No            |
-| Run classification/recommendation  | Configure             | Yes           | Yes                | Yes            | Yes           | No            |
-| Request approval                   | No by default         | Yes           | Yes                | Yes            | Yes           | No            |
-| Approve risk 3/4 action            | No by default         | With grant    | With grant         | No             | With grant    | No            |
-| Approve risk 5 action              | Prohibited in Phase 1 | Prohibited    | Prohibited         | Prohibited     | Prohibited    | Prohibited    |
-| Execute risk 6 action              | Prohibited            | Prohibited    | Prohibited         | Prohibited     | Prohibited    | Prohibited    |
-| Manage users/memberships           | Yes                   | No            | No                 | No             | No            | No            |
-| Manage connector secret references | With separate grant   | No            | No                 | No             | No            | No            |
-| Configure Gmail draft kill switch  | Yes                   | No            | No                 | No             | No            | No            |
-| Render exact Gmail draft preview   | Yes                   | Yes           | Yes                | Yes            | No            | No            |
-| Authorize previewed Gmail draft    | Yes                   | Yes           | No                 | No             | Yes           | No            |
-| View connector health              | Yes                   | Yes           | Yes                | Yes            | Yes           | Yes           |
-| View audit history                 | Yes                   | Yes           | Yes                | Own scope      | Yes           | Yes           |
-| Export audit data                  | With grant            | With grant    | No                 | No             | No            | With grant    |
-| Change policy/prompts              | With separate grant   | No            | No                 | No             | No            | Review only   |
+| Capability                             | System admin          | Executive     | Operations manager | Operator       | Approver      | Auditor       |
+| -------------------------------------- | --------------------- | ------------- | ------------------ | -------------- | ------------- | ------------- |
+| View authorized tasks/sources          | Yes                   | Yes           | Yes                | Yes            | Yes           | Yes           |
+| View cross-entity dashboard            | By membership         | By membership | By membership      | No by default  | By membership | By membership |
+| Create manual issue                    | Yes                   | Yes           | Yes                | Yes            | Yes           | No            |
+| Upload controlled CSV batch            | Yes                   | Yes           | Yes                | Yes            | No            | Read only     |
+| Edit internal task                     | Yes                   | Yes           | Yes                | Owned/assigned | No by default | No            |
+| Run classification/recommendation      | Configure             | Yes           | Yes                | Yes            | Yes           | No            |
+| Request approval                       | No by default         | Yes           | Yes                | Yes            | Yes           | No            |
+| Approve risk 3/4 action                | No by default         | With grant    | With grant         | No             | With grant    | No            |
+| Approve risk 5 action                  | Prohibited in Phase 1 | Prohibited    | Prohibited         | Prohibited     | Prohibited    | Prohibited    |
+| Execute risk 6 action                  | Prohibited            | Prohibited    | Prohibited         | Prohibited     | Prohibited    | Prohibited    |
+| Manage users/memberships               | Yes                   | No            | No                 | No             | No            | No            |
+| Manage encrypted connector credentials | With separate grant   | No            | No                 | No             | No            | No            |
+| Configure Gmail draft kill switch      | Yes                   | No            | No                 | No             | No            | No            |
+| Render exact Gmail draft preview       | Yes                   | Yes           | Yes                | Yes            | No            | No            |
+| Authorize previewed Gmail draft        | Yes                   | Yes           | No                 | No             | Yes           | No            |
+| View connector health                  | Yes                   | Yes           | Yes                | Yes            | Yes           | Yes           |
+| View audit history                     | Yes                   | Yes           | Yes                | Own scope      | Yes           | Yes           |
+| Export audit data                      | With grant            | With grant    | No                 | No             | No            | With grant    |
+| Change policy/prompts                  | With separate grant   | No            | No                 | No             | No            | Review only   |
 
 ## Required separation rules
 
