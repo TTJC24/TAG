@@ -11,6 +11,7 @@ export * from "./gmail-credential.js";
 export * from "./gmail-credential-worker.js";
 export * from "./gmail-pilot.js";
 export * from "./idempotency.js";
+export * from "./kpi-exceptions.js";
 export * from "./identity.js";
 export * from "./policy.js";
 export * from "./service.js";

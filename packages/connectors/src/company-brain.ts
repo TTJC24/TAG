@@ -105,3 +105,73 @@ export class CompanyBrainClient {
     return companyBrainAnswerSchema.parse(raw);
   }
 }
+
+/**
+ * Read-only client for company-brain's SQL query service (a separate server
+ * from /ask). The service enforces read-only transactions server-side; this
+ * client additionally refuses anything that does not start as a SELECT/WITH,
+ * and validates the response as untrusted input.
+ */
+export const companyBrainQueryResultSchema = z
+  .object({
+    rows: z.array(z.record(z.unknown())),
+    rowCount: z.number().int().nonnegative(),
+    truncated: z.boolean().optional(),
+  })
+  .passthrough();
+export type CompanyBrainQueryResult = z.infer<
+  typeof companyBrainQueryResultSchema
+>;
+
+export class CompanyBrainQueryClient {
+  private readonly baseUrl: string;
+  private readonly headers: Record<string, string>;
+  private readonly timeoutMs: number;
+  private readonly fetchImpl: typeof fetch;
+
+  constructor(options: CompanyBrainClientOptions) {
+    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    this.headers = options.headers ?? {};
+    this.timeoutMs = options.timeoutMs ?? 15_000;
+    this.fetchImpl = options.fetchImpl ?? fetch;
+  }
+
+  async query(sql: string, rowLimit = 500): Promise<CompanyBrainQueryResult> {
+    const normalized = sql.trim();
+    if (!/^(select|with)\b/i.test(normalized)) {
+      throw new CompanyBrainUnavailableError(
+        "only SELECT/WITH statements may be sent to the brain query service",
+      );
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}/query`, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...this.headers },
+        body: JSON.stringify({ sql: normalized, rowLimit }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new CompanyBrainUnavailableError(
+        `company-brain query service is unreachable: ${
+          error instanceof Error ? error.message : "unknown error"
+        }`,
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!response.ok) {
+      throw new CompanyBrainUnavailableError(
+        `company-brain query service answered HTTP ${response.status}`,
+      );
+    }
+    const raw: unknown = await response.json().catch(() => {
+      throw new CompanyBrainUnavailableError(
+        "company-brain query service returned a non-JSON body",
+      );
+    });
+    return companyBrainQueryResultSchema.parse(raw);
+  }
+}

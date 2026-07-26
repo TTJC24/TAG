@@ -1,0 +1,20 @@
+{
+  "definitions": [
+    {
+      "id": "stale-opportunities-fs",
+      "name": "Stale opportunities (Fastening Specialists)",
+      "entityCode": "FSI",
+      "certified": false,
+      "sql": "SELECT deal_id, title AS opportunity, owner_name AS owner, stage_name AS stage, days_stale FROM pipedrive_stale_deals_view WHERE entity = 'fs' AND (days_since_activity >= 7 OR days_in_stage >= 14)",
+      "recordKeyColumn": "deal_id",
+      "titleTemplate": "Stale opportunity needs follow-up",
+      "summaryColumns": ["opportunity", "owner", "stage", "days_stale"],
+      "rowLimit": 100
+    }
+  ],
+  "_notes": [
+    "Template only. Per scoreboard's kpi-spec rule lock: stale = no qualifying activity in 7 days OR same stage 14+ days.",
+    "certified stays false until the SQL is validated against company-brain's real schema and the evidence is recorded in scoreboard's tractionos-promotion-evidence-ledger (or successor).",
+    "The scanner refuses uncertified definitions unless KPI_EXCEPTIONS_ALLOW_UNCERTIFIED=true (development only)."
+  ]
+}
