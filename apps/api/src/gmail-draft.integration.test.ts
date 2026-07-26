@@ -19,6 +19,7 @@ import {
   GmailDraftExecutionProvider,
   GMAIL_COMPOSE_OAUTH_SCOPE,
   GMAIL_DRAFT_CAPABILITIES,
+  type ExecutionProvider,
   type GmailDraftCreateTransport,
 } from "@operating-layer/executors";
 import {
@@ -1283,5 +1284,183 @@ describe("Phase 3 Gmail draft external-write slice", () => {
     await expect(
       assertGmailCredentialStartup(workerPool, credentialRuntime),
     ).rejects.toThrow(/startup invariant failed/i);
+  });
+
+  it("rejects common-valid but Gmail-invalid provider output before materialization", async () => {
+    await configure(true);
+    const task = await createApprovedTask("malformed-gmail-output");
+    const { authorizationBody } = await previewAndAuthorize(task);
+    const malformedProvider: ExecutionProvider = {
+      id: "malformed-gmail-feature-fixture",
+      kind: "external",
+      enabled: true,
+      async execute() {
+        return {
+          outcome: "succeeded",
+          summary: "Common-valid output missing Gmail-specific proof fields.",
+          output: {
+            draftId: "partial-draft-must-not-persist",
+          },
+        };
+      },
+    };
+
+    expect(
+      await processNextOutboxJob(
+        workerPool,
+        "malformed-gmail-output-worker",
+        internalProvider,
+        malformedProvider,
+        credentialRuntime,
+      ),
+    ).toBe("failed");
+
+    const afterFirstAttempt = await adminPool.query<{
+      workflow_state: string;
+      result_count: string;
+      created_audit_count: string;
+      failed_audit_count: string;
+      started_audit_count: string;
+      outbox_status: string;
+      safe_error_message: string | null;
+    }>(
+      `SELECT
+         workflow.current_state AS workflow_state,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.execution_results result
+           WHERE result.execution_command_id = $3
+         ) AS result_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type = 'gmail_draft.created'
+         ) AS created_audit_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type = 'execution.failed'
+         ) AS failed_audit_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type = 'execution.started'
+         ) AS started_audit_count,
+         outbox.status AS outbox_status,
+         outbox.safe_error_message
+       FROM operating_layer.workflows workflow
+       JOIN operating_layer.outbox_events outbox ON outbox.id = $4
+       WHERE workflow.id = $2
+         AND workflow.organization_id = $1`,
+      [
+        usaId,
+        task.workflowId,
+        authorizationBody.executionCommandId,
+        authorizationBody.outboxEventId,
+      ],
+    );
+    expect(afterFirstAttempt.rows[0]).toEqual({
+      workflow_state: "executing",
+      result_count: "0",
+      created_audit_count: "0",
+      failed_audit_count: "0",
+      started_audit_count: "1",
+      outbox_status: "failed",
+      safe_error_message: "Execution provider returned invalid output",
+    });
+
+    for (let attempt = 2; attempt <= 3; attempt += 1) {
+      await adminPool.query(
+        `UPDATE operating_layer.outbox_events
+         SET available_at = now()
+         WHERE id = $1`,
+        [authorizationBody.outboxEventId],
+      );
+      expect(
+        await processNextOutboxJob(
+          workerPool,
+          "malformed-gmail-output-worker",
+          internalProvider,
+          malformedProvider,
+          credentialRuntime,
+        ),
+      ).toBe(attempt === 3 ? "dead_letter" : "failed");
+    }
+
+    const terminal = await adminPool.query<{
+      workflow_state: string;
+      outbox_status: string;
+      outcome: string;
+      error_code: string;
+      output_payload: Record<string, unknown>;
+      trace_id: string;
+      created_audit_count: string;
+      failure_audit_count: string;
+    }>(
+      `SELECT
+         workflow.current_state AS workflow_state,
+         outbox.status AS outbox_status,
+         result.outcome,
+         result.error_code,
+         result.output_payload,
+         result.trace_id,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type = 'gmail_draft.created'
+         ) AS created_audit_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type = 'execution.failed'
+             AND audit.trace_id = $5
+         ) AS failure_audit_count
+       FROM operating_layer.workflows workflow
+       JOIN operating_layer.outbox_events outbox ON outbox.id = $4
+       JOIN operating_layer.execution_results result
+         ON result.execution_command_id = $3
+       WHERE workflow.id = $2
+         AND workflow.organization_id = $1`,
+      [
+        usaId,
+        task.workflowId,
+        authorizationBody.executionCommandId,
+        authorizationBody.outboxEventId,
+        task.traceId,
+      ],
+    );
+    expect(terminal.rows[0]).toMatchObject({
+      workflow_state: "execution_failed",
+      outbox_status: "dead_letter",
+      outcome: "failed",
+      error_code: "executor_output_invalid",
+      output_payload: {},
+      trace_id: task.traceId,
+      created_audit_count: "0",
+      failure_audit_count: "1",
+    });
+    expect(JSON.stringify(terminal.rows[0])).not.toContain(
+      "partial-draft-must-not-persist",
+    );
+    const queue = await app.inject({
+      method: "GET",
+      url: `/v1/executive-queue?organizationId=${usaId}`,
+      headers: { "x-dev-user-email": executiveEmail },
+    });
+    expect(
+      queue.json<{
+        jobFailures: Array<{ id: string; status: string }>;
+      }>().jobFailures,
+    ).toContainEqual(
+      expect.objectContaining({
+        id: authorizationBody.outboxEventId,
+        status: "dead_letter",
+      }),
+    );
   });
 });

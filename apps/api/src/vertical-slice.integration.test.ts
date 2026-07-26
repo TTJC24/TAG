@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { verifyAuditChain } from "@operating-layer/audit";
 import { DevelopmentHeaderIdentityProvider } from "@operating-layer/auth";
 import {
@@ -12,10 +12,12 @@ import {
 import {
   DeterministicInternalExecutionProvider,
   resolveExecutionProvider,
+  type ExecutionProvider,
 } from "@operating-layer/executors";
 import {
   activateApprovalPolicy,
   createApprovalPolicyVersion,
+  DeterministicModelProvider,
   drainOutbox,
   loadActiveApprovalPolicy,
   processNextOutboxJob,
@@ -1742,5 +1744,631 @@ describe("Phase 1 manual issue vertical slice", () => {
         },
       ),
     ).rejects.toThrow();
+  });
+
+  it("rejects malformed classification output before provider-derived persistence", async () => {
+    const intake = await app.inject({
+      method: "POST",
+      url: "/v1/issues",
+      headers: {
+        "x-dev-user-email": blcsOperatorEmail,
+        "idempotency-key": `malformed-classification-${randomUUID()}`,
+        "x-trace-id": "trace-malformed-classification",
+      },
+      payload: {
+        organizationId: blcsId,
+        title: "Malformed classification provider boundary",
+        description: "Provider fixture must not classify this task.",
+        retentionClassification: "operational",
+      },
+    });
+    expect(intake.statusCode, intake.body).toBe(202);
+    const intakeBody = intake.json<{ taskId: string; workflowId: string }>();
+    const queued = await adminPool.query<{ id: string }>(
+      `SELECT id
+       FROM operating_layer.outbox_events
+       WHERE organization_id = $1
+         AND aggregate_id = $2
+         AND topic = 'issue.classify'`,
+      [blcsId, intakeBody.workflowId],
+    );
+    const outboxEventId = queued.rows[0]!.id;
+    const before = await adminPool.query<{
+      task_type: string;
+      priority: string;
+      owner_user_id: string | null;
+      confidence: string | null;
+      audit_count: string;
+    }>(
+      `SELECT
+         task.task_type,
+         task.priority,
+         task.owner_user_id,
+         task.confidence::text,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = $2
+         ) AS audit_count
+       FROM operating_layer.tasks task
+       WHERE task.id = $1`,
+      [intakeBody.taskId, intakeBody.workflowId],
+    );
+
+    const malformed = vi
+      .spyOn(DeterministicModelProvider.prototype, "generateStructured")
+      .mockResolvedValue({
+        output: {
+          taskType: "collections",
+          priority: "P1",
+          decisionSummary: "Partial output with required fields omitted.",
+        },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          latencyMs: 1,
+        },
+        model: "malformed-feature-fixture",
+      });
+    try {
+      expect(
+        await processNextOutboxJob(pool, "malformed-classification-worker"),
+      ).toBe("failed");
+
+      const afterFirstAttempt = await adminPool.query<{
+        workflow_state: string;
+        task_type: string;
+        priority: string;
+        owner_user_id: string | null;
+        confidence: string | null;
+        agent_run_count: string;
+        classified_transition_count: string;
+        classified_audit_count: string;
+        audit_count: string;
+        outbox_status: string;
+        safe_error_message: string | null;
+      }>(
+        `SELECT
+           workflow.current_state AS workflow_state,
+           task.task_type,
+           task.priority,
+           task.owner_user_id,
+           task.confidence::text,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.agent_runs run
+             WHERE run.workflow_id = workflow.id
+               AND run.agent_kind = 'classification'
+           ) AS agent_run_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.workflow_transitions transition
+             WHERE transition.workflow_id = workflow.id
+               AND transition.to_state = 'classified'
+           ) AS classified_transition_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.audit_events audit
+             WHERE audit.workflow_id = workflow.id
+               AND audit.event_type = 'task.classified'
+           ) AS classified_audit_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.audit_events audit
+             WHERE audit.workflow_id = workflow.id
+           ) AS audit_count,
+           outbox.status AS outbox_status,
+           outbox.safe_error_message
+         FROM operating_layer.workflows workflow
+         JOIN operating_layer.tasks task ON task.id = workflow.task_id
+         JOIN operating_layer.outbox_events outbox ON outbox.id = $3
+         WHERE workflow.id = $2
+           AND workflow.organization_id = $1`,
+        [blcsId, intakeBody.workflowId, outboxEventId],
+      );
+      expect(afterFirstAttempt.rows[0]).toMatchObject({
+        workflow_state: "normalized",
+        task_type: before.rows[0]!.task_type,
+        priority: before.rows[0]!.priority,
+        owner_user_id: before.rows[0]!.owner_user_id,
+        confidence: before.rows[0]!.confidence,
+        agent_run_count: "0",
+        classified_transition_count: "0",
+        classified_audit_count: "0",
+        audit_count: before.rows[0]!.audit_count,
+        outbox_status: "failed",
+      });
+      expect(afterFirstAttempt.rows[0]!.safe_error_message).toMatch(
+        /invalid|required|expected/i,
+      );
+
+      for (let attempt = 2; attempt <= 3; attempt += 1) {
+        await adminPool.query(
+          `UPDATE operating_layer.outbox_events
+           SET available_at = now()
+           WHERE id = $1`,
+          [outboxEventId],
+        );
+        expect(
+          await processNextOutboxJob(pool, "malformed-classification-worker"),
+        ).toBe(attempt === 3 ? "dead_letter" : "failed");
+      }
+    } finally {
+      malformed.mockRestore();
+    }
+
+    const deadLetter = await adminPool.query<{
+      status: string;
+      agent_run_count: string;
+      classified_audit_count: string;
+    }>(
+      `SELECT
+         outbox.status,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.agent_runs run
+           WHERE run.workflow_id = $2
+             AND run.agent_kind = 'classification'
+         ) AS agent_run_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = $2
+             AND audit.event_type = 'task.classified'
+         ) AS classified_audit_count
+       FROM operating_layer.outbox_events outbox
+       WHERE outbox.id = $1`,
+      [outboxEventId, intakeBody.workflowId],
+    );
+    expect(deadLetter.rows[0]).toEqual({
+      status: "dead_letter",
+      agent_run_count: "0",
+      classified_audit_count: "0",
+    });
+    const classificationQueue = await app.inject({
+      method: "GET",
+      url: `/v1/executive-queue?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": executiveEmail },
+    });
+    expect(
+      classificationQueue.json<{
+        jobFailures: Array<{ id: string; status: string }>;
+      }>().jobFailures,
+    ).toContainEqual(
+      expect.objectContaining({ id: outboxEventId, status: "dead_letter" }),
+    );
+  });
+
+  it("rejects malformed recommendation output before provider-derived persistence", async () => {
+    const intake = await app.inject({
+      method: "POST",
+      url: "/v1/issues",
+      headers: {
+        "x-dev-user-email": blcsOperatorEmail,
+        "idempotency-key": `malformed-recommendation-${randomUUID()}`,
+        "x-trace-id": "trace-malformed-recommendation",
+      },
+      payload: {
+        organizationId: blcsId,
+        title: "Malformed recommendation provider boundary",
+        description: "Provider fixture must not recommend an action.",
+        retentionClassification: "operational",
+      },
+    });
+    expect(intake.statusCode, intake.body).toBe(202);
+    const intakeBody = intake.json<{ taskId: string; workflowId: string }>();
+    expect(
+      await processNextOutboxJob(pool, "malformed-recommendation-setup"),
+    ).toBe("published");
+
+    const queued = await adminPool.query<{ id: string }>(
+      `SELECT id
+       FROM operating_layer.outbox_events
+       WHERE organization_id = $1
+         AND aggregate_id = $2
+         AND topic = 'issue.recommend'`,
+      [blcsId, intakeBody.workflowId],
+    );
+    const outboxEventId = queued.rows[0]!.id;
+    const before = await adminPool.query<{ audit_count: string }>(
+      `SELECT count(*)::text AS audit_count
+       FROM operating_layer.audit_events
+       WHERE workflow_id = $1`,
+      [intakeBody.workflowId],
+    );
+
+    const malformed = vi
+      .spyOn(DeterministicModelProvider.prototype, "generateStructured")
+      .mockResolvedValue({
+        output: {
+          recommendationType: "create_internal_follow_up",
+          summary: "Partial output without citations or bounded risk.",
+          confidence: 2,
+        },
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          latencyMs: 1,
+        },
+        model: "malformed-feature-fixture",
+      });
+    try {
+      expect(
+        await processNextOutboxJob(pool, "malformed-recommendation-worker"),
+      ).toBe("failed");
+
+      const afterFirstAttempt = await adminPool.query<{
+        workflow_state: string;
+        recommendation_run_count: string;
+        recommendation_count: string;
+        approval_count: string;
+        recommended_transition_count: string;
+        recommendation_audit_count: string;
+        policy_audit_count: string;
+        audit_count: string;
+        outbox_status: string;
+        safe_error_message: string | null;
+      }>(
+        `SELECT
+           workflow.current_state AS workflow_state,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.agent_runs run
+             WHERE run.workflow_id = workflow.id
+               AND run.agent_kind = 'recommendation'
+           ) AS recommendation_run_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.recommendations recommendation
+             WHERE recommendation.task_id = workflow.task_id
+           ) AS recommendation_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.approvals approval
+             WHERE approval.workflow_id = workflow.id
+           ) AS approval_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.workflow_transitions transition
+             WHERE transition.workflow_id = workflow.id
+               AND transition.to_state = 'recommended'
+           ) AS recommended_transition_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.audit_events audit
+             WHERE audit.workflow_id = workflow.id
+               AND audit.event_type = 'recommendation.created'
+           ) AS recommendation_audit_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.audit_events audit
+             WHERE audit.workflow_id = workflow.id
+               AND audit.event_type IN (
+                 'approval.required',
+                 'approval.not_required'
+               )
+           ) AS policy_audit_count,
+           (
+             SELECT count(*)::text
+             FROM operating_layer.audit_events audit
+             WHERE audit.workflow_id = workflow.id
+           ) AS audit_count,
+           outbox.status AS outbox_status,
+           outbox.safe_error_message
+         FROM operating_layer.workflows workflow
+         JOIN operating_layer.outbox_events outbox ON outbox.id = $3
+         WHERE workflow.id = $2
+           AND workflow.organization_id = $1`,
+        [blcsId, intakeBody.workflowId, outboxEventId],
+      );
+      expect(afterFirstAttempt.rows[0]).toMatchObject({
+        workflow_state: "classified",
+        recommendation_run_count: "0",
+        recommendation_count: "0",
+        approval_count: "0",
+        recommended_transition_count: "0",
+        recommendation_audit_count: "0",
+        policy_audit_count: "0",
+        audit_count: before.rows[0]!.audit_count,
+        outbox_status: "failed",
+      });
+      expect(afterFirstAttempt.rows[0]!.safe_error_message).toMatch(
+        /invalid|required|expected|less than or equal/i,
+      );
+
+      for (let attempt = 2; attempt <= 3; attempt += 1) {
+        await adminPool.query(
+          `UPDATE operating_layer.outbox_events
+           SET available_at = now()
+           WHERE id = $1`,
+          [outboxEventId],
+        );
+        expect(
+          await processNextOutboxJob(pool, "malformed-recommendation-worker"),
+        ).toBe(attempt === 3 ? "dead_letter" : "failed");
+      }
+    } finally {
+      malformed.mockRestore();
+    }
+
+    const deadLetter = await adminPool.query<{
+      status: string;
+      recommendation_count: string;
+      recommendation_audit_count: string;
+    }>(
+      `SELECT
+         outbox.status,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.recommendations recommendation
+           WHERE recommendation.task_id = $2
+         ) AS recommendation_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = $3
+             AND audit.event_type = 'recommendation.created'
+         ) AS recommendation_audit_count
+       FROM operating_layer.outbox_events outbox
+       WHERE outbox.id = $1`,
+      [outboxEventId, intakeBody.taskId, intakeBody.workflowId],
+    );
+    expect(deadLetter.rows[0]).toEqual({
+      status: "dead_letter",
+      recommendation_count: "0",
+      recommendation_audit_count: "0",
+    });
+    const recommendationQueue = await app.inject({
+      method: "GET",
+      url: `/v1/executive-queue?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": executiveEmail },
+    });
+    expect(
+      recommendationQueue.json<{
+        jobFailures: Array<{ id: string; status: string }>;
+      }>().jobFailures,
+    ).toContainEqual(
+      expect.objectContaining({ id: outboxEventId, status: "dead_letter" }),
+    );
+  });
+
+  it("rejects malformed execution output before provider-derived persistence", async () => {
+    const traceId = "trace-malformed-execution";
+    const intake = await app.inject({
+      method: "POST",
+      url: "/v1/issues",
+      headers: {
+        "x-dev-user-email": blcsOperatorEmail,
+        "idempotency-key": `malformed-execution-intake-${randomUUID()}`,
+        "x-trace-id": traceId,
+      },
+      payload: {
+        organizationId: blcsId,
+        title: "Malformed execution provider boundary",
+        description:
+          "A $90,000 receivable requires an approved internal follow-up.",
+        financialExposure: 90_000,
+        financialExposureCurrency: "USD",
+        retentionClassification: "financial_support",
+      },
+    });
+    expect(intake.statusCode, intake.body).toBe(202);
+    const intakeBody = intake.json<{ taskId: string; workflowId: string }>();
+    const prepared = await drainOutbox(
+      pool,
+      "malformed-execution-setup-worker",
+    );
+    expect(prepared.failed).toBe(0);
+    expect(prepared.deadLetter).toBe(0);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/tasks/${intakeBody.taskId}?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": approverEmail },
+    });
+    const approvalId = detail.json<{
+      approvals: Array<{ id: string }>;
+    }>().approvals[0]!.id;
+    const approval = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/resolution`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": `malformed-execution-approval-${randomUUID()}`,
+      },
+      payload: {
+        organizationId: blcsId,
+        decision: "approved",
+        reason: "Approve the malformed provider boundary fixture.",
+      },
+    });
+    expect(approval.statusCode, approval.body).toBe(202);
+
+    const trigger = await app.inject({
+      method: "POST",
+      url: `/v1/approvals/${approvalId}/executions`,
+      headers: {
+        "x-dev-user-email": approverEmail,
+        "idempotency-key": `malformed-execution-command-${randomUUID()}`,
+      },
+      payload: { organizationId: blcsId },
+    });
+    expect(trigger.statusCode, trigger.body).toBe(202);
+    const triggerBody = trigger.json<{
+      executionCommandId: string;
+      outboxEventId: string;
+    }>();
+    const malformedProvider: ExecutionProvider = {
+      id: "malformed-execution-feature-fixture",
+      kind: "internal",
+      enabled: true,
+      async execute() {
+        return {
+          outcome: "succeeded",
+          summary: "Partial provider output without the required output map.",
+          partialGarbage: "must-not-persist",
+        };
+      },
+    };
+
+    expect(
+      await processNextOutboxJob(
+        pool,
+        "malformed-execution-worker",
+        malformedProvider,
+      ),
+    ).toBe("failed");
+
+    const afterFirstAttempt = await adminPool.query<{
+      workflow_state: string;
+      result_count: string;
+      terminal_transition_count: string;
+      success_audit_count: string;
+      failure_audit_count: string;
+      started_audit_count: string;
+      outbox_status: string;
+      safe_error_message: string | null;
+    }>(
+      `SELECT
+         workflow.current_state AS workflow_state,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.execution_results result
+           WHERE result.execution_command_id = $3
+         ) AS result_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.workflow_transitions transition
+           WHERE transition.workflow_id = workflow.id
+             AND transition.to_state IN ('completed', 'execution_failed')
+         ) AS terminal_transition_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type IN (
+               'execution.succeeded',
+               'gmail_draft.created'
+             )
+         ) AS success_audit_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type = 'execution.failed'
+         ) AS failure_audit_count,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type = 'execution.started'
+         ) AS started_audit_count,
+         outbox.status AS outbox_status,
+         outbox.safe_error_message
+       FROM operating_layer.workflows workflow
+       JOIN operating_layer.outbox_events outbox ON outbox.id = $4
+       WHERE workflow.id = $2
+         AND workflow.organization_id = $1`,
+      [
+        blcsId,
+        intakeBody.workflowId,
+        triggerBody.executionCommandId,
+        triggerBody.outboxEventId,
+      ],
+    );
+    expect(afterFirstAttempt.rows[0]).toMatchObject({
+      workflow_state: "executing",
+      result_count: "0",
+      terminal_transition_count: "0",
+      success_audit_count: "0",
+      failure_audit_count: "0",
+      started_audit_count: "1",
+      outbox_status: "failed",
+      safe_error_message: "Execution provider returned invalid output",
+    });
+
+    for (let attempt = 2; attempt <= 3; attempt += 1) {
+      await adminPool.query(
+        `UPDATE operating_layer.outbox_events
+         SET available_at = now()
+         WHERE id = $1`,
+        [triggerBody.outboxEventId],
+      );
+      expect(
+        await processNextOutboxJob(
+          pool,
+          "malformed-execution-worker",
+          malformedProvider,
+        ),
+      ).toBe(attempt === 3 ? "dead_letter" : "failed");
+    }
+
+    const terminal = await adminPool.query<{
+      workflow_state: string;
+      outbox_status: string;
+      result_count: string;
+      outcome: string;
+      error_code: string;
+      output_payload: Record<string, unknown>;
+      trace_id: string;
+      failure_audit_count: string;
+    }>(
+      `SELECT
+         workflow.current_state AS workflow_state,
+         outbox.status AS outbox_status,
+         count(result.id) OVER ()::text AS result_count,
+         result.outcome,
+         result.error_code,
+         result.output_payload,
+         result.trace_id,
+         (
+           SELECT count(*)::text
+           FROM operating_layer.audit_events audit
+           WHERE audit.workflow_id = workflow.id
+             AND audit.event_type = 'execution.failed'
+             AND audit.trace_id = $5
+         ) AS failure_audit_count
+       FROM operating_layer.workflows workflow
+       JOIN operating_layer.outbox_events outbox ON outbox.id = $4
+       JOIN operating_layer.execution_results result
+         ON result.execution_command_id = $3
+       WHERE workflow.id = $2
+         AND workflow.organization_id = $1`,
+      [
+        blcsId,
+        intakeBody.workflowId,
+        triggerBody.executionCommandId,
+        triggerBody.outboxEventId,
+        traceId,
+      ],
+    );
+    expect(terminal.rows[0]).toMatchObject({
+      workflow_state: "execution_failed",
+      outbox_status: "dead_letter",
+      result_count: "1",
+      outcome: "failed",
+      error_code: "executor_output_invalid",
+      output_payload: {},
+      trace_id: traceId,
+      failure_audit_count: "1",
+    });
+    expect(JSON.stringify(terminal.rows[0])).not.toContain("must-not-persist");
+    const executionQueue = await app.inject({
+      method: "GET",
+      url: `/v1/executive-queue?organizationId=${blcsId}`,
+      headers: { "x-dev-user-email": executiveEmail },
+    });
+    expect(
+      executionQueue.json<{
+        jobFailures: Array<{ id: string; status: string }>;
+      }>().jobFailures,
+    ).toContainEqual(
+      expect.objectContaining({
+        id: triggerBody.outboxEventId,
+        status: "dead_letter",
+      }),
+    );
   });
 });
