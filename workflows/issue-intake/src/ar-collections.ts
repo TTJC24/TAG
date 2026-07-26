@@ -110,10 +110,13 @@ export function resolveCollectionsConfig(
 /**
  * Map the aging report's company field to an operating-layer org code. Only
  * FS and BL have AR in Acumatica; USA is prepaid, Cultivus is on a separate
- * ledger. Kept as one table so the pending FSI->FS rename is a one-line change.
+ * ledger. This is the deliberate boundary mapping between TractionOS/Acumatica
+ * labels ("FS") and the OS's canonical entity codes ("FSI" = Fastening
+ * Specialists) — the same convention the Traction bridge uses ({"FS":"FSI"}).
+ * The canonical code stays FSI; we translate at the edge, not by renaming.
  */
 export const COMPANY_TO_ORG_CODE: Record<string, string> = {
-  FS: "FSI", // Fastening Specialists (seeded code FSI; rename to FS pending)
+  FS: "FSI", // Fastening Specialists: Acumatica/TractionOS "FS" -> OS code "FSI"
   BL: "BLCS",
   BLC: "BLCS",
   BLCS: "BLCS",

@@ -171,15 +171,19 @@ close checklist per entity: [UNKNOWN — get the ClickUp close-list templates].
 How the above lands against what is actually deployed. Owner confirmation needed
 on the entity model before it is changed.
 
-- **Entity model mismatch (must reconcile).** Production seeded four orgs: Big
-  League Construction Supply `BLCS`, Fastening Specialists `FSI`, Utility Supply
-  Associates `USA`, Cultivus `CULTIVUS`. Problems: (a) Fastening Specialists is
-  coded `FSI`, but TractionOS calls it **`FS`**, and `FSI` collides with the
-  separate **FSI Acquisition Corp** propco; (b) **FSI Acquisition Corp** and
-  **Coaching** are not modeled. Proposed fix (pending owner): rename Fastening
-  Specialists' code `FSI → FS` to match TractionOS; decide whether to add FSI
-  Acquisition (propco) and Coaching as orgs. Do not introduce a "Clark Holdings"
-  org — it is not a real entity.
+- **Entity model — decided: keep `FSI`, map at the boundary.** Production seeded
+  four orgs: Big League Construction Supply `BLCS`, Fastening Specialists `FSI`,
+  Utility Supply Associates `USA`, Cultivus `CULTIVUS`. TractionOS/Acumatica call
+  Fastening Specialists **`FS`**. `FSI` is the OS's **canonical entity code**,
+  baked into the schema enum (`z.enum(["BLCS","FSI","USA","CULTIVUS"])`) and ~15
+  spots across services, seeds, and tests — so `FSI` is NOT renamed. Instead the
+  external label `FS` is translated to `FSI` **at each doorway** (the Traction
+  bridge already does `{"FS":"FSI"}`; the Collections doorway does the same).
+  `FSI` here means **Fastening Specialists**; it is unrelated to the finance-only
+  **FSI Acquisition Corp** propco, which is not an OS org. **Coaching** and **FSI
+  Acquisition** stay finance/close entities, not OS orgs. Do not introduce a
+  "Clark Holdings" org — it is not a real entity. (A cosmetic `FSI→FS` rename
+  remains possible later as a deliberate, scheduled refactor.)
 - **Collections module, sharpened.** First target = **FS + BL**, source = Acumatica
   AR aging + `AR3020PL`. No live Acumatica connector exists yet, so **v1 rides the
   CSV batch-intake doorway** (weekly aging export) — exactly the "file first, brain

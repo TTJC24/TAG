@@ -73,6 +73,61 @@ function n(cell: Cell): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+/**
+ * Parse CSV text into a raw cell grid (RFC-4180-ish: quoted fields, embedded
+ * commas/quotes/newlines). Cells stay as strings — the aging parser's own
+ * numeric/date coercion handles Acumatica's CSV formats ("1,234.56", "(20.00)",
+ * "6/14/2026"). This is the file-reading front for a CSV aging export; the xlsx
+ * path supplies its own grid.
+ */
+export function parseCsvGrid(text: string): Cell[][] {
+  const rows: Cell[][] = [];
+  let row: Cell[] = [];
+  let field = "";
+  let inQuotes = false;
+  let sawAny = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += c;
+      }
+      continue;
+    }
+    if (c === '"') {
+      inQuotes = true;
+      sawAny = true;
+    } else if (c === ",") {
+      row.push(field);
+      field = "";
+      sawAny = true;
+    } else if (c === "\r") {
+      // ignore; handled by \n
+    } else if (c === "\n") {
+      row.push(field);
+      rows.push(row);
+      row = [];
+      field = "";
+      sawAny = false;
+    } else {
+      field += c;
+      sawAny = true;
+    }
+  }
+  if (sawAny || field.length > 0) {
+    row.push(field);
+    rows.push(row);
+  }
+  return rows;
+}
+
 /** Excel serial date (or a parseable date string) -> YYYY-MM-DD, else null. */
 export function toIsoDate(cell: Cell): string | null {
   if (typeof cell === "number" && Number.isFinite(cell)) {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   parseArAgingDetailed,
+  parseCsvGrid,
   pastDue,
   worstBucket,
   toIsoDate,
@@ -76,5 +77,30 @@ describe("AR aging (detailed) parser", () => {
 
   it("does not invent customers from malformed input", () => {
     expect(parseArAgingDetailed([["garbage"], ["nothing", "here"]]).customers).toHaveLength(0);
+  });
+
+  it("parses a CSV export (quotes, commas, parens, formatted dates) to the same shape", () => {
+    // Mirrors an Acumatica CSV export: quoted name with a comma, "(20.00)"
+    // credit, comma-grouped amounts, and a formatted date instead of a serial.
+    const csv = [
+      "AR Aging (Detailed)",
+      "Company/Branch:,FS",
+      ",,,,Aged On:,7/6/2026",
+      "",
+      "Customer,,Customer Name",
+      "ACME001,,\"Acme Corp, Inc.\"",
+      "Doc. Type,Ref. Nbr.,Customer Ref.,Branch,Doc. Date,Due Date,Current,1 - 30 Days,31 - 60 Days,61 - 90 Days,Over 90 Days,Balance",
+      "Invoice,INV1,r1,FS,6/1/2026,6/8/2026,0,\"1,100.00\",0,0,0,\"1,100.00\"",
+      "Credit Memo,CM1,r3,FS,6/2/2026,6/2/2026,0,(20.00),0,0,0,(20.00)",
+      ",,,,Customer Total:,,0,\"1,080.00\",0,0,0,\"1,080.00\"",
+    ].join("\n");
+    const parsed = parseArAgingDetailed(parseCsvGrid(csv));
+    expect(parsed.company).toBe("FS");
+    expect(parsed.agedOn).toBe("2026-07-06");
+    expect(parsed.customers).toHaveLength(1);
+    const acme = parsed.customers[0]!;
+    expect(acme.customerName).toBe("Acme Corp, Inc."); // comma survived quoting
+    expect(acme.buckets.balance).toBe(1080);
+    expect(acme.lines.find((l) => l.docType === "Credit Memo")!.buckets.balance).toBe(-20);
   });
 });
