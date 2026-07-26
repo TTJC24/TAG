@@ -56,6 +56,19 @@ async function main(): Promise<void> {
         apiToken: source.token,
       });
       const deals = await client.fetchOpenDeals();
+
+      // Discovery aid: show the pipelines this account actually contains, so
+      // the BL/USA pipeline->org map can be filled in from real ids.
+      const pipelines = new Map<string, number>();
+      for (const deal of deals) {
+        const key = String(deal.pipeline_id ?? "none");
+        pipelines.set(key, (pipelines.get(key) ?? 0) + 1);
+      }
+      console.error(
+        `[${source.name}] pipelines seen (id: open deals): ` +
+          [...pipelines.entries()].map(([id, n]) => `${id}: ${n}`).join(", "),
+      );
+
       const result = await syncPipedriveDeals(
         pool,
         deals,
