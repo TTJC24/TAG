@@ -166,6 +166,19 @@ close checklist per entity: [UNKNOWN — get the ClickUp close-list templates].
 
 ---
 
+## 7a. Source-of-truth decision (owner, 2026-07-27)
+
+**Acumatica (the ERP) is the source of truth for the operating system.** The
+actual sales, revenue, orders, AR, and financials live in the ERP. **Pipedrive
+(CRM) is a status overlay only** — it tracks where a deal sits in pursuit, not
+the real numbers. Therefore the **Acumatica read connector is the central data
+wire**, feeding Collections (AR aging), the scorecard (revenue, GP%, DSO, DPO,
+DIO, orders, inventory), and the customer money picture. The Pipedrive Sales
+doorway (already live) stays as the deal-pursuit hygiene layer on top, not the
+truth. Today the only Acumatica access is the finance project driving the web
+UI in a browser; the durable wire is Acumatica's REST API with a dedicated
+**read-only** API user (a stop-and-ask; read-only; logged in APPROVALS.md).
+
 ## 8. Operating-layer reconciliation notes
 
 How the above lands against what is actually deployed. Owner confirmation needed
