@@ -201,6 +201,7 @@ export interface PipedriveSource {
   token: string;
   orgCode?: string; // whole account routes to one org (e.g. the FS account)
   pipelineToOrgCode?: Record<string, string>; // split by pipeline (e.g. BL/USA)
+  serviceUserEmail?: string; // account owns its follow-ups under this OS user
 }
 
 const pipedriveSourceConfigSchema = z.object({
@@ -209,6 +210,7 @@ const pipedriveSourceConfigSchema = z.object({
   tokenEnv: z.string().min(1),
   orgCode: z.string().min(1).optional(),
   pipelineToOrgCode: z.record(z.string()).optional(),
+  serviceUserEmail: z.string().min(1).optional(),
 });
 
 /**
@@ -250,6 +252,9 @@ export function resolvePipedriveSources(
       ...(entry.orgCode ? { orgCode: entry.orgCode } : {}),
       ...(entry.pipelineToOrgCode
         ? { pipelineToOrgCode: entry.pipelineToOrgCode }
+        : {}),
+      ...(entry.serviceUserEmail
+        ? { serviceUserEmail: entry.serviceUserEmail }
         : {}),
     };
   });
@@ -367,7 +372,11 @@ export async function syncPipedriveDeals(
   config: PipedriveSalesConfig,
   organizationIdsByCode: Record<string, string>,
   asOf: string,
-  opts: { orgCode?: string; pipelineToOrgCode?: Record<string, string> } = {},
+  opts: {
+    orgCode?: string;
+    pipelineToOrgCode?: Record<string, string>;
+    serviceUserEmail?: string;
+  } = {},
 ): Promise<PipedriveSalesSyncResult> {
   const result: PipedriveSalesSyncResult = {
     asOf,
@@ -400,10 +409,11 @@ export async function syncPipedriveDeals(
   });
   if (followups.length === 0) return result;
 
+  const serviceUserEmail = opts.serviceUserEmail ?? config.serviceUserEmail;
   const principal = await resolveApplicationPrincipal(operatingPool, {
     issuer: "pipedrive-sales",
-    subject: config.serviceUserEmail,
-    email: config.serviceUserEmail,
+    subject: serviceUserEmail,
+    email: serviceUserEmail,
   });
 
   for (const followup of followups) {

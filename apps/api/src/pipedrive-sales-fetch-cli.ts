@@ -80,6 +80,9 @@ async function main(): Promise<void> {
           ...(source.pipelineToOrgCode
             ? { pipelineToOrgCode: source.pipelineToOrgCode }
             : {}),
+          ...(source.serviceUserEmail
+            ? { serviceUserEmail: source.serviceUserEmail }
+            : {}),
         },
       );
       if (result.skipped.length > 0) anySkipped = true;
