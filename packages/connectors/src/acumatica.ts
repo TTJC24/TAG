@@ -60,7 +60,7 @@ export function normalizeArInvoice(
   return {
     customerId,
     customerName: asStr(val(record, "CustomerName")),
-    branch: asStr(val(record, "Branch")) ?? "",
+    branch: asStr(val(record, "LinkBranch")) ?? "",
     docType: asStr(val(record, "Type")) ?? "Invoice",
     refNbr,
     docDate: asDate(val(record, "Date")),
@@ -68,6 +68,13 @@ export function normalizeArInvoice(
     balance: asNum(val(record, "Balance")),
   };
 }
+
+// Validated against build 24.209 / Default 24.200.001 on this instance:
+// the AR Invoice entity exposes LinkBranch (not Branch) and has no CustomerName
+// (only the Customer id); the Balance filter needs the decimal literal `0M`.
+const AR_SELECT =
+  "Type,ReferenceNbr,Customer,LinkBranch,Date,DueDate,Balance,Status";
+const AR_FILTER = "Status eq 'Open' and Balance gt 0M";
 
 const recordArraySchema = z.array(z.record(z.unknown()));
 
@@ -192,10 +199,10 @@ export class AcumaticaClient {
     const invoices: OpenArInvoice[] = [];
     for (let page = 0; page < this.maxPages; page += 1) {
       const params = new URLSearchParams({
-        $filter: "Status eq 'Open' and Balance gt 0m",
+        $filter: AR_FILTER,
         $top: String(this.pageSize),
         $skip: String(page * this.pageSize),
-        $select: "Type,ReferenceNbr,Customer,CustomerName,Branch,Date,DueDate,Balance,Status",
+        $select: AR_SELECT,
       });
       const response = await this.request(
         `/entity/Default/${this.version}/Invoice?${params.toString()}`,

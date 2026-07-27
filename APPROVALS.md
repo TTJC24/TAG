@@ -26,3 +26,21 @@ who approved.
 - **Approved by:** owner (Tim Clark), who provided the tokens.
 - **Follow-up:** the tokens inherit the owner's permissions; a dedicated
   read-only Pipedrive user per account is the hardening step if/when desired.
+
+## 2026-07-27 — Acumatica read wire (Collections / ERP source of truth)
+
+- **What:** read-only connection to Acumatica (`bigleaguecs.acumatica.com`,
+  tenant `Production`, Default endpoint 24.200.001) via a dedicated API user
+  (`agent.scoreboard`), reading open AR (the `Invoice` entity) to feed
+  Collections. Branches route FS -> FS, BLC -> BLCS.
+- **Posture:** **read-only.** `AcumaticaClient` performs its own auth
+  login/logout and GETs only — it never writes ERP data. Credential lives in
+  `.env.production` (chmod 600).
+- **Validated live (2026-07-27):** login OK (204), read 1,303 open AR docs,
+  split cleanly into FS / BLC, aged — FS past-due ~$139K, BLC ~$202K.
+- **Approved by:** owner (Tim Clark), who provided the read-only user.
+- **Follow-ups (hardening, not blockers):** (1) the service password is weak —
+  rotate `agent.scoreboard` to a strong secret. (2) the connector ages by
+  document due date; reconcile against Acumatica's aging-report basis before
+  treating buckets as authoritative. (3) customer names aren't on the Invoice
+  entity — resolve via the Customer entity for friendlier chase labels.
