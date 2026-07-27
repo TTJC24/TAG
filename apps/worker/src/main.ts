@@ -13,6 +13,7 @@ import {
   reapExpiredIdempotencyKeys,
   resolveFeedSchedules,
   runCollectionsFeed,
+  runSalesFeed,
 } from "@operating-layer/issue-intake";
 import {
   DisabledGmailDraftExecutionProvider,
@@ -88,24 +89,38 @@ async function runDueFeeds(now: Date): Promise<void> {
     const traceId = `feed-${schedule.name}-${randomUUID()}`;
     const startedAt = Date.now();
     try {
-      if (schedule.name !== "collections") continue;
-      const result = await runCollectionsFeed(pool);
+      const summary =
+        schedule.name === "collections"
+          ? await runCollectionsFeed(pool).then((result) => ({
+              readInvoices: result.readInvoices,
+              readCustomers: result.readCustomers,
+              customersWithEmail: result.customersWithEmail,
+              created: result.perCompany.reduce((n, r) => n + r.created, 0),
+              replayed: result.perCompany.reduce((n, r) => n + r.replayed, 0),
+              unaddressable: result.perCompany.reduce(
+                (n, r) => n + r.unaddressable,
+                0,
+              ),
+              skipped: result.perCompany.reduce(
+                (n, r) => n + r.skipped.length,
+                0,
+              ),
+            }))
+          : await runSalesFeed(pool).then((result) => ({
+              created: result.perSource.reduce((n, r) => n + r.created, 0),
+              replayed: result.perSource.reduce((n, r) => n + r.replayed, 0),
+              skipped: result.perSource.reduce(
+                (n, r) => n + r.skipped.length,
+                0,
+              ),
+            }));
       console.info(
         JSON.stringify({
           event: "feed.refresh.completed",
           feed: schedule.name,
           traceId,
           durationMs: Date.now() - startedAt,
-          readInvoices: result.readInvoices,
-          readCustomers: result.readCustomers,
-          customersWithEmail: result.customersWithEmail,
-          created: result.perCompany.reduce((n, r) => n + r.created, 0),
-          replayed: result.perCompany.reduce((n, r) => n + r.replayed, 0),
-          unaddressable: result.perCompany.reduce(
-            (n, r) => n + r.unaddressable,
-            0,
-          ),
-          skipped: result.perCompany.reduce((n, r) => n + r.skipped.length, 0),
+          ...summary,
         }),
       );
     } catch (error) {

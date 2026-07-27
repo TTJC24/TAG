@@ -1,4 +1,4 @@
-import { AcumaticaClient } from "@operating-layer/connectors";
+import { AcumaticaClient, PipedriveClient } from "@operating-layer/connectors";
 import type { DatabasePool } from "@operating-layer/db";
 import { buildAgingFromInvoices } from "./acumatica-aging.js";
 import {
@@ -6,6 +6,12 @@ import {
   syncArAging,
   type CollectionsSyncResult,
 } from "./ar-collections.js";
+import {
+  resolvePipedriveSalesConfig,
+  resolvePipedriveSources,
+  syncPipedriveDeals,
+  type PipedriveSalesSyncResult,
+} from "./pipedrive-sales.js";
 import { loadOrganizationIdsByCode } from "./traction-bridge.js";
 
 /**
@@ -98,4 +104,49 @@ export async function runCollectionsFeed(
       : 0,
     perCompany,
   };
+}
+
+export interface SalesFeedResult {
+  perSource: Array<{ source: string } & PipedriveSalesSyncResult>;
+}
+
+/**
+ * Pull open deals from every configured Pipedrive account and run them through
+ * the Sales doorway. Read-only; nothing is written back to Pipedrive.
+ */
+export async function runSalesFeed(
+  pool: DatabasePool,
+  env: Record<string, string | undefined> = process.env,
+): Promise<SalesFeedResult> {
+  const config = resolvePipedriveSalesConfig(env as never);
+  const sources = resolvePipedriveSources(env as never);
+  const asOf = env.PIPEDRIVE_SALES_ASOF ?? new Date().toISOString().slice(0, 10);
+
+  const organizationIdsByCode = await loadOrganizationIdsByCode(pool);
+  const perSource: SalesFeedResult["perSource"] = [];
+  for (const source of sources) {
+    const client = new PipedriveClient({
+      apiBase: source.apiBase,
+      apiToken: source.token,
+    });
+    const deals = await client.fetchOpenDeals();
+    const result = await syncPipedriveDeals(
+      pool,
+      deals,
+      config,
+      organizationIdsByCode,
+      asOf,
+      {
+        ...(source.orgCode ? { orgCode: source.orgCode } : {}),
+        ...(source.pipelineToOrgCode
+          ? { pipelineToOrgCode: source.pipelineToOrgCode }
+          : {}),
+        ...(source.serviceUserEmail
+          ? { serviceUserEmail: source.serviceUserEmail }
+          : {}),
+      },
+    );
+    perSource.push({ source: source.name, ...result });
+  }
+  return { perSource };
 }
