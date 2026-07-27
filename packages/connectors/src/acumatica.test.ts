@@ -1,5 +1,47 @@
 import { describe, expect, it } from "vitest";
-import { AcumaticaClient, normalizeArInvoice } from "./acumatica.js";
+import {
+  AcumaticaClient,
+  normalizeArInvoice,
+  normalizeCustomer,
+} from "./acumatica.js";
+
+describe("normalizeCustomer", () => {
+  it("pulls the AR contact email out of the nested MainContact", () => {
+    expect(
+      normalizeCustomer({
+        CustomerID: { value: "ACME01" },
+        CustomerName: { value: "Acme Corporation" },
+        Status: { value: "Active" },
+        MainContact: { Email: { value: "ap@acme.example" } },
+      }),
+    ).toEqual({
+      customerId: "ACME01",
+      customerName: "Acme Corporation",
+      email: "ap@acme.example",
+      status: "Active",
+    });
+  });
+
+  it("degrades to no email rather than failing when the contact is absent", () => {
+    const customer = normalizeCustomer({
+      CustomerID: { value: "NOEMAIL" },
+      CustomerName: { value: "No Contact Co" },
+    });
+    expect(customer).toMatchObject({ customerId: "NOEMAIL", email: null });
+  });
+
+  it("rejects a value that is not an address", () => {
+    const customer = normalizeCustomer({
+      CustomerID: { value: "X" },
+      MainContact: { Email: { value: "n/a" } },
+    });
+    expect(customer?.email).toBeNull();
+  });
+
+  it("drops a record with no customer id", () => {
+    expect(normalizeCustomer({ CustomerName: { value: "Orphan" } })).toBeNull();
+  });
+});
 
 describe("normalizeArInvoice", () => {
   it("unwraps contract-API {value} fields into the normalized shape", () => {
@@ -81,5 +123,43 @@ describe("AcumaticaClient", () => {
     expect(decodeURIComponent(read.url).replace(/\+/g, " ")).toContain(
       "Status eq 'Open'",
     );
+  });
+
+  it("reads customers read-only and keys them by customer id", async () => {
+    const calls: { url: string; method: string }[] = [];
+    const fetchImpl = (async (url: URL | string, init?: RequestInit) => {
+      calls.push({ url: String(url), method: init?.method ?? "GET" });
+      if (String(url).includes("/entity/auth/login")) {
+        return fakeResponse(null, ["ASP.NET_SessionId=abc; path=/; HttpOnly"]);
+      }
+      return fakeResponse([
+        {
+          CustomerID: { value: "C1" },
+          CustomerName: { value: "Customer One" },
+          MainContact: { Email: { value: "one@example.test" } },
+        },
+        {
+          CustomerID: { value: "C2" },
+          CustomerName: { value: "Customer Two" },
+        },
+      ]);
+    }) as unknown as typeof fetch;
+
+    const client = new AcumaticaClient({
+      baseUrl: "https://bigleaguecs.acumatica.com",
+      username: "svc",
+      password: "secret",
+      company: "Production",
+      fetchImpl,
+    });
+    await client.login();
+    const customers = await client.fetchCustomers();
+
+    expect(customers.size).toBe(2);
+    expect(customers.get("C1")?.email).toBe("one@example.test");
+    expect(customers.get("C2")?.email).toBeNull();
+
+    const read = calls.find((c) => c.url.includes("/Customer"))!;
+    expect(read.method).toBe("GET");
   });
 });

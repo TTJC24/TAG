@@ -41,6 +41,12 @@ export interface AgingLine {
 export interface AgingCustomer {
   customerId: string;
   customerName: string;
+  /**
+   * AR contact address, when the Customer entity supplied one. Absent for the
+   * CSV path and for customers with no email on file — a chase without an
+   * address is still raised for a human, it just can't be auto-drafted.
+   */
+  email?: string;
   buckets: AgingBuckets;
   lines: AgingLine[];
 }

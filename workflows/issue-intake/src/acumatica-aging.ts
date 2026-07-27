@@ -57,9 +57,14 @@ function addInto(total: AgingBuckets, part: AgingBuckets): void {
 export function buildAgingFromInvoices(
   invoices: OpenArInvoice[],
   asOf: string,
-  opts: { branchToCompany?: Record<string, string> } = {},
+  opts: {
+    branchToCompany?: Record<string, string>;
+    /** customerId -> contact, from AcumaticaClient.fetchCustomers(). */
+    contacts?: Map<string, { customerName: string | null; email: string | null }>;
+  } = {},
 ): ParsedAging[] {
   const branchMap = opts.branchToCompany ?? DEFAULT_BRANCH_TO_COMPANY;
+  const contacts = opts.contacts;
   const byCompany = new Map<string, Map<string, AgingCustomer>>();
 
   for (const inv of invoices) {
@@ -72,9 +77,14 @@ export function buildAgingFromInvoices(
     }
     let customer = customers.get(inv.customerId);
     if (!customer) {
+      // The Invoice entity has no customer name, so prefer the Customer entity
+      // read; fall back to the raw id only when we genuinely have no better label.
+      const contact = contacts?.get(inv.customerId);
       customer = {
         customerId: inv.customerId,
-        customerName: inv.customerName ?? inv.customerId,
+        customerName:
+          contact?.customerName ?? inv.customerName ?? inv.customerId,
+        ...(contact?.email ? { email: contact.email } : {}),
         buckets: { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, over90: 0, balance: 0 },
         lines: [],
       };

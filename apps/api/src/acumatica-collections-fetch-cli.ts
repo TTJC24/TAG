@@ -52,14 +52,34 @@ async function main(): Promise<void> {
 
   await client.login();
   let invoices;
+  let contacts;
   try {
     invoices = await client.fetchOpenArInvoices();
+    // The Invoice entity carries only the customer id, so the Customer read is
+    // what gives a chase a real company name and an address to go to. A failure
+    // here must not lose the AR read: fall back to id-labelled, unaddressed
+    // chases rather than dropping the run entirely.
+    try {
+      contacts = await client.fetchCustomers();
+    } catch (error) {
+      console.error(
+        `customer read failed (${error instanceof Error ? error.message : "unknown"}); continuing without names/emails`,
+      );
+    }
   } finally {
     await client.logout();
   }
   console.error(`read ${invoices.length} open AR documents from Acumatica`);
+  if (contacts) {
+    const withEmail = [...contacts.values()].filter((c) => c.email).length;
+    console.error(
+      `read ${contacts.size} customers (${withEmail} with an AR email on file)`,
+    );
+  }
 
-  const agingByCompany = buildAgingFromInvoices(invoices, asOf);
+  const agingByCompany = buildAgingFromInvoices(invoices, asOf, {
+    ...(contacts ? { contacts } : {}),
+  });
   const pool = createDatabasePool(operatingUrl);
   let anySkipped = false;
   try {

@@ -26,6 +26,14 @@ export interface OpenArInvoice {
   balance: number; // open balance (signed; credits negative)
 }
 
+/** Normalized customer contact — who a chase is addressed to. */
+export interface AcumaticaCustomer {
+  customerId: string;
+  customerName: string | null;
+  email: string | null;
+  status: string | null;
+}
+
 /** Contract-API fields arrive wrapped as {"Field": {"value": ...}}. */
 function val(record: Record<string, unknown>, field: string): unknown {
   const cell = record[field];
@@ -33,6 +41,21 @@ function val(record: Record<string, unknown>, field: string): unknown {
     return (cell as { value: unknown }).value;
   }
   return cell ?? null;
+}
+
+/**
+ * Read a field out of a nested contract-API object, e.g. MainContact.Email.
+ * Returns null rather than throwing when the nesting isn't there, so a field
+ * that this instance doesn't expose degrades to "no email" instead of a crash.
+ */
+function nested(
+  record: Record<string, unknown>,
+  parent: string,
+  field: string,
+): unknown {
+  const branch = record[parent];
+  if (!branch || typeof branch !== "object") return null;
+  return val(branch as Record<string, unknown>, field);
 }
 
 function asStr(v: unknown): string | null {
@@ -75,6 +98,28 @@ export function normalizeArInvoice(
 const AR_SELECT =
   "Type,ReferenceNbr,Customer,LinkBranch,Date,DueDate,Balance,Status";
 const AR_FILTER = "Status eq 'Open' and Balance gt 0M";
+
+// The Invoice entity carries only the customer *id*, so a chase addressed to a
+// human needs the Customer entity: display name and the AR contact email.
+// MainContact.Email is the standard location; a top-level Email is tolerated.
+// Field names are confirmed against the live instance by acumatica-probe-cli.
+const CUSTOMER_SELECT = "CustomerID,CustomerName,Status,MainContact/Email";
+
+/** Map one contract-API Customer record to the normalized contact shape. */
+export function normalizeCustomer(
+  record: Record<string, unknown>,
+): AcumaticaCustomer | null {
+  const customerId = asStr(val(record, "CustomerID"));
+  if (!customerId) return null;
+  const email =
+    asStr(nested(record, "MainContact", "Email")) ?? asStr(val(record, "Email"));
+  return {
+    customerId,
+    customerName: asStr(val(record, "CustomerName")),
+    email: email && email.includes("@") ? email : null,
+    status: asStr(val(record, "Status")),
+  };
+}
 
 const recordArraySchema = z.array(z.record(z.unknown()));
 
@@ -224,5 +269,73 @@ export class AcumaticaClient {
       if (batch.length < this.pageSize) break;
     }
     return invoices;
+  }
+
+  /**
+   * Bare read of an entity with NO $select, so the caller can discover which
+   * fields this instance actually exposes. Contract-API field names vary by
+   * build and customization, and a wrong $select fails as an opaque 500 — so
+   * we look before we depend. Read-only GET; used by the probe CLI only.
+   */
+  async probeEntity(
+    entity: string,
+    limit = 1,
+  ): Promise<Record<string, unknown>[]> {
+    const params = new URLSearchParams({ $top: String(limit) });
+    const response = await this.request(
+      `/entity/Default/${this.version}/${entity}?${params.toString()}`,
+    );
+    if (!response.ok) {
+      throw new AcumaticaUnavailableError(
+        `Acumatica ${entity} probe failed (${response.status})`,
+      );
+    }
+    const parsed = recordArraySchema.safeParse(await response.json());
+    if (!parsed.success) {
+      throw new AcumaticaUnavailableError(
+        `Acumatica ${entity} probe response failed validation`,
+      );
+    }
+    return parsed.data;
+  }
+
+  /**
+   * Read customers, keyed by customer id — the display name and AR contact
+   * email a chase is addressed to. Read-only GET, paginated like the AR read.
+   *
+   * Degrades rather than fails: a customer with no email simply has none, and
+   * the caller decides what to do (we hold those chases back from drafting
+   * instead of guessing an address).
+   */
+  async fetchCustomers(): Promise<Map<string, AcumaticaCustomer>> {
+    const byId = new Map<string, AcumaticaCustomer>();
+    for (let page = 0; page < this.maxPages; page += 1) {
+      const params = new URLSearchParams({
+        $top: String(this.pageSize),
+        $skip: String(page * this.pageSize),
+        $select: CUSTOMER_SELECT,
+      });
+      const response = await this.request(
+        `/entity/Default/${this.version}/Customer?${params.toString()}`,
+      );
+      if (!response.ok) {
+        throw new AcumaticaUnavailableError(
+          `Acumatica customer read failed (${response.status})`,
+        );
+      }
+      const parsed = recordArraySchema.safeParse(await response.json());
+      if (!parsed.success) {
+        throw new AcumaticaUnavailableError(
+          "Acumatica customer response failed validation",
+        );
+      }
+      const batch = parsed.data;
+      for (const raw of batch) {
+        const normalized = normalizeCustomer(raw);
+        if (normalized) byId.set(normalized.customerId, normalized);
+      }
+      if (batch.length < this.pageSize) break;
+    }
+    return byId;
   }
 }
