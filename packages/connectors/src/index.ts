@@ -335,3 +335,4 @@ export interface ControlledWriteConnector {
 
 export * from "./company-brain.js";
 export * from "./pipedrive.js";
+export * from "./acumatica.js";
