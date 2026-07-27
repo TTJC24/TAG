@@ -7,6 +7,16 @@ import { GmailDraftPreviewForm } from "./gmail-draft-preview-form";
 
 export const dynamic = "force-dynamic";
 
+interface ChaseProposal {
+  customerName: string;
+  recipient: string | null;
+  blockedReason: string | null;
+  subject: string;
+  body: string;
+  ladderStep: number;
+  pastDue: number;
+}
+
 interface TaskDetail {
   task: Record<string, unknown>;
   sources: Array<Record<string, unknown>>;
@@ -49,6 +59,14 @@ export default async function TaskDetailPage({
       taskId,
     )}?organizationId=${encodeURIComponent(organizationId)}`,
   );
+  // The chase text recorded when this task was raised, if any. Collections
+  // tasks have one; everything else does not, and then the draft form stays
+  // exactly as it was — the prefill is additive, never a precondition.
+  const chaseProposal = await operatingLayerApi<ChaseProposal>(
+    `/v1/tasks/${encodeURIComponent(
+      taskId,
+    )}/chase-proposal?organizationId=${encodeURIComponent(organizationId)}`,
+  ).catch(() => null);
   const task = detail.task;
   const connectorEnabled = detail.gmailDraftConnector.enabled === true;
   const latestPreview = detail.gmailDraftPreviews.at(-1);
@@ -234,6 +252,7 @@ export default async function TaskDetailPage({
                 <GmailDraftPreviewForm
                   approvalId={display(approval.id)}
                   organizationId={organizationId}
+                  proposal={chaseProposal}
                 />
               ) : null}
               {approval.action_type === "draft_external_follow_up" &&

@@ -493,6 +493,15 @@ textarea {
   padding: 12px;
 }
 
+/* Provenance line above a prefilled chase: says where the numbers came from. */
+.chaseProposalNote {
+  background: var(--canvas);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  padding: 12px;
+}
+
 .csvSchema {
   background: var(--canvas);
   border: 1px solid var(--line);
