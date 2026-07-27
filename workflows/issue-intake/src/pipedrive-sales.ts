@@ -88,11 +88,23 @@ function daysBetween(fromIso: string, toIso: string): number | null {
   return Math.round((b - a) / 86_400_000);
 }
 
-/** Which attention reasons a single open deal trips, most urgent first. */
+export const ALL_REASONS: readonly AttentionReason[] = [
+  "past_expected_close",
+  "no_activity",
+  "no_next_step",
+];
+
+/**
+ * Which attention reasons a single open deal trips, most urgent first.
+ * `enabled` restricts which rules apply — important when a pipeline doesn't
+ * maintain activities/next-steps, so those rules would fire on everything and
+ * drown the real signal (past expected close).
+ */
 export function reasonsFor(
   deal: PipedriveDeal,
   asOf: string,
   thresholds: SalesThresholds = DEFAULT_THRESHOLDS,
+  enabled?: ReadonlySet<AttentionReason>,
 ): AttentionRule[] {
   if (deal.status !== "open") return [];
   const fired: AttentionRule[] = [];
@@ -116,13 +128,15 @@ export function reasonsFor(
     fired.push(ATTENTION_RULES.no_next_step);
   }
 
-  return fired.sort((a, b) => b.priority - a.priority);
+  const kept = enabled ? fired.filter((r) => enabled.has(r.reason)) : fired;
+  return kept.sort((a, b) => b.priority - a.priority);
 }
 
 export interface PipedriveSalesEnv {
   PIPEDRIVE_SALES_ENABLED?: string;
   PIPEDRIVE_SALES_USER_EMAIL?: string;
   PIPEDRIVE_SALES_STALE_DAYS?: string;
+  PIPEDRIVE_SALES_RULES?: string; // comma list of reasons; default all three
   PIPEDRIVE_PIPELINE_ORG_MAP?: string; // JSON {"<pipeline_id>":"FS", ...}
 }
 
@@ -130,6 +144,7 @@ export interface PipedriveSalesConfig {
   serviceUserEmail: string;
   thresholds: SalesThresholds;
   pipelineToOrgCode: Record<string, string>;
+  enabledReasons: Set<AttentionReason>;
 }
 
 export function resolvePipedriveSalesConfig(
@@ -154,10 +169,23 @@ export function resolvePipedriveSalesConfig(
       throw new Error("PIPEDRIVE_PIPELINE_ORG_MAP must be valid JSON");
     }
   }
+  let enabledReasons = new Set<AttentionReason>(ALL_REASONS);
+  if (env.PIPEDRIVE_SALES_RULES) {
+    const requested = env.PIPEDRIVE_SALES_RULES.split(",").map((r) => r.trim());
+    for (const r of requested) {
+      if (!ALL_REASONS.includes(r as AttentionReason)) {
+        throw new Error(
+          `PIPEDRIVE_SALES_RULES has unknown rule "${r}"; valid: ${ALL_REASONS.join(", ")}`,
+        );
+      }
+    }
+    enabledReasons = new Set(requested as AttentionReason[]);
+  }
   return {
     serviceUserEmail: env.PIPEDRIVE_SALES_USER_EMAIL,
     thresholds: { staleDays: Number.isFinite(staleDays) ? staleDays : 14 },
     pipelineToOrgCode,
+    enabledReasons,
   };
 }
 
@@ -260,13 +288,19 @@ export function buildSalesFollowups(
     orgCode?: string;
     pipelineToOrgCode?: Record<string, string>;
     thresholds?: SalesThresholds;
+    enabledReasons?: ReadonlySet<AttentionReason>;
   },
 ): SalesFollowup[] {
   const map = opts.pipelineToOrgCode ?? {};
   const followups: SalesFollowup[] = [];
 
   for (const deal of deals) {
-    const reasons = reasonsFor(deal, opts.asOf, opts.thresholds ?? DEFAULT_THRESHOLDS);
+    const reasons = reasonsFor(
+      deal,
+      opts.asOf,
+      opts.thresholds ?? DEFAULT_THRESHOLDS,
+      opts.enabledReasons,
+    );
     if (reasons.length === 0) continue;
 
     const orgCode =
@@ -362,6 +396,7 @@ export async function syncPipedriveDeals(
     ...(opts.orgCode ? { orgCode: opts.orgCode } : {}),
     pipelineToOrgCode: opts.pipelineToOrgCode ?? config.pipelineToOrgCode,
     thresholds: config.thresholds,
+    enabledReasons: config.enabledReasons,
   });
   if (followups.length === 0) return result;
 

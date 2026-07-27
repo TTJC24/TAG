@@ -150,6 +150,32 @@ describe("Sales doorway (Pipedrive)", () => {
     ).toThrow(/orgCode or a pipelineToOrgCode/);
   });
 
+  it("restricts to enabled rules (so a low-hygiene pipeline isn't drowned)", () => {
+    const onlyClose = new Set(["past_expected_close"] as const);
+    // quietNoNext trips no_activity + no_next_step — both filtered out.
+    expect(reasonsFor(quietNoNext, ASOF, undefined, onlyClose)).toEqual([]);
+    // pastClose still flags, because its reason is enabled.
+    expect(reasonsFor(pastClose, ASOF, undefined, onlyClose).map((r) => r.reason)).toEqual([
+      "past_expected_close",
+    ]);
+  });
+
+  it("parses PIPEDRIVE_SALES_RULES and rejects unknown rules", () => {
+    const cfg = resolvePipedriveSalesConfig({
+      PIPEDRIVE_SALES_ENABLED: "true",
+      PIPEDRIVE_SALES_USER_EMAIL: "svc@x",
+      PIPEDRIVE_SALES_RULES: "past_expected_close",
+    });
+    expect([...cfg.enabledReasons]).toEqual(["past_expected_close"]);
+    expect(() =>
+      resolvePipedriveSalesConfig({
+        PIPEDRIVE_SALES_ENABLED: "true",
+        PIPEDRIVE_SALES_USER_EMAIL: "svc@x",
+        PIPEDRIVE_SALES_RULES: "past_expected_close,bogus",
+      }),
+    ).toThrow(/unknown rule/);
+  });
+
   it("respects a custom stale-day threshold", () => {
     const borderline = deal({ id: 7, last_activity_date: "2026-07-16", next_activity_date: "2026-08-01" }); // 10 days quiet
     expect(reasonsFor(borderline, ASOF, { staleDays: 14 })).toEqual([]);
