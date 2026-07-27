@@ -55,26 +55,28 @@ automatically, instead of buried in a spreadsheet someone has to eyeball.
 The one rule that makes it safe: **it drafts, you approve.** A person is always
 the final "send" button.
 
-## What it's worth (the ROI)
+## What it changes
 
-- **Cash in the door faster.** Every overdue invoice goes on a chase ladder
-  automatically — a friendly nudge, then firmer, then a call task — so nothing
-  silently ages. Chasing sooner and consistently pulls cash in faster and
-  shrinks how long our money sits in customers' hands. On our real books that's
-  **$340K+ of past-due receivables** getting worked systematically instead of
-  when someone gets to it.
-- **Hours of labor back.** The AR person stops hunting through the aging report
-  and writing every email from scratch. The system hands them a prioritized
-  list with the email already drafted — they review and click. That's their day
-  freed for the calls and disputes that actually need a human.
+*One hard number so far, and it's not a savings estimate — it's what the system
+saw when it read the real books: **$340K+ of receivables past due across FS and
+Big League.** That's current exposure, verified, not a projection. What the
+system does with it:*
+
+- **Every overdue invoice gets worked systematically.** Each one goes on a chase
+  ladder — a friendly nudge, then firmer, then a call task — instead of getting
+  chased whenever someone gets to it. Whether that pulls cash in faster is
+  something we'll measure once it's running, not something we're claiming up front.
+- **The manual hunting goes away.** Today the AR person digs through the aging
+  report and writes each email from scratch. The system hands them a prioritized
+  list with the draft already written — they review and click. We haven't put an
+  hours number on that; the point is the busywork moves off the person.
 - **Nothing falls through.** Every overdue account and every stalling deal is
-  surfaced automatically — no "oh, we forgot to follow up on that one."
+  surfaced automatically — no "we forgot to follow up on that one."
 - **One version of the truth.** The numbers come straight from Acumatica,
-  replacing the manual exporting and re-typing we do today — fewer errors, less
-  time, always current.
+  replacing the manual exporting and re-typing we do today.
 - **Build once, reuse everywhere.** The same engine that runs collections will
   run the scoreboard, other departments, and the other companies. Each new use
-  is an add-on, not a rebuild — so the value compounds.
+  is an add-on, not a rebuild.
 
 ## What's next
 
