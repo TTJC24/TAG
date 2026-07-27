@@ -38,9 +38,32 @@ who approved.
   `.env.production` (chmod 600).
 - **Validated live (2026-07-27):** login OK (204), read 1,303 open AR docs,
   split cleanly into FS / BLC, aged — FS past-due ~$139K, BLC ~$202K.
+  **Superseded figure:** that read filtered to `Balance gt 0M`, so it excluded
+  credit memos and unapplied payments and is therefore **gross of credits**.
+  The connector now reads all open AR documents and nets them per customer, so
+  the true net past-due is lower by whatever credits are outstanding. Re-measure
+  on the next live run before quoting a number.
 - **Approved by:** owner (Tim Clark), who provided the read-only user.
 - **Follow-ups (hardening, not blockers):** (1) the service password is weak —
   rotate `agent.scoreboard` to a strong secret. (2) the connector ages by
   document due date; reconcile against Acumatica's aging-report basis before
-  treating buckets as authoritative. (3) customer names aren't on the Invoice
-  entity — resolve via the Customer entity for friendlier chase labels.
+  treating buckets as authoritative — a wrong bucket picks a wrong tone, not
+  just a wrong number. (3) *(done)* customer names and AR contact emails now
+  come from the Customer entity; probe the live instance per the MVP runbook.
+
+## 2026-07-27 — Acumatica Customer read (chase addressing)
+
+- **What:** the same read-only Acumatica connection additionally reads the
+  `Customer` entity (`CustomerID`, `CustomerName`, `Status`,
+  `MainContact/Email`) so a chase names a real company and carries an AR
+  contact address instead of a raw customer code.
+- **Posture:** **read-only**, same session and credential as the AR read; GETs
+  only. Customer emails are stored in `collections_chase_proposals.recipient`
+  (org-scoped, RLS-forced) and shown to holders of `tasks.read`.
+- **Why:** without a name and address, every chase had to be looked up and
+  addressed by hand, which is what made the doorway impractical to work daily.
+- **Approved by:** owner (Tim Clark) — same read-only user already approved
+  above; this widens what is read, not what is written.
+- **Note:** a customer with no usable email on file is still chased; the draft
+  is composed and the recipient left blank with a stated reason. No address is
+  ever guessed.

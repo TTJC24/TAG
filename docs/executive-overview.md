@@ -30,13 +30,17 @@ login. Two pieces already work on **real company data**:
   This is **live right now.**
 - **Collections** — it reads our **real accounts receivable straight out of
   Acumatica** (our accounting system), sees exactly who owes what and how
-  overdue they are, and is ready to draft a chase for each one. The connection
-  is **built and tested against our live books** — it's one switch from turning
-  those into a daily worklist.
+  overdue they are, and **writes the chase email for each one**. The AR person
+  opens a prioritized list where every message is already drafted — their job
+  is to read it, adjust if needed, and approve. Built and tested against our
+  live books; activation is a documented, staged checklist.
 
-When we pointed it at our real receivables, it instantly saw **over $340,000
-past due across FS and Big League** — every dollar now trackable and chase-able
-automatically, instead of buried in a spreadsheet someone has to eyeball.
+When we first pointed it at our real receivables it saw **roughly $340,000 past
+due across FS and Big League.** One caveat we found and fixed: that first look
+counted invoices but not the credits sitting on customer accounts, so the true
+net is **lower** than $340K — we'll have the real number on the first live run.
+Better to say that now than to chase a customer for money they've already been
+credited.
 
 ## How it works (the simple version)
 
@@ -62,9 +66,9 @@ Acumatica is where the real numbers live, and we've built a secure, read-only
 pipe into it. That pipe is the capability. What we point it at grows over time —
 same pipe, more of the picture:
 
-- **Today — the money we're owed.** Right now it reads **accounts receivable**:
-  who owes us, how much, and how overdue. That's the live piece — the $340K+
-  past due. It reads this and only this so far.
+- **Today — the money we're owed.** Right now it reads **accounts receivable**
+  (who owes us, how much, how overdue — netted against their credits) plus the
+  **customer contact** to address a chase to. That is all it reads so far.
 - **Next — actual sales.** The *same connection* reaches our real
   **sales and revenue** — what's actually been sold and invoiced, by company,
   not a salesperson's guess in the CRM. This is built to be turned on next; it
@@ -82,9 +86,9 @@ sales and scoreboard numbers are the same capability, switched on in turn.
 ## What it changes
 
 *One hard number so far, and it's not a savings estimate — it's what the system
-saw when it read the real books: **$340K+ of receivables past due across FS and
-Big League.** That's current exposure, verified, not a projection. What the
-system does with it:*
+saw when it read the real books: **on the order of $340K of receivables past due
+across FS and Big League**, pending the credit netting described above. That's
+current exposure, measured, not a projection. What the system does with it:*
 
 - **Every overdue invoice gets worked systematically.** Each one goes on a chase
   ladder — a friendly nudge, then firmer, then a call task — instead of getting
@@ -104,10 +108,14 @@ system does with it:*
 
 ## What's next
 
-- **Turn on email drafting** so an approved chase becomes a ready-to-send email
-  in the right mailbox (the piece that actually replaces the typing).
-- **Make it automatic** — the system refreshes itself every morning instead of
-  someone running it.
+- **Switch collections on.** The work is done and tested; what remains is a
+  staged checklist against the live system — confirm the numbers reconcile with
+  Acumatica's own aging report, look at real drafted chases, then let the
+  morning refresh run itself.
+- **Put the draft in the mailbox.** Today the system writes the chase and the
+  AR person approves it; the last hop is depositing that text directly into the
+  AR mailbox as a Gmail draft. Deliberately a separate decision, because it's
+  the step that touches an outside system.
 - **Light up the scoreboard** — pull revenue, margin, days-to-collect, and
   orders straight from Acumatica so the numbers are live, not hand-built.
 - **Add a chat** you can just ask: *"What's our exposure with customer X?"*
@@ -115,8 +123,9 @@ system does with it:*
 
 ## The bottom line
 
-We've gone from an idea to a **live, secure system that already reads our real
-money and deals**, with the safety rail that a human approves everything. The
-first payoff — turning **$340K+ of past-due receivables** into an automatic,
-drafted, human-approved chase process — is one switch away. Everything after
-that is expansion on the same foundation.
+We've gone from an idea to a **live, secure system that reads our real money and
+deals**, with the safety rail that a human approves everything. The collections
+loop is now built end to end: it reads the books each morning, decides who to
+chase and how firmly, and **writes each email** so the AR person reviews instead
+of types. What's left is switching it on against the live system and checking
+the numbers reconcile — not more building.

@@ -92,8 +92,25 @@ You get one JSON block per company. Read these fields:
 | `skipped` | anything that did not make it, with a reason |
 
 **Sanity checks before going further:** `created + replayed` should roughly match
-the number of past-due customers you expect; `skipped` should be empty; and
-`proposed` should equal `created + replayed`.
+the number of past-due customers you expect; `skipped` should be empty; and on a
+first run `proposed` should equal `created` (on a replay day `created` is 0 and
+`proposed` is 0 too — nothing new was written, which is correct).
+
+**Reconcile the total before trusting it.** Add up the past-due amounts and
+compare against Acumatica's own AR Aging report. Two known reasons they can
+differ:
+
+1. **Credits.** This reads *all* open AR documents — invoices **and** credit
+   memos / unapplied payments — and nets them per customer, so a customer with
+   a $10,000 invoice and an $8,000 credit is chased for $2,000, not $10,000.
+   Earlier read-only spot-checks of this ERP (the ~$340K figure) were taken
+   **before** credits were netted, so expect the true net to be **lower**.
+2. **Aging basis.** Buckets are computed from each document's due date. If
+   Acumatica's report ages by document date or by a statement cycle, the bucket
+   boundaries — and therefore which ladder rung fires — will not match.
+
+Do not treat the buckets as authoritative until this reconciles. A wrong bucket
+sends a customer the wrong tone, not just a wrong number.
 
 ## 5. Verify a chase in the tower
 
