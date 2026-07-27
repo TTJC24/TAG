@@ -59,11 +59,13 @@ department = adding a doorway.** They all ship inert behind an env flag.
 |---|---|
 | The system itself (tower, DB, governance) | **Live** — deployed, 4 orgs seeded, owner + 2 work-email admins |
 | **Sales (Pipedrive)** | **Live** — reads deals from both Pipedrive accounts (read-only), flags deals past expected close, raises governed follow-ups routed per company/owner |
-| **Collections (Acumatica)** | Connector **built & validated live** against the ERP (read 1,303 open AR docs, aged FS/BLC). One command from creating real chases — activation pending |
+| **Collections (Acumatica)** | Connector **built & validated live** against the ERP (read 1,303 open AR docs, aged FS/BLC). Chases now arrive with the email **already drafted**; activation is `docs/collections-mvp-runbook.md` |
+| **Customer read (Acumatica)** | Built — names + AR contact emails, so a chase names a real company and has a recipient. Probe the live instance first (step 2 of the runbook) |
+| **Daily auto-refresh** | Built, inert — set `COLLECTIONS_SCHEDULE_UTC` / `SALES_SCHEDULE_UTC` and the worker pulls each morning by itself |
 | DemandStar bid doorway | Built, inert |
 | KPI exception scanner | Built, inert (reads via company-brain) |
 | TractionOS bridge, morning brief | Built, inert |
-| **Gmail draft connector** (the "draft the email" output) | Built + hardened, inert — awaits a supervised pilot |
+| **Gmail draft connector** (the "draft the email" output) | Built + hardened, inert — awaits a supervised pilot. Note the chase text is already composed and prefilled, so this step is now "put the draft in the mailbox", not "write the draft" |
 
 ## 5. Data sources (wires)
 
@@ -145,15 +147,17 @@ To add a department module, follow `ar-collections.ts` / `pipedrive-sales.ts`:
 
 ## 10. Open follow-ups / roadmap
 
-1. **Go live on Collections** — run the Acumatica activation; verify chases in
-   the tower; reconcile the aging basis against Acumatica's own report.
-2. **Gmail draft wire** — turn an approved chase into a drafted email in the
-   entity AR mailbox (the labor-replacement payoff; connector is built).
-3. **Schedule the pulls** — auto-refresh Sales + Collections (a scheduled-task
-   decision under the WorkOS contract) instead of manual CLI runs.
-4. **Harden:** rotate the Acumatica service password (currently weak); resolve
-   customer *names* via Acumatica's Customer entity for friendlier chase labels;
-   provision the AR person as the Collections approver.
+1. **Go live on Collections** — follow `docs/collections-mvp-runbook.md`:
+   apply migration 0012, probe the Customer entity, dry-run the pull, verify a
+   prefilled chase in the tower, then turn on the schedule. Reconcile the aging
+   basis against Acumatica's own report before treating buckets as
+   authoritative.
+2. **Gmail draft wire** — put an approved chase's (already composed) text into
+   the entity AR mailbox as a draft. Separate stop-and-ask activation: one-org
+   pilot claim, `gmail.compose`-only credential, recipient allowlist.
+3. **Harden:** rotate the Acumatica service password (currently weak); populate
+   missing AR contact emails in Acumatica (the `unaddressable` count in a run
+   tells you how many); provision the AR person as the Collections approver.
 5. **Scorecard from Acumatica** — pull revenue, GP%, DSO/DPO/DIO, open orders,
    inventory; feed the money-picture answers and reconcile with TractionOS
    ("Jerry"), replacing today's manual export/keying.
