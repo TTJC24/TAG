@@ -1,5 +1,10 @@
+import { withOrganizationScope, type DatabasePool } from "@operating-layer/db";
 import { pastDue, type AgingCustomer } from "./ar-aging.js";
 import { DEFAULT_LADDER, type LadderRung } from "./ar-collections.js";
+import {
+  requireOrganizationPermission,
+  type ApplicationPrincipal,
+} from "./identity.js";
 
 /**
  * Deterministic chase-email composition.
@@ -125,6 +130,69 @@ export function buildChaseEmail(
       ? null
       : "no AR contact email on file in Acumatica for this customer",
   };
+}
+
+export interface StoredChaseProposal {
+  taskId: string;
+  customerId: string;
+  customerName: string;
+  recipient: string | null;
+  blockedReason: string | null;
+  subject: string;
+  body: string;
+  ladderStep: number;
+  pastDue: number;
+  agedOn: string | null;
+}
+
+/**
+ * Read the recorded chase text for a task, so the approver's draft form can be
+ * prefilled instead of retyped. Read-only and org-scoped: RLS plus the same
+ * `tasks.read` permission that gates seeing the task at all.
+ *
+ * Returns null when there is no proposal (any non-collections task), which the
+ * caller renders as today's empty form — the prefill is additive, never a
+ * precondition for using the Gmail draft path.
+ */
+export async function getChaseProposal(
+  pool: DatabasePool,
+  principal: ApplicationPrincipal,
+  organizationId: string,
+  taskId: string,
+): Promise<StoredChaseProposal | null> {
+  requireOrganizationPermission(principal, organizationId, "tasks.read");
+
+  return withOrganizationScope(
+    pool,
+    { userId: principal.userId, organizationIds: [organizationId] },
+    async (client) => {
+      const result = await client.query(
+        `SELECT task_id, customer_id, customer_name, recipient, blocked_reason,
+                subject, body, ladder_step, past_due, aged_on
+           FROM collections_chase_proposals
+          WHERE task_id = $1 AND organization_id = $2`,
+        [taskId, organizationId],
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      return {
+        taskId: String(row.task_id),
+        customerId: String(row.customer_id),
+        customerName: String(row.customer_name),
+        recipient: row.recipient === null ? null : String(row.recipient),
+        blockedReason:
+          row.blocked_reason === null ? null : String(row.blocked_reason),
+        subject: String(row.subject),
+        body: String(row.body),
+        ladderStep: Number(row.ladder_step),
+        pastDue: Number(row.past_due),
+        agedOn:
+          row.aged_on === null
+            ? null
+            : new Date(row.aged_on as string).toISOString().slice(0, 10),
+      };
+    },
+  );
 }
 
 /** Convenience: pick the rung from the customer's own aging, then compose. */

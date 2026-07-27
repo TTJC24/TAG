@@ -1,7 +1,9 @@
-import type { DatabasePool } from "@operating-layer/db";
+import { randomUUID } from "node:crypto";
+import { withOrganizationScope, type DatabasePool } from "@operating-layer/db";
 import { DomainError } from "./errors.js";
 import { resolveApplicationPrincipal } from "./identity.js";
 import { createManualIssue } from "./service.js";
+import { buildChaseEmail, type ChaseEmailContext } from "./chase-email.js";
 import {
   pastDue,
   worstBucket,
@@ -80,12 +82,25 @@ export interface CollectionsBridgeEnv {
   COLLECTIONS_ENABLED?: string;
   COLLECTIONS_USER_EMAIL?: string;
   COLLECTIONS_MIN_PAST_DUE?: string;
+  COLLECTIONS_SENDER_NAME?: string;
+  COLLECTIONS_SENDER_CONTACT?: string;
 }
 
 export interface CollectionsConfig {
   serviceUserEmail: string;
   minPastDue: number;
+  /** Who the chase is signed by. Shown to the customer, so it must be a person. */
+  senderName: string;
+  /** Optional reply-to / phone line under the signature. */
+  senderContact?: string;
 }
+
+/** Customer-facing entity names — what a chase email signs off as. */
+export const ORG_DISPLAY_NAMES: Record<string, string> = {
+  FS: "Fastening Specialists",
+  BLCS: "Big League Construction Supply",
+  USA: "Utility Supply Associates",
+};
 
 export function resolveCollectionsConfig(
   env: CollectionsBridgeEnv = process.env as CollectionsBridgeEnv,
@@ -104,6 +119,12 @@ export function resolveCollectionsConfig(
   return {
     serviceUserEmail: env.COLLECTIONS_USER_EMAIL,
     minPastDue: Number.isFinite(minPastDue) ? minPastDue : 0,
+    // The signature defaults to the entity's AR desk rather than a person, so
+    // an unset env never leaks a placeholder name to a customer.
+    senderName: env.COLLECTIONS_SENDER_NAME?.trim() || "Accounts Receivable",
+    ...(env.COLLECTIONS_SENDER_CONTACT?.trim()
+      ? { senderContact: env.COLLECTIONS_SENDER_CONTACT.trim() }
+      : {}),
   };
 }
 
@@ -132,6 +153,17 @@ export interface CollectionsDraft {
   idempotencyKey: string;
   step: number;
   pastDue: number;
+  /**
+   * The composed chase text for this customer — what the approver will see
+   * prefilled instead of retyping. `recipient` is null when Acumatica has no
+   * AR email on file, in which case `blockedReason` says so.
+   */
+  email: {
+    recipient: string | null;
+    blockedReason: string | null;
+    subject: string;
+    body: string;
+  };
 }
 
 function clampText(value: string, minimum: number, maximum: number): string {
@@ -185,6 +217,8 @@ export function buildCollectionsDrafts(
     orgCode?: string;
     minPastDue?: number;
     companyToOrgCode?: Record<string, string>;
+    /** Signature details for the composed chase; defaults are non-identifying. */
+    sender?: { senderName: string; senderContact?: string };
   } = {},
 ): CollectionsDraft[] {
   const map = opts.companyToOrgCode ?? COMPANY_TO_ORG_CODE;
@@ -201,6 +235,14 @@ export function buildCollectionsDrafts(
     if (!rung) continue;
     const lines = overdueLines(customer);
     const dueDate = lines[0]?.dueDate ?? null;
+    const emailContext: ChaseEmailContext = {
+      companyName: ORG_DISPLAY_NAMES[orgCode] ?? orgCode,
+      senderName: opts.sender?.senderName ?? "Accounts Receivable",
+      ...(opts.sender?.senderContact
+        ? { senderContact: opts.sender.senderContact }
+        : {}),
+    };
+    const composed = buildChaseEmail(customer, rung, emailContext);
     drafts.push({
       orgCode,
       customerId: customer.customerId,
@@ -215,9 +257,71 @@ export function buildCollectionsDrafts(
       idempotencyKey: `collections:${orgCode}:${parsed.agedOn ?? "unknown"}:${customer.customerId}`,
       step: rung.step,
       pastDue: due,
+      email: {
+        recipient: composed.to,
+        blockedReason: composed.blockedReason,
+        subject: composed.subject,
+        body: composed.body,
+      },
     });
   }
   return drafts;
+}
+
+/**
+ * Record the composed chase text for a task, so the approver reviews rather
+ * than retypes. Inert by construction: this is a plain INSERT of text into an
+ * append-only table. It authorizes nothing and enqueues nothing — the Gmail
+ * draft still requires the same two human steps against gmail_draft_previews.
+ *
+ * A failure here must never lose the governed issue: the issue is the thing
+ * that matters, the prefill is a convenience. Callers treat this as best-effort.
+ */
+async function recordChaseProposal(
+  operatingPool: DatabasePool,
+  input: {
+    organizationId: string;
+    userId: string;
+    taskId: string;
+    customerId: string;
+    customerName: string;
+    recipient: string | null;
+    blockedReason: string | null;
+    subject: string;
+    body: string;
+    ladderStep: number;
+    pastDue: number;
+    agedOn: string | null;
+  },
+): Promise<void> {
+  await withOrganizationScope(
+    operatingPool,
+    { userId: input.userId, organizationIds: [input.organizationId] },
+    async (client) => {
+      await client.query(
+        `INSERT INTO collections_chase_proposals (
+           id, organization_id, task_id, customer_id, customer_name,
+           recipient, blocked_reason, subject, body, ladder_step, past_due, aged_on
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+         ON CONFLICT (organization_id, task_id) DO NOTHING`,
+        [
+          randomUUID(),
+          input.organizationId,
+          input.taskId,
+          input.customerId,
+          input.customerName,
+          input.recipient,
+          input.blockedReason,
+          input.subject,
+          input.body,
+          input.ladderStep,
+          input.pastDue,
+          input.agedOn,
+        ],
+      );
+    },
+  );
 }
 
 export interface CollectionsSyncSkip {
@@ -231,6 +335,10 @@ export interface CollectionsSyncResult {
   scanned: number;
   created: number;
   replayed: number;
+  /** Chases whose draft text was recorded for prefill. */
+  proposed: number;
+  /** Chases with no AR email on file — raised, but a human must address them. */
+  unaddressable: number;
   skipped: CollectionsSyncSkip[];
 }
 
@@ -249,6 +357,10 @@ export async function syncArAging(
   const drafts = buildCollectionsDrafts(parsed, {
     ...(opts.orgCode ? { orgCode: opts.orgCode } : {}),
     minPastDue: config.minPastDue,
+    sender: {
+      senderName: config.senderName,
+      ...(config.senderContact ? { senderContact: config.senderContact } : {}),
+    },
   });
   const orgCode = drafts[0]?.orgCode ?? opts.orgCode ?? null;
 
@@ -258,6 +370,8 @@ export async function syncArAging(
     scanned: parsed.customers.length,
     created: 0,
     replayed: 0,
+    proposed: 0,
+    unaddressable: 0,
     skipped: [],
   };
   if (drafts.length === 0) return result;
@@ -295,6 +409,35 @@ export async function syncArAging(
       });
       if (response.duplicate) result.replayed += 1;
       else result.created += 1;
+
+      // Record the composed chase text for prefill. Best-effort by design: the
+      // governed issue is the deliverable, the prefill is a convenience, so a
+      // failure here is reported but never fails the chase.
+      if (draft.email.recipient === null) result.unaddressable += 1;
+      try {
+        await recordChaseProposal(operatingPool, {
+          organizationId,
+          userId: principal.userId,
+          taskId: response.taskId,
+          customerId: draft.customerId,
+          customerName: draft.customerName,
+          recipient: draft.email.recipient,
+          blockedReason: draft.email.blockedReason,
+          subject: draft.email.subject,
+          body: draft.email.body,
+          ladderStep: draft.step,
+          pastDue: draft.pastDue,
+          agedOn: parsed.agedOn,
+        });
+        result.proposed += 1;
+      } catch (error) {
+        result.skipped.push({
+          customerId: draft.customerId,
+          reason: `chase raised but draft text not recorded: ${
+            error instanceof Error ? error.message : "unknown"
+          }`,
+        });
+      }
     } catch (error) {
       if (
         error instanceof DomainError &&

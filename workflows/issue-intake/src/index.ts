@@ -3,6 +3,7 @@ export * from "./approval.js";
 export * from "./ar-aging.js";
 export * from "./ar-collections.js";
 export * from "./acumatica-aging.js";
+export * from "./chase-email.js";
 export * from "./brief.js";
 export * from "./brain-provider.js";
 export * from "./csv.js";

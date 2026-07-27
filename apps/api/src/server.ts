@@ -13,6 +13,7 @@ import {
   DomainError,
   getCsvBatch,
   getExecutiveQueue,
+  getChaseProposal,
   getTaskDetail,
   inspectGmailDraftPilotPreflight,
   resolveApproval,
@@ -488,6 +489,37 @@ export async function buildApi(
       organizationId,
       request.params.taskId,
     );
+  });
+
+  // The recorded chase text for a collections task, used to prefill the Gmail
+  // draft form. Read-only and additive: no proposal simply means an empty form,
+  // and the two-step preview/authorize path is unchanged either way.
+  app.get<{
+    Params: { taskId: string };
+    Querystring: { organizationId?: string };
+  }>("/v1/tasks/:taskId/chase-proposal", async (request, reply) => {
+    const principal = await principalFor(request);
+    const organizationId = request.query.organizationId;
+    if (!organizationId) {
+      throw new DomainError(
+        400,
+        "organization_required",
+        "An explicit organizationId is required",
+      );
+    }
+    const proposal = await getChaseProposal(
+      dependencies.pool,
+      principal,
+      organizationId,
+      z.string().uuid().parse(request.params.taskId),
+    );
+    if (!proposal) {
+      return reply.status(404).send({
+        code: "chase_proposal_not_found",
+        message: "No chase text was recorded for this task",
+      });
+    }
+    return reply.status(200).send(proposal);
   });
 
   return app;
