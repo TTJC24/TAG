@@ -82,14 +82,14 @@ $DC exec api node apps/api/dist/acumatica-collections-fetch-cli.js
 
 You get one JSON block per company. Read these fields:
 
-| Field | Meaning |
-|---|---|
-| `scanned` | customers in the aging |
-| `created` | chases raised this run |
-| `replayed` | already raised (re-running is safe) |
-| `proposed` | chases that have draft text recorded |
+| Field           | Meaning                                                          |
+| --------------- | ---------------------------------------------------------------- |
+| `scanned`       | customers in the aging                                           |
+| `created`       | chases raised this run                                           |
+| `replayed`      | already raised (re-running is safe)                              |
+| `proposed`      | chases that have draft text recorded                             |
 | `unaddressable` | chases with **no** AR email on file — a human must address these |
-| `skipped` | anything that did not make it, with a reason |
+| `skipped`       | anything that did not make it, with a reason                     |
 
 **Sanity checks before going further:** `created + replayed` should roughly match
 the number of past-due customers you expect; `skipped` should be empty; and on a
@@ -100,7 +100,7 @@ first run `proposed` should equal `created` (on a replay day `created` is 0 and
 compare against Acumatica's own AR Aging report. Two known reasons they can
 differ:
 
-1. **Credits.** This reads *all* open AR documents — invoices **and** credit
+1. **Credits.** This reads _all_ open AR documents — invoices **and** credit
    memos / unapplied payments — and nets them per customer, so a customer with
    a $10,000 invoice and an $8,000 credit is chased for $2,000, not $10,000.
    Earlier read-only spot-checks of this ERP (the ~$340K figure) were taken
@@ -168,11 +168,11 @@ the drafted text, which is still the whole labor saving minus one paste.
 
 ## Rolling back
 
-| To undo | Do this |
-|---|---|
-| Stop the daily pulls | remove `*_SCHEDULE_UTC`, `$DC up -d worker` |
+| To undo                      | Do this                                             |
+| ---------------------------- | --------------------------------------------------- |
+| Stop the daily pulls         | remove `*_SCHEDULE_UTC`, `$DC up -d worker`         |
 | Stop raising chases entirely | set `COLLECTIONS_ENABLED=false`, restart api+worker |
-| Leave existing chases alone | they stay; they are governed tasks like any other |
+| Leave existing chases alone  | they stay; they are governed tasks like any other   |
 
 The migration is additive and safe to leave in place — an unused table.
 
@@ -180,6 +180,6 @@ The migration is additive and safe to leave in place — an unused table.
 
 - It does not send anything. Ever, at any stage above.
 - It does not write to Acumatica or Pipedrive. Both wires are read-only.
-- It does not decide *whether* to chase — the ladder is policy data
+- It does not decide _whether_ to chase — the ladder is policy data
   (`DEFAULT_LADDER`), tuned by what the AR person approves and edits.
 - It does not resolve disputes, apply credits, or change terms. Those stay human.

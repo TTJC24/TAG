@@ -1,7 +1,7 @@
 # The Operating System — Plain-Language Overview
 
-*What we're building, where we are, how it works, and what it's worth.*
-*Prepared 2026-07-27.*
+_What we're building, where we are, how it works, and what it's worth._
+_Prepared 2026-07-27._
 
 ---
 
@@ -51,7 +51,7 @@ credited.
    (we call it the tower): which customer to chase, which deal is stalling,
    what needs your decision.
 3. **It drafts the actual work** — the reminder email, the follow-up, the packet
-   — so a person's whole job is *reading and clicking yes or no.*
+   — so a person's whole job is _reading and clicking yes or no._
 4. **Nothing goes out without a human.** It never sends an email or takes an
    outside action on its own. It prepares; you approve.
 5. **It records everything** it does, permanently, so there's a clean trail.
@@ -69,7 +69,7 @@ same pipe, more of the picture:
 - **Today — the money we're owed.** Right now it reads **accounts receivable**
   (who owes us, how much, how overdue — netted against their credits) plus the
   **customer contact** to address a chase to. That is all it reads so far.
-- **Next — actual sales.** The *same connection* reaches our real
+- **Next — actual sales.** The _same connection_ reaches our real
   **sales and revenue** — what's actually been sold and invoiced, by company,
   not a salesperson's guess in the CRM. This is built to be turned on next; it
   isn't reading yet.
@@ -85,10 +85,10 @@ sales and scoreboard numbers are the same capability, switched on in turn.
 
 ## What it changes
 
-*One hard number so far, and it's not a savings estimate — it's what the system
+_One hard number so far, and it's not a savings estimate — it's what the system
 saw when it read the real books: **on the order of $340K of receivables past due
 across FS and Big League**, pending the credit netting described above. That's
-current exposure, measured, not a projection. What the system does with it:*
+current exposure, measured, not a projection. What the system does with it:_
 
 - **Every overdue invoice gets worked systematically.** Each one goes on a chase
   ladder — a friendly nudge, then firmer, then a call task — instead of getting
@@ -118,8 +118,8 @@ current exposure, measured, not a projection. What the system does with it:*
   the step that touches an outside system.
 - **Light up the scoreboard** — pull revenue, margin, days-to-collect, and
   orders straight from Acumatica so the numbers are live, not hand-built.
-- **Add a chat** you can just ask: *"What's our exposure with customer X?"*
-  *"What needs my decision today?"*
+- **Add a chat** you can just ask: _"What's our exposure with customer X?"_
+  _"What needs my decision today?"_
 
 ## The bottom line
 

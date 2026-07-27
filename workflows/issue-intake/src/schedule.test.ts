@@ -32,9 +32,9 @@ describe("resolveFeedSchedules", () => {
   });
 
   it("schedules only what is explicitly set", () => {
-    expect(resolveFeedSchedules({ COLLECTIONS_SCHEDULE_UTC: "11:00" })).toEqual([
-      { name: "collections", hourUtc: 11, minuteUtc: 0 },
-    ]);
+    expect(resolveFeedSchedules({ COLLECTIONS_SCHEDULE_UTC: "11:00" })).toEqual(
+      [{ name: "collections", hourUtc: 11, minuteUtc: 0 }],
+    );
     expect(
       resolveFeedSchedules({
         COLLECTIONS_SCHEDULE_UTC: "11:00",

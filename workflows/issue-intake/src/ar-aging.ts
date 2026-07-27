@@ -74,7 +74,9 @@ function s(cell: Cell): string {
 
 function n(cell: Cell): number {
   if (typeof cell === "number") return cell;
-  const cleaned = s(cell).replace(/[$,]/g, "").replace(/^\((.*)\)$/, "-$1");
+  const cleaned = s(cell)
+    .replace(/[$,]/g, "")
+    .replace(/^\((.*)\)$/, "-$1");
   const value = Number.parseFloat(cleaned);
   return Number.isFinite(value) ? value : 0;
 }
@@ -139,12 +141,16 @@ export function toIsoDate(cell: Cell): string | null {
   if (typeof cell === "number" && Number.isFinite(cell)) {
     const utcDays = Math.floor(cell) - 25569; // 25569 = Excel serial for 1970-01-01
     const date = new Date(utcDays * 86400 * 1000);
-    return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
+    return Number.isNaN(date.getTime())
+      ? null
+      : date.toISOString().slice(0, 10);
   }
   const text = s(cell);
   if (!text) return null;
   const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString().slice(0, 10);
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed.toISOString().slice(0, 10);
 }
 
 function norm(cell: Cell): string {
@@ -201,9 +207,7 @@ function readBuckets(row: Cell[], map: ColumnMap): AgingBuckets {
 
 /** Sum of the four past-due buckets (everything not Current). */
 export function pastDue(b: AgingBuckets): number {
-  return (
-    Math.round((b.d1_30 + b.d31_60 + b.d61_90 + b.over90) * 100) / 100
-  );
+  return Math.round((b.d1_30 + b.d31_60 + b.d61_90 + b.over90) * 100) / 100;
 }
 
 /** The worst (oldest) bucket a customer has money in. Drives the ladder step. */
@@ -233,7 +237,9 @@ export function parseArAgingDetailed(rows: Cell[][]): ParsedAging {
 
   for (const row of rows) {
     // Report header fields.
-    const companyIdx = row.findIndex((c) => norm(c).startsWith("company/branch"));
+    const companyIdx = row.findIndex((c) =>
+      norm(c).startsWith("company/branch"),
+    );
     if (companyIdx >= 0 && company === null) {
       company = s(row[companyIdx + 1]) || null;
     }
@@ -256,7 +262,14 @@ export function parseArAgingDetailed(rows: Cell[][]): ParsedAging {
         current = {
           customerId: id,
           customerName: s(row[customerNameCol]),
-          buckets: { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, over90: 0, balance: 0 },
+          buckets: {
+            current: 0,
+            d1_30: 0,
+            d31_60: 0,
+            d61_90: 0,
+            over90: 0,
+            balance: 0,
+          },
           lines: [],
         };
         customers.push(current);

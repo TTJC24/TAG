@@ -60,7 +60,10 @@ export function buildAgingFromInvoices(
   opts: {
     branchToCompany?: Record<string, string>;
     /** customerId -> contact, from AcumaticaClient.fetchCustomers(). */
-    contacts?: Map<string, { customerName: string | null; email: string | null }>;
+    contacts?: Map<
+      string,
+      { customerName: string | null; email: string | null }
+    >;
   } = {},
 ): ParsedAging[] {
   const branchMap = opts.branchToCompany ?? DEFAULT_BRANCH_TO_COMPANY;
@@ -85,7 +88,14 @@ export function buildAgingFromInvoices(
         customerName:
           contact?.customerName ?? inv.customerName ?? inv.customerId,
         ...(contact?.email ? { email: contact.email } : {}),
-        buckets: { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, over90: 0, balance: 0 },
+        buckets: {
+          current: 0,
+          d1_30: 0,
+          d31_60: 0,
+          d61_90: 0,
+          over90: 0,
+          balance: 0,
+        },
         lines: [],
       };
       customers.set(inv.customerId, customer);

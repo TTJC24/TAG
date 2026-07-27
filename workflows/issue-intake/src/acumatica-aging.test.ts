@@ -23,11 +23,39 @@ describe("buildAgingFromInvoices", () => {
   it("ages by due date and splits FS/BLC into separate companies", () => {
     const invoices: OpenArInvoice[] = [
       // FS: two docs for one customer, different buckets
-      inv({ customerId: "ACME", customerName: "Acme", branch: "FS", refNbr: "A1", dueDate: "2026-07-20", balance: 300 }), // 7 days => 1-30
-      inv({ customerId: "ACME", customerName: "Acme", branch: "FS", refNbr: "A2", dueDate: "2026-04-01", balance: 700 }), // >90
-      inv({ customerId: "CUR", customerName: "Current Co", branch: "FS", refNbr: "A3", dueDate: "2026-08-30", balance: 50 }), // future => current
+      inv({
+        customerId: "ACME",
+        customerName: "Acme",
+        branch: "FS",
+        refNbr: "A1",
+        dueDate: "2026-07-20",
+        balance: 300,
+      }), // 7 days => 1-30
+      inv({
+        customerId: "ACME",
+        customerName: "Acme",
+        branch: "FS",
+        refNbr: "A2",
+        dueDate: "2026-04-01",
+        balance: 700,
+      }), // >90
+      inv({
+        customerId: "CUR",
+        customerName: "Current Co",
+        branch: "FS",
+        refNbr: "A3",
+        dueDate: "2026-08-30",
+        balance: 50,
+      }), // future => current
       // BLC: separate company
-      inv({ customerId: "BIG", customerName: "Big Co", branch: "BLC", refNbr: "B1", dueDate: "2026-05-10", balance: 900 }), // >60
+      inv({
+        customerId: "BIG",
+        customerName: "Big Co",
+        branch: "BLC",
+        refNbr: "B1",
+        dueDate: "2026-05-10",
+        balance: 900,
+      }), // >60
       // unmapped branch dropped
       inv({ customerId: "X", branch: "ZZZ", refNbr: "Z1", balance: 999 }),
     ];
@@ -55,7 +83,10 @@ describe("buildAgingFromInvoices", () => {
   });
 
   it("falls back to customer id when name is missing", () => {
-    const aging = buildAgingFromInvoices([inv({ customerId: "NONAME", customerName: null })], ASOF);
+    const aging = buildAgingFromInvoices(
+      [inv({ customerId: "NONAME", customerName: null })],
+      ASOF,
+    );
     expect(aging[0]!.customers[0]!.customerName).toBe("NONAME");
   });
 });

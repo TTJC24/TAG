@@ -48,7 +48,7 @@ who approved.
   rotate `agent.scoreboard` to a strong secret. (2) the connector ages by
   document due date; reconcile against Acumatica's aging-report basis before
   treating buckets as authoritative — a wrong bucket picks a wrong tone, not
-  just a wrong number. (3) *(done)* customer names and AR contact emails now
+  just a wrong number. (3) _(done)_ customer names and AR contact emails now
   come from the Customer entity; probe the live instance per the MVP runbook.
 
 ## 2026-07-27 — Acumatica Customer read (chase addressing)

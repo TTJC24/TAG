@@ -49,7 +49,10 @@ describe("normalizeCustomer", () => {
       "",
       "-",
     ]) {
-      expect(usableRecipient(bad), `should reject ${JSON.stringify(bad)}`).toBeNull();
+      expect(
+        usableRecipient(bad),
+        `should reject ${JSON.stringify(bad)}`,
+      ).toBeNull();
     }
   });
 
@@ -132,7 +135,11 @@ describe("AcumaticaClient", () => {
     await client.login();
     const invoices = await client.fetchOpenArInvoices();
     expect(invoices).toHaveLength(1);
-    expect(invoices[0]).toMatchObject({ customerId: "C1", branch: "FS", balance: 500 });
+    expect(invoices[0]).toMatchObject({
+      customerId: "C1",
+      branch: "FS",
+      balance: 500,
+    });
 
     // login is a POST; the AR read is a GET carrying the session cookie
     const login = calls.find((c) => c.url.includes("/auth/login"))!;

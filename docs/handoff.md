@@ -20,7 +20,7 @@ first labor target is **AR collections**.
 **Core principle: nothing external sends without a human "yes."** Every
 capability ships OFF and is enabled deliberately. Every action is org-scoped,
 idempotent, and lands in an immutable audit trail. Business rules live in policy
-*data*, never in prompts; all model/external output is schema-validated before
+_data_, never in prompts; all model/external output is schema-validated before
 it is trusted (fail-closed).
 
 ## 2. Where it lives
@@ -55,17 +55,17 @@ department = adding a doorway.** They all ship inert behind an env flag.
 
 ## 4. What's live vs. built
 
-| Capability | State |
-|---|---|
-| The system itself (tower, DB, governance) | **Live** — deployed, 4 orgs seeded, owner + 2 work-email admins |
-| **Sales (Pipedrive)** | **Live** — reads deals from both Pipedrive accounts (read-only), flags deals past expected close, raises governed follow-ups routed per company/owner |
-| **Collections (Acumatica)** | Connector **built & validated live** against the ERP (read 1,303 open AR docs, aged FS/BLC). Chases now arrive with the email **already drafted**; activation is `docs/collections-mvp-runbook.md` |
-| **Customer read (Acumatica)** | Built — names + AR contact emails, so a chase names a real company and has a recipient. Probe the live instance first (step 2 of the runbook) |
-| **Daily auto-refresh** | Built, inert — set `COLLECTIONS_SCHEDULE_UTC` / `SALES_SCHEDULE_UTC` and the worker pulls each morning by itself |
-| DemandStar bid doorway | Built, inert |
-| KPI exception scanner | Built, inert (reads via company-brain) |
-| TractionOS bridge, morning brief | Built, inert |
-| **Gmail draft connector** (the "draft the email" output) | Built + hardened, inert — awaits a supervised pilot. Note the chase text is already composed and prefilled, so this step is now "put the draft in the mailbox", not "write the draft" |
+| Capability                                               | State                                                                                                                                                                                              |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The system itself (tower, DB, governance)                | **Live** — deployed, 4 orgs seeded, owner + 2 work-email admins                                                                                                                                    |
+| **Sales (Pipedrive)**                                    | **Live** — reads deals from both Pipedrive accounts (read-only), flags deals past expected close, raises governed follow-ups routed per company/owner                                              |
+| **Collections (Acumatica)**                              | Connector **built & validated live** against the ERP (read 1,303 open AR docs, aged FS/BLC). Chases now arrive with the email **already drafted**; activation is `docs/collections-mvp-runbook.md` |
+| **Customer read (Acumatica)**                            | Built — names + AR contact emails, so a chase names a real company and has a recipient. Probe the live instance first (step 2 of the runbook)                                                      |
+| **Daily auto-refresh**                                   | Built, inert — set `COLLECTIONS_SCHEDULE_UTC` / `SALES_SCHEDULE_UTC` and the worker pulls each morning by itself                                                                                   |
+| DemandStar bid doorway                                   | Built, inert                                                                                                                                                                                       |
+| KPI exception scanner                                    | Built, inert (reads via company-brain)                                                                                                                                                             |
+| TractionOS bridge, morning brief                         | Built, inert                                                                                                                                                                                       |
+| **Gmail draft connector** (the "draft the email" output) | Built + hardened, inert — awaits a supervised pilot. Note the chase text is already composed and prefilled, so this step is now "put the draft in the mailbox", not "write the draft"              |
 
 ## 5. Data sources (wires)
 
@@ -135,6 +135,7 @@ department = adding a doorway.** They all ship inert behind an env flag.
 ## 9. How to extend it (the module pattern)
 
 To add a department module, follow `ar-collections.ts` / `pipedrive-sales.ts`:
+
 1. A **doorway** that reads the source deterministically (no model guessing at
    facts) and produces the normalized shape.
 2. A **policy** expressed as data (e.g. the collections ladder, the sales
@@ -158,12 +159,12 @@ To add a department module, follow `ar-collections.ts` / `pipedrive-sales.ts`:
 3. **Harden:** rotate the Acumatica service password (currently weak); populate
    missing AR contact emails in Acumatica (the `unaddressable` count in a run
    tells you how many); provision the AR person as the Collections approver.
-5. **Scorecard from Acumatica** — pull revenue, GP%, DSO/DPO/DIO, open orders,
+4. **Scorecard from Acumatica** — pull revenue, GP%, DSO/DPO/DIO, open orders,
    inventory; feed the money-picture answers and reconcile with TractionOS
    ("Jerry"), replacing today's manual export/keying.
-6. **Chat surface** — one conversational endpoint composing company-brain, the
+5. **Chat surface** — one conversational endpoint composing company-brain, the
    approvals queue, Acumatica, and the scorecard.
-7. **Scale** — onboard the manager/approver layer; move approvals from
+6. **Scale** — onboard the manager/approver layer; move approvals from
    owner-only to entity managers via new approval-policy versions (no code).
 
 ## 11. Access Chris will need
@@ -178,6 +179,6 @@ To add a department module, follow `ar-collections.ts` / `pipedrive-sales.ts`:
 
 ---
 
-*Status as of 2026-07-27: system deployed and live; Sales feeding real deals;
+_Status as of 2026-07-27: system deployed and live; Sales feeding real deals;
 Acumatica truth-wire built and validated live; Collections one command from
-going live on real-time AR.*
+going live on real-time AR._

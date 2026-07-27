@@ -170,7 +170,8 @@ async function runDueFeeds(
           feed: schedule.name,
           traceId,
           durationMs: Date.now() - startedAt,
-          message: error instanceof Error ? error.message : "Unknown feed error",
+          message:
+            error instanceof Error ? error.message : "Unknown feed error",
         }),
       );
     }
@@ -239,7 +240,8 @@ function maybeStartDueFeeds(now: Date): void {
       console.error(
         JSON.stringify({
           event: "feed.refresh.crashed",
-          message: error instanceof Error ? error.message : "Unknown feed error",
+          message:
+            error instanceof Error ? error.message : "Unknown feed error",
         }),
       );
     })

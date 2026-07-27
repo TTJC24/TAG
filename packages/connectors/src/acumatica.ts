@@ -39,7 +39,9 @@ export interface OpenArInvoice {
 const RECIPIENT_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** The address if it is usable as-is, else null. Never a guess or a repair. */
-export function usableRecipient(value: string | null | undefined): string | null {
+export function usableRecipient(
+  value: string | null | undefined,
+): string | null {
   const trimmed = value?.trim().toLowerCase() ?? "";
   return RECIPIENT_PATTERN.test(trimmed) ? trimmed : null;
 }
@@ -135,7 +137,8 @@ export function normalizeCustomer(
   const customerId = asStr(val(record, "CustomerID"));
   if (!customerId) return null;
   const email =
-    asStr(nested(record, "MainContact", "Email")) ?? asStr(val(record, "Email"));
+    asStr(nested(record, "MainContact", "Email")) ??
+    asStr(val(record, "Email"));
   return {
     customerId,
     customerName: asStr(val(record, "CustomerName")),
@@ -210,7 +213,9 @@ export class AcumaticaClient {
     path: string,
     init: RequestInit & { rawBase?: boolean; consumeJson?: boolean } = {},
   ): Promise<Response> {
-    const url = init.rawBase ? `${this.baseUrl}${path}` : `${this.baseUrl}${path}`;
+    const url = init.rawBase
+      ? `${this.baseUrl}${path}`
+      : `${this.baseUrl}${path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
@@ -262,10 +267,14 @@ export class AcumaticaClient {
       }),
     });
     if (!response.ok && response.status !== 204) {
-      throw new AcumaticaUnavailableError(`Acumatica login failed (${response.status})`);
+      throw new AcumaticaUnavailableError(
+        `Acumatica login failed (${response.status})`,
+      );
     }
     if (this.cookies.length === 0) {
-      throw new AcumaticaUnavailableError("Acumatica login returned no session cookie");
+      throw new AcumaticaUnavailableError(
+        "Acumatica login returned no session cookie",
+      );
     }
   }
 

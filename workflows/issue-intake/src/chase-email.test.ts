@@ -64,7 +64,11 @@ describe("buildChaseEmail", () => {
     const friendly = buildChaseEmail(customer(), DEFAULT_LADDER.d1_30, context);
     const firm = buildChaseEmail(customer(), DEFAULT_LADDER.d31_60, context);
     const final = buildChaseEmail(customer(), DEFAULT_LADDER.d61_90, context);
-    const escalation = buildChaseEmail(customer(), DEFAULT_LADDER.over90, context);
+    const escalation = buildChaseEmail(
+      customer(),
+      DEFAULT_LADDER.over90,
+      context,
+    );
 
     expect(friendly.body).toContain("quick reminder");
     expect(firm.body).toContain("specific payment date");

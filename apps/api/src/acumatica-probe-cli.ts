@@ -89,7 +89,9 @@ async function main(): Promise<void> {
     console.log(`\nfields Collections depends on:`);
     let missing = 0;
     for (const name of expected) {
-      const present = fields.some((f) => f === name || f.startsWith(`${name}/`));
+      const present = fields.some(
+        (f) => f === name || f.startsWith(`${name}/`),
+      );
       if (!present) missing += 1;
       console.log(`  ${present ? "OK     " : "MISSING"} ${name}`);
     }

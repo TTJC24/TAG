@@ -51,10 +51,14 @@ const money = (value: number): string =>
 
 /** Opening line per rung: the escalation in tone lives here, as data. */
 const OPENING: Record<number, (customerName: string) => string> = {
-  1: (n) => `Hi ${n},\n\nA quick reminder on the invoices below, which are now past due. If these are already scheduled or have crossed with a payment, please disregard.`,
-  2: (n) => `Hi ${n},\n\nFollowing up on the past-due invoices below. We haven't received payment yet, and I'd like to get these cleared up.`,
-  3: (n) => `Hi ${n},\n\nThis is a final notice on the past-due invoices below. These are significantly overdue and we need to resolve them.`,
-  4: (n) => `Hi ${n},\n\nThe invoices below are seriously past due and this account now requires immediate attention.`,
+  1: (n) =>
+    `Hi ${n},\n\nA quick reminder on the invoices below, which are now past due. If these are already scheduled or have crossed with a payment, please disregard.`,
+  2: (n) =>
+    `Hi ${n},\n\nFollowing up on the past-due invoices below. We haven't received payment yet, and I'd like to get these cleared up.`,
+  3: (n) =>
+    `Hi ${n},\n\nThis is a final notice on the past-due invoices below. These are significantly overdue and we need to resolve them.`,
+  4: (n) =>
+    `Hi ${n},\n\nThe invoices below are seriously past due and this account now requires immediate attention.`,
 };
 
 /** Closing ask per rung: escalates from soft to a firm requirement. */

@@ -223,7 +223,8 @@ export function buildCollectionsDrafts(
 ): CollectionsDraft[] {
   const map = opts.companyToOrgCode ?? COMPANY_TO_ORG_CODE;
   const orgCode =
-    opts.orgCode ?? (parsed.company ? map[parsed.company.trim().toUpperCase()] : undefined);
+    opts.orgCode ??
+    (parsed.company ? map[parsed.company.trim().toUpperCase()] : undefined);
   if (!orgCode) return [];
   const minPastDue = opts.minPastDue ?? 0;
   const drafts: CollectionsDraft[] = [];

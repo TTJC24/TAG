@@ -120,7 +120,8 @@ export async function runSalesFeed(
 ): Promise<SalesFeedResult> {
   const config = resolvePipedriveSalesConfig(env as never);
   const sources = resolvePipedriveSources(env as never);
-  const asOf = env.PIPEDRIVE_SALES_ASOF ?? new Date().toISOString().slice(0, 10);
+  const asOf =
+    env.PIPEDRIVE_SALES_ASOF ?? new Date().toISOString().slice(0, 10);
 
   const organizationIdsByCode = await loadOrganizationIdsByCode(pool);
   const perSource: SalesFeedResult["perSource"] = [];
