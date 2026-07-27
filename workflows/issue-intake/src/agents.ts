@@ -33,6 +33,19 @@ export interface RecommendationAgentInput {
   citation: SourceCitation;
 }
 
+/**
+ * Task types whose whole purpose is contacting someone outside the company, so
+ * they require the external-draft path regardless of how the text is worded.
+ *
+ * This exists because the word-match below is a heuristic, not a contract: a
+ * collections chase only reached `draft_external_follow_up` because its
+ * boilerplate happened to contain "sends" and "customer". Rewording that
+ * boilerplate would have silently downgraded every chase to an internal
+ * follow-up — losing the human-approval gate that makes the doorway safe.
+ * Naming the task type makes the intent explicit and rewording-proof.
+ */
+const EXTERNAL_BY_NATURE = new Set(["collections"]);
+
 function usage(latencyMs = 1): AgentUsage {
   return {
     inputTokens: 0,
@@ -112,6 +125,7 @@ export class DeterministicModelProvider implements ModelProvider {
 
     const text = `${input.title}\n${input.description}`;
     const externalAction =
+      EXTERNAL_BY_NATURE.has(input.taskType) ||
       (input.financialExposure ?? 0) >= 50_000 ||
       /email|send|customer|vendor|escalat|contact/i.test(text);
     const riskLevel = externalAction ? 4 : 2;
