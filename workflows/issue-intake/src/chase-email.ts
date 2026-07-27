@@ -1,3 +1,4 @@
+import { usableRecipient } from "@operating-layer/connectors";
 import { withOrganizationScope, type DatabasePool } from "@operating-layer/db";
 import { pastDue, type AgingCustomer } from "./ar-aging.js";
 import { DEFAULT_LADDER, type LadderRung } from "./ar-collections.js";
@@ -119,17 +120,38 @@ export function buildChaseEmail(
     ...(context.senderContact ? [context.senderContact] : []),
   ].join("\n");
 
-  const email = customer.email?.trim() ?? "";
-  const addressable = email.length > 0 && email.includes("@");
+  // Use the shared rule, not a looser local one: an address the database CHECK
+  // would reject must fall through to blockedReason here, or the failed INSERT
+  // throws away the drafted body as well — losing the prefill entirely for
+  // exactly the customers this fallback exists to serve.
+  const to = usableRecipient(customer.email);
 
   return {
-    to: addressable ? email.toLowerCase() : null,
+    to,
     subject,
     body,
-    blockedReason: addressable
+    blockedReason: to
       ? null
-      : "no AR contact email on file in Acumatica for this customer",
+      : customer.email?.trim()
+        ? // bounded: the stored column caps at 500 chars, and this echoes ERP data
+          `AR contact email on file is not a usable address ("${customer.email
+            .trim()
+            .slice(0, 200)}")`
+        : "no AR contact email on file in Acumatica for this customer",
   };
+}
+
+/** A `date` column as YYYY-MM-DD, without shifting it across a timezone. */
+export function formatDateOnly(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value.slice(0, 10);
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+  return null;
 }
 
 export interface StoredChaseProposal {
@@ -186,10 +208,10 @@ export async function getChaseProposal(
         body: String(row.body),
         ladderStep: Number(row.ladder_step),
         pastDue: Number(row.past_due),
-        agedOn:
-          row.aged_on === null
-            ? null
-            : new Date(row.aged_on as string).toISOString().slice(0, 10),
+        // node-postgres materializes a `date` at LOCAL midnight, so
+        // round-tripping through toISOString() reports the previous day in any
+        // timezone east of UTC. Format from the local parts instead.
+        agedOn: formatDateOnly(row.aged_on),
       };
     },
   );

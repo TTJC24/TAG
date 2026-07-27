@@ -18,9 +18,13 @@
 export interface FeedSchedule {
   /** Stable name, used for the run marker and the log line. */
   name: string;
-  /** Local hour (0-23) the feed should run at. */
+  /**
+   * Hour (0-23) **in UTC**, not local time. Fixed in UTC means the pull does
+   * not follow daylight-saving changes: a schedule set for 07:00 ET in winter
+   * arrives at 06:00 ET in summer. Pick the hour with that hour of slack.
+   */
   hourUtc: number;
-  /** Minute (0-59). */
+  /** Minute (0-59), UTC. */
   minuteUtc: number;
 }
 

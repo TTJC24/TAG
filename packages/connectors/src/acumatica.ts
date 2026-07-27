@@ -26,6 +26,24 @@ export interface OpenArInvoice {
   balance: number; // open balance (signed; credits negative)
 }
 
+/**
+ * The one definition of a usable recipient, matching the CHECK constraint on
+ * collections_chase_proposals.recipient and Gmail's own address rule.
+ *
+ * ERP contact fields hold things like "Acme AP <ap@acme.com>", "ap@acme" with
+ * no dot, or two addresses comma-separated. A looser test here would let those
+ * through to a database CHECK that rejects the whole row — which would throw
+ * away the drafted body too, exactly for the customers the fallback exists to
+ * handle. Reject early and degrade to "no address on file" instead.
+ */
+const RECIPIENT_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** The address if it is usable as-is, else null. Never a guess or a repair. */
+export function usableRecipient(value: string | null | undefined): string | null {
+  const trimmed = value?.trim().toLowerCase() ?? "";
+  return RECIPIENT_PATTERN.test(trimmed) ? trimmed : null;
+}
+
 /** Normalized customer contact — who a chase is addressed to. */
 export interface AcumaticaCustomer {
   customerId: string;
@@ -97,7 +115,12 @@ export function normalizeArInvoice(
 // (only the Customer id); the Balance filter needs the decimal literal `0M`.
 const AR_SELECT =
   "Type,ReferenceNbr,Customer,LinkBranch,Date,DueDate,Balance,Status";
-const AR_FILTER = "Status eq 'Open' and Balance gt 0M";
+// Deliberately NOT filtered to `Balance gt 0M`. That excluded credit memos and
+// unapplied payments, so a customer holding an $8,000 credit against a $10,000
+// past-due invoice would be told they owe the full $10,000 — tolerable when the
+// output was an internal to-do, wrong now that it is the text proposed to the
+// customer at "final notice". Read every open document and net per customer.
+const AR_FILTER = "Status eq 'Open'";
 
 // The Invoice entity carries only the customer *id*, so a chase addressed to a
 // human needs the Customer entity: display name and the AR contact email.
@@ -116,12 +139,25 @@ export function normalizeCustomer(
   return {
     customerId,
     customerName: asStr(val(record, "CustomerName")),
-    email: email && email.includes("@") ? email : null,
+    email: usableRecipient(email),
     status: asStr(val(record, "Status")),
   };
 }
 
 const recordArraySchema = z.array(z.record(z.unknown()));
+
+/** A Response whose body was consumed inside the timeout window. */
+type ResponseWithJson = Response & { parsedJson?: unknown };
+
+/** Raised when a paginated read hits its page cap — never truncate silently. */
+export class AcumaticaTruncatedError extends Error {
+  constructor(entity: string, limit: number) {
+    super(
+      `Acumatica ${entity} read hit the ${limit}-record page cap; raise maxPages/pageSize rather than trusting a partial read`,
+    );
+    this.name = "AcumaticaTruncatedError";
+  }
+}
 
 export class AcumaticaUnavailableError extends Error {
   constructor(message: string) {
@@ -172,7 +208,7 @@ export class AcumaticaClient {
 
   private async request(
     path: string,
-    init: RequestInit & { rawBase?: boolean } = {},
+    init: RequestInit & { rawBase?: boolean; consumeJson?: boolean } = {},
   ): Promise<Response> {
     const url = init.rawBase ? `${this.baseUrl}${path}` : `${this.baseUrl}${path}`;
     const controller = new AbortController();
@@ -195,6 +231,13 @@ export class AcumaticaClient {
           : [];
       if (set.length > 0) {
         this.cookies = set.map((c) => c.split(";")[0]!);
+      }
+      if (init.consumeJson) {
+        // Read the body while the abort timer is still armed. Clearing the
+        // timeout as soon as headers arrive would leave a server that sends
+        // 200 and then stalls the body hanging forever, with no abort and no
+        // error — which in a scheduled worker is a silent, permanent outage.
+        (response as ResponseWithJson).parsedJson = await response.json();
       }
       return response;
     } catch (error) {
@@ -235,38 +278,74 @@ export class AcumaticaClient {
     this.cookies = [];
   }
 
+  /** One page of records, with the body read inside the timeout window. */
+  private async readPage(
+    entity: string,
+    params: URLSearchParams,
+  ): Promise<Record<string, unknown>[]> {
+    const response = await this.request(
+      `/entity/Default/${this.version}/${entity}?${params.toString()}`,
+      { consumeJson: true },
+    );
+    if (!response.ok) {
+      throw new AcumaticaUnavailableError(
+        `Acumatica ${entity} read failed (${response.status})`,
+      );
+    }
+    const parsed = recordArraySchema.safeParse(
+      (response as ResponseWithJson).parsedJson,
+    );
+    if (!parsed.success) {
+      throw new AcumaticaUnavailableError(
+        `Acumatica ${entity} response failed validation`,
+      );
+    }
+    return parsed.data;
+  }
+
   /**
-   * Read open AR invoices (balance != 0), paginated. Read-only GET. The exact
-   * entity/field names are validated against the live instance on first run;
-   * normalizeArInvoice tolerates missing fields.
+   * Read every page of an entity. Throws rather than returning a partial read:
+   * a silently truncated AR read would understate what a customer owes, and a
+   * silently truncated customer read would strip names and addresses off
+   * chases with nothing anywhere saying why.
+   */
+  private async readAllPages(
+    entity: string,
+    baseParams: Record<string, string>,
+  ): Promise<Record<string, unknown>[]> {
+    const all: Record<string, unknown>[] = [];
+    for (let page = 0; page < this.maxPages; page += 1) {
+      const batch = await this.readPage(
+        entity,
+        new URLSearchParams({
+          ...baseParams,
+          $top: String(this.pageSize),
+          $skip: String(page * this.pageSize),
+        }),
+      );
+      all.push(...batch);
+      if (batch.length < this.pageSize) return all;
+    }
+    throw new AcumaticaTruncatedError(entity, this.maxPages * this.pageSize);
+  }
+
+  /**
+   * Read open AR documents, paginated. Read-only GET.
+   *
+   * Includes credit memos and unapplied payments (negative balances), not just
+   * invoices: the caller nets them per customer, so a customer is never told
+   * they owe a gross figure that ignores credits already on their account.
    */
   async fetchOpenArInvoices(): Promise<OpenArInvoice[]> {
+    const rows = await this.readAllPages("Invoice", {
+      $filter: AR_FILTER,
+      $select: AR_SELECT,
+    });
     const invoices: OpenArInvoice[] = [];
-    for (let page = 0; page < this.maxPages; page += 1) {
-      const params = new URLSearchParams({
-        $filter: AR_FILTER,
-        $top: String(this.pageSize),
-        $skip: String(page * this.pageSize),
-        $select: AR_SELECT,
-      });
-      const response = await this.request(
-        `/entity/Default/${this.version}/Invoice?${params.toString()}`,
-      );
-      if (!response.ok) {
-        throw new AcumaticaUnavailableError(
-          `Acumatica AR read failed (${response.status})`,
-        );
-      }
-      const parsed = recordArraySchema.safeParse(await response.json());
-      if (!parsed.success) {
-        throw new AcumaticaUnavailableError("Acumatica AR response failed validation");
-      }
-      const batch = parsed.data;
-      for (const raw of batch) {
-        const normalized = normalizeArInvoice(raw);
-        if (normalized) invoices.push(normalized);
-      }
-      if (batch.length < this.pageSize) break;
+    for (const raw of rows) {
+      const normalized = normalizeArInvoice(raw);
+      // A zero-balance document is settled; it is not part of what is owed.
+      if (normalized && normalized.balance !== 0) invoices.push(normalized);
     }
     return invoices;
   }
@@ -281,22 +360,7 @@ export class AcumaticaClient {
     entity: string,
     limit = 1,
   ): Promise<Record<string, unknown>[]> {
-    const params = new URLSearchParams({ $top: String(limit) });
-    const response = await this.request(
-      `/entity/Default/${this.version}/${entity}?${params.toString()}`,
-    );
-    if (!response.ok) {
-      throw new AcumaticaUnavailableError(
-        `Acumatica ${entity} probe failed (${response.status})`,
-      );
-    }
-    const parsed = recordArraySchema.safeParse(await response.json());
-    if (!parsed.success) {
-      throw new AcumaticaUnavailableError(
-        `Acumatica ${entity} probe response failed validation`,
-      );
-    }
-    return parsed.data;
+    return this.readPage(entity, new URLSearchParams({ $top: String(limit) }));
   }
 
   /**

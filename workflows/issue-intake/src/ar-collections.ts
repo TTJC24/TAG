@@ -293,12 +293,12 @@ async function recordChaseProposal(
     pastDue: number;
     agedOn: string | null;
   },
-): Promise<void> {
-  await withOrganizationScope(
+): Promise<boolean> {
+  return withOrganizationScope(
     operatingPool,
     { userId: input.userId, organizationIds: [input.organizationId] },
     async (client) => {
-      await client.query(
+      const result = await client.query(
         `INSERT INTO collections_chase_proposals (
            id, organization_id, task_id, customer_id, customer_name,
            recipient, blocked_reason, subject, body, ladder_step, past_due, aged_on
@@ -320,6 +320,10 @@ async function recordChaseProposal(
           input.agedOn,
         ],
       );
+      // Report whether a row actually landed. ON CONFLICT DO NOTHING succeeds
+      // without inserting on a replay, so counting calls instead of rows would
+      // report a full prefill on a day that wrote nothing.
+      return (result.rowCount ?? 0) > 0;
     },
   );
 }
@@ -415,7 +419,7 @@ export async function syncArAging(
       // failure here is reported but never fails the chase.
       if (draft.email.recipient === null) result.unaddressable += 1;
       try {
-        await recordChaseProposal(operatingPool, {
+        const inserted = await recordChaseProposal(operatingPool, {
           organizationId,
           userId: principal.userId,
           taskId: response.taskId,
@@ -429,7 +433,7 @@ export async function syncArAging(
           pastDue: draft.pastDue,
           agedOn: parsed.agedOn,
         });
-        result.proposed += 1;
+        if (inserted) result.proposed += 1;
       } catch (error) {
         result.skipped.push({
           customerId: draft.customerId,

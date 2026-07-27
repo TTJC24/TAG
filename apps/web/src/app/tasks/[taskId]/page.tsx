@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { operatingLayerApi } from "../../../lib/api";
+import { ApiError, operatingLayerApi } from "../../../lib/api";
 import { ApprovalResolutionForm } from "./approval-resolution-form";
 import { ExecutionTriggerForm } from "./execution-trigger-form";
 import { GmailDraftAuthorizationForm } from "./gmail-draft-authorization-form";
@@ -62,11 +62,17 @@ export default async function TaskDetailPage({
   // The chase text recorded when this task was raised, if any. Collections
   // tasks have one; everything else does not, and then the draft form stays
   // exactly as it was — the prefill is additive, never a precondition.
+  // A 404 is the ordinary "this is not a collections task" answer. Anything
+  // else (403, 500, the API being down) must not masquerade as "no proposal",
+  // or a broken route silently hands the approver an empty form to retype.
   const chaseProposal = await operatingLayerApi<ChaseProposal>(
     `/v1/tasks/${encodeURIComponent(
       taskId,
     )}/chase-proposal?organizationId=${encodeURIComponent(organizationId)}`,
-  ).catch(() => null);
+  ).catch((error: unknown) => {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  });
   const task = detail.task;
   const connectorEnabled = detail.gmailDraftConnector.enabled === true;
   const latestPreview = detail.gmailDraftPreviews.at(-1);

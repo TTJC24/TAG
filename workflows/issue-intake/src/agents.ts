@@ -35,14 +35,21 @@ export interface RecommendationAgentInput {
 
 /**
  * Task types whose whole purpose is contacting someone outside the company, so
- * they require the external-draft path regardless of how the text is worded.
+ * they take the external-draft path (and therefore the human-approval gate).
  *
- * This exists because the word-match below is a heuristic, not a contract: a
- * collections chase only reached `draft_external_follow_up` because its
- * boilerplate happened to contain "sends" and "customer". Rewording that
- * boilerplate would have silently downgraded every chase to an internal
- * follow-up — losing the human-approval gate that makes the doorway safe.
- * Naming the task type makes the intent explicit and rewording-proof.
+ * Why: a collections chase previously reached `draft_external_follow_up` only
+ * because its boilerplate happened to contain "sends" and "customer". Rewording
+ * that footer would have silently downgraded every chase to an internal
+ * follow-up, dropping the approval gate with no test to catch it.
+ *
+ * What this does and does not guarantee: `taskType` is itself derived by
+ * `classifyTaskType`, another regex, so this narrows the failure rather than
+ * eliminating it — a chase whose text lost every one of
+ * receivable/invoice/collection/"past due" would still misclassify. The real
+ * fix is to key off the intake source (the collections doorway knows what it
+ * raised); see the roadmap. It errs safe in the other direction too: an
+ * internal task merely mentioning "invoice" classifies as collections and gets
+ * gated as external — more approval friction, never less.
  */
 const EXTERNAL_BY_NATURE = new Set(["collections"]);
 

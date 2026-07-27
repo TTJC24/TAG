@@ -104,6 +104,39 @@ describe("buildChaseEmail", () => {
     expect(proposal.blockedReason).not.toBeNull();
   });
 
+  it("rejects the ERP shapes that a database CHECK would reject", () => {
+    // If any of these got through as `to`, the proposal INSERT would violate
+    // the recipient CHECK and the drafted body would be lost along with it.
+    for (const bad of [
+      "Acme AP <ap@acme.com>", // display-name form
+      "ap@acme", // no dot in the domain
+      "ap@acme.com,ar@acme.com", // two addresses in one field
+      "ap @acme.com", // embedded space
+      "ap@acme.com\r\nBcc: x@y.co", // header-injection attempt
+      "n/a",
+      "-",
+    ]) {
+      const proposal = buildChaseEmail(
+        customer({ email: bad }),
+        DEFAULT_LADDER.d1_30,
+        context,
+      );
+      expect(proposal.to, `should reject ${JSON.stringify(bad)}`).toBeNull();
+      expect(proposal.blockedReason).toMatch(/not a usable address/i);
+      // the drafted body survives so a human can still address it by hand
+      expect(proposal.body).toContain("Acme Corporation");
+    }
+  });
+
+  it("keeps the blocked reason inside the stored column's limit", () => {
+    const proposal = buildChaseEmail(
+      customer({ email: "x".repeat(4_000) }),
+      DEFAULT_LADDER.d1_30,
+      context,
+    );
+    expect(proposal.blockedReason!.length).toBeLessThanOrEqual(500);
+  });
+
   it("normalizes the recipient to lowercase for the allowlist check", () => {
     const proposal = buildChaseEmail(
       customer({ email: "  AP@Acme.Example  " }),

@@ -3,6 +3,7 @@ import {
   AcumaticaClient,
   normalizeArInvoice,
   normalizeCustomer,
+  usableRecipient,
 } from "./acumatica.js";
 
 describe("normalizeCustomer", () => {
@@ -36,6 +37,24 @@ describe("normalizeCustomer", () => {
       MainContact: { Email: { value: "n/a" } },
     });
     expect(customer?.email).toBeNull();
+  });
+
+  it("rejects the malformed shapes ERP contact fields actually hold", () => {
+    for (const bad of [
+      "Acme AP <ap@acme.com>",
+      "ap@acme",
+      "ap@acme.com,ar@acme.com",
+      "ap @acme.com",
+      "ap@acme.com\r\nBcc: x@y.co",
+      "",
+      "-",
+    ]) {
+      expect(usableRecipient(bad), `should reject ${JSON.stringify(bad)}`).toBeNull();
+    }
+  });
+
+  it("accepts and normalizes a usable address", () => {
+    expect(usableRecipient("  AP@Acme.Example  ")).toBe("ap@acme.example");
   });
 
   it("drops a record with no customer id", () => {

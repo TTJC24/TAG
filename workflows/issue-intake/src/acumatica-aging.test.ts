@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { OpenArInvoice } from "@operating-layer/connectors";
+import { pastDue } from "./ar-aging.js";
 import { buildAgingFromInvoices } from "./acumatica-aging.js";
 import { pastDue, worstBucket } from "./ar-aging.js";
 import type { OpenArInvoice } from "@operating-layer/connectors";
@@ -55,5 +57,50 @@ describe("buildAgingFromInvoices", () => {
   it("falls back to customer id when name is missing", () => {
     const aging = buildAgingFromInvoices([inv({ customerId: "NONAME", customerName: null })], ASOF);
     expect(aging[0]!.customers[0]!.customerName).toBe("NONAME");
+  });
+});
+
+describe("credit memos net against what a customer is told they owe", () => {
+  /**
+   * Regression guard for a customer-facing correctness bug: the AR read used
+   * to filter to `Balance gt 0M`, which dropped credit memos and unapplied
+   * payments. A customer holding a credit would have been sent a "final
+   * notice" for the gross invoice total.
+   */
+  const inv = (
+    refNbr: string,
+    balance: number,
+    dueDate: string,
+  ): OpenArInvoice => ({
+    customerId: "ACME",
+    customerName: "Acme Corp",
+    branch: "FS",
+    docType: balance < 0 ? "Credit Memo" : "Invoice",
+    refNbr,
+    docDate: "2026-05-01",
+    dueDate,
+    balance,
+  });
+
+  it("subtracts an open credit from the past-due total", () => {
+    const aging = buildAgingFromInvoices(
+      [inv("AR1", 10_000, "2026-05-15"), inv("CM1", -8_000, "2026-05-15")],
+      "2026-06-20",
+    );
+    const customer = aging[0]!.customers[0]!;
+    // 31-60 days past due: $10,000 owed less an $8,000 credit
+    expect(customer.buckets.d31_60).toBe(2_000);
+    expect(customer.buckets.balance).toBe(2_000);
+  });
+
+  it("nets a customer whose credits exceed their invoices to zero or less", () => {
+    const aging = buildAgingFromInvoices(
+      [inv("AR1", 1_000, "2026-05-15"), inv("CM1", -2_500, "2026-05-15")],
+      "2026-06-20",
+    );
+    const customer = aging[0]!.customers[0]!;
+    expect(customer.buckets.balance).toBe(-1_500);
+    // pastDue is negative, so buildCollectionsDrafts skips them entirely
+    expect(pastDue(customer.buckets)).toBeLessThanOrEqual(0);
   });
 });
