@@ -33,6 +33,7 @@ services:
       - ./infrastructure/production/init/9001_governance_core.sql:/docker-entrypoint-initdb.d/9001_governance_core.sql:ro
       - ./infrastructure/production/init/9002_owner_user.sh:/docker-entrypoint-initdb.d/9002_owner_user.sh:ro
       - ./infrastructure/production/init/9003_idempotency_retention.sh:/docker-entrypoint-initdb.d/9003_idempotency_retention.sh:ro
+      - ./infrastructure/production/init/9004_governed_intake.sh:/docker-entrypoint-initdb.d/9004_governed_intake.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
