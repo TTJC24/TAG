@@ -55,6 +55,30 @@ automatically, instead of buried in a spreadsheet someone has to eyeball.
 The one rule that makes it safe: **it drafts, you approve.** A person is always
 the final "send" button.
 
+## What it can read from Acumatica — today, and next
+
+The important thing to understand is what the **connection to Acumatica** is.
+Acumatica is where the real numbers live, and we've built a secure, read-only
+pipe into it. That pipe is the capability. What we point it at grows over time —
+same pipe, more of the picture:
+
+- **Today — the money we're owed.** Right now it reads **accounts receivable**:
+  who owes us, how much, and how overdue. That's the live piece — the $340K+
+  past due. It reads this and only this so far.
+- **Next — actual sales.** The *same connection* reaches our real
+  **sales and revenue** — what's actually been sold and invoiced, by company,
+  not a salesperson's guess in the CRM. This is built to be turned on next; it
+  isn't reading yet.
+- **After that — the full scoreboard.** From the same pipe: open orders, margin,
+  how long it takes us to collect. The live "how's the business doing" numbers,
+  straight from the books instead of a hand-built spreadsheet.
+
+A note on the CRM (Pipedrive): it is **only a status board for deals in
+progress** — it tells us which deals are stalling. It is **not** where the real
+sales numbers come from. **The truth is Acumatica; the CRM is just a nudge list.**
+So when this doc says "reads the truth," today that means the receivables; the
+sales and scoreboard numbers are the same capability, switched on in turn.
+
 ## What it changes
 
 *One hard number so far, and it's not a savings estimate — it's what the system
