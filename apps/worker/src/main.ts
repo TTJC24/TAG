@@ -73,6 +73,7 @@ if (feedSchedules.length > 0) {
 }
 let stopping = false;
 let nextReaperAt = 0;
+let feedInFlight = false;
 
 /**
  * Run any feed whose scheduled time has arrived today.
@@ -83,8 +84,11 @@ let nextReaperAt = 0;
  * the work so a feed that fails does not retry in a tight loop for the rest of
  * the day; intake is idempotent per aging date, so the next day's run is clean.
  */
-async function runDueFeeds(now: Date): Promise<void> {
-  for (const schedule of feedRunLog.due(feedSchedules, now)) {
+async function runDueFeeds(
+  due: ReturnType<FeedRunLog["due"]>,
+  now: Date,
+): Promise<void> {
+  for (const schedule of due) {
     feedRunLog.record(schedule.name, now);
     const traceId = `feed-${schedule.name}-${randomUUID()}`;
     const startedAt = Date.now();
@@ -163,9 +167,7 @@ async function loop(): Promise<void> {
         nextReaperAt = Date.now() + IDEMPOTENCY_REAPER_INTERVAL_MS;
       }
     }
-    if (feedSchedules.length > 0) {
-      await runDueFeeds(new Date());
-    }
+    maybeStartDueFeeds(new Date());
     const result = await processNextOutboxJob(
       pool,
       workerId,
@@ -177,6 +179,27 @@ async function loop(): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
     }
   }
+}
+
+/**
+ * Start any due feed WITHOUT blocking the loop.
+ *
+ * A feed pull is minutes of network and database work; awaiting it inline would
+ * stop the worker from processing approvals for that whole time, and a hung
+ * Acumatica call (40 pages x a 30s timeout) could freeze the queue for far
+ * longer. Approvals are the worker's job — a refresh must never stand in front
+ * of them. The in-flight guard keeps one refresh running at a time, and the
+ * run is marked before the work so a failure waits for tomorrow rather than
+ * retrying in a tight loop.
+ */
+function maybeStartDueFeeds(now: Date): void {
+  if (feedSchedules.length === 0 || feedInFlight) return;
+  const due = feedRunLog.due(feedSchedules, now);
+  if (due.length === 0) return;
+  feedInFlight = true;
+  void runDueFeeds(due, now).finally(() => {
+    feedInFlight = false;
+  });
 }
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
