@@ -6,10 +6,13 @@ import {
 import {
   assertGmailCredentialStartup,
   DisabledOAuthTokenRevoker,
+  FeedRunLog,
   GoogleOAuthTokenRevoker,
   IDEMPOTENCY_REAPER_INTERVAL_MS,
   processNextOutboxJob,
   reapExpiredIdempotencyKeys,
+  resolveFeedSchedules,
+  runCollectionsFeed,
 } from "@operating-layer/issue-intake";
 import {
   DisabledGmailDraftExecutionProvider,
@@ -52,8 +55,72 @@ const gmailDraftProvider = networkEnabled
   ? new GmailDraftExecutionProvider(new GoogleGmailDraftCreateTransport())
   : new DisabledGmailDraftExecutionProvider();
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000);
+// Scheduled feed refreshes. Empty unless *_SCHEDULE_UTC is set explicitly, so
+// this ships inert and an unconfigured deploy behaves exactly as before.
+const feedSchedules = resolveFeedSchedules();
+const feedRunLog = new FeedRunLog();
+if (feedSchedules.length > 0) {
+  console.info(
+    JSON.stringify({
+      event: "feed.schedule.configured",
+      feeds: feedSchedules.map((f) => ({
+        name: f.name,
+        atUtc: `${String(f.hourUtc).padStart(2, "0")}:${String(f.minuteUtc).padStart(2, "0")}`,
+      })),
+    }),
+  );
+}
 let stopping = false;
 let nextReaperAt = 0;
+
+/**
+ * Run any feed whose scheduled time has arrived today.
+ *
+ * A feed failure must never take the worker down: the outbox is the worker's
+ * primary job, and a refresh that cannot reach Acumatica is a reason to log and
+ * retry tomorrow, not to stop processing approvals. The run is marked before
+ * the work so a feed that fails does not retry in a tight loop for the rest of
+ * the day; intake is idempotent per aging date, so the next day's run is clean.
+ */
+async function runDueFeeds(now: Date): Promise<void> {
+  for (const schedule of feedRunLog.due(feedSchedules, now)) {
+    feedRunLog.record(schedule.name, now);
+    const traceId = `feed-${schedule.name}-${randomUUID()}`;
+    const startedAt = Date.now();
+    try {
+      if (schedule.name !== "collections") continue;
+      const result = await runCollectionsFeed(pool);
+      console.info(
+        JSON.stringify({
+          event: "feed.refresh.completed",
+          feed: schedule.name,
+          traceId,
+          durationMs: Date.now() - startedAt,
+          readInvoices: result.readInvoices,
+          readCustomers: result.readCustomers,
+          customersWithEmail: result.customersWithEmail,
+          created: result.perCompany.reduce((n, r) => n + r.created, 0),
+          replayed: result.perCompany.reduce((n, r) => n + r.replayed, 0),
+          unaddressable: result.perCompany.reduce(
+            (n, r) => n + r.unaddressable,
+            0,
+          ),
+          skipped: result.perCompany.reduce((n, r) => n + r.skipped.length, 0),
+        }),
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          event: "feed.refresh.failed",
+          feed: schedule.name,
+          traceId,
+          durationMs: Date.now() - startedAt,
+          message: error instanceof Error ? error.message : "Unknown feed error",
+        }),
+      );
+    }
+  }
+}
 
 async function loop(): Promise<void> {
   while (!stopping) {
@@ -80,6 +147,9 @@ async function loop(): Promise<void> {
       } finally {
         nextReaperAt = Date.now() + IDEMPOTENCY_REAPER_INTERVAL_MS;
       }
+    }
+    if (feedSchedules.length > 0) {
+      await runDueFeeds(new Date());
     }
     const result = await processNextOutboxJob(
       pool,

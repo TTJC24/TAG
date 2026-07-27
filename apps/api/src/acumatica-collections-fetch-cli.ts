@@ -1,23 +1,21 @@
 import { createDatabasePool } from "@operating-layer/db";
-import { AcumaticaClient } from "@operating-layer/connectors";
-import {
-  buildAgingFromInvoices,
-  loadOrganizationIdsByCode,
-  resolveCollectionsConfig,
-  syncArAging,
-} from "@operating-layer/issue-intake";
+import { runCollectionsFeed } from "@operating-layer/issue-intake";
 
 /**
  * Operator command: read open AR live from Acumatica, age it, and run it
  * through the Collections doorway. Acumatica is the source of truth — this is
  * the live replacement for the aging-file path.
  *
- *   node dist/acumatica-collections-fetch-cli.js
- *   (or: pnpm --filter @operating-layer/api acumatica-collections:fetch)
+ *   node apps/api/dist/acumatica-collections-fetch-cli.js
+ *
+ * The pull itself lives in runCollectionsFeed, which the scheduled worker also
+ * calls — so running this by hand and letting the schedule run it are the same
+ * code path, not two implementations that can drift.
  *
  * One Production tenant; FS and BLC are branches, so the read is split into
  * per-company aging (FS -> FS, BLC -> BLCS) and each runs through the doorway.
- * Read-only: the connector only reads AR (plus its own auth login/logout).
+ * Read-only: the connector only reads AR and customers (plus its own auth
+ * login/logout), and every chase it raises still needs human approval.
  *
  * Inert unless explicitly configured:
  *   COLLECTIONS_ENABLED=true
@@ -27,72 +25,31 @@ import {
  *   ACUMATICA_USERNAME=<read-only api user>
  *   ACUMATICA_PASSWORD=<read-only api user password>
  *   ACUMATICA_COMPANY=Production
- * Optional: ACUMATICA_ENDPOINT_VERSION (default 24.200.001), COLLECTIONS_ASOF.
+ * Optional: ACUMATICA_ENDPOINT_VERSION (default 24.200.001), COLLECTIONS_ASOF,
+ *   COLLECTIONS_SENDER_NAME / COLLECTIONS_SENDER_CONTACT (chase signature).
  */
-function required(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is required`);
-  return value;
-}
-
 async function main(): Promise<void> {
-  const config = resolveCollectionsConfig();
-  const operatingUrl = required("DATABASE_URL");
-  const client = new AcumaticaClient({
-    baseUrl: required("ACUMATICA_BASE_URL"),
-    username: required("ACUMATICA_USERNAME"),
-    password: required("ACUMATICA_PASSWORD"),
-    company: process.env.ACUMATICA_COMPANY ?? "Production",
-    ...(process.env.ACUMATICA_ENDPOINT_VERSION
-      ? { endpointVersion: process.env.ACUMATICA_ENDPOINT_VERSION }
-      : {}),
-  });
-  const asOf =
-    process.env.COLLECTIONS_ASOF ?? new Date().toISOString().slice(0, 10);
+  const operatingUrl = process.env.DATABASE_URL;
+  if (!operatingUrl) throw new Error("DATABASE_URL is required");
 
-  await client.login();
-  let invoices;
-  let contacts;
-  try {
-    invoices = await client.fetchOpenArInvoices();
-    // The Invoice entity carries only the customer id, so the Customer read is
-    // what gives a chase a real company name and an address to go to. A failure
-    // here must not lose the AR read: fall back to id-labelled, unaddressed
-    // chases rather than dropping the run entirely.
-    try {
-      contacts = await client.fetchCustomers();
-    } catch (error) {
-      console.error(
-        `customer read failed (${error instanceof Error ? error.message : "unknown"}); continuing without names/emails`,
-      );
-    }
-  } finally {
-    await client.logout();
-  }
-  console.error(`read ${invoices.length} open AR documents from Acumatica`);
-  if (contacts) {
-    const withEmail = [...contacts.values()].filter((c) => c.email).length;
-    console.error(
-      `read ${contacts.size} customers (${withEmail} with an AR email on file)`,
-    );
-  }
-
-  const agingByCompany = buildAgingFromInvoices(invoices, asOf, {
-    ...(contacts ? { contacts } : {}),
-  });
   const pool = createDatabasePool(operatingUrl);
   let anySkipped = false;
   try {
-    const organizationIdsByCode = await loadOrganizationIdsByCode(pool);
-    for (const aging of agingByCompany) {
-      const result = await syncArAging(pool, aging, config, organizationIdsByCode);
-      if (result.skipped.length > 0) anySkipped = true;
-      console.log(
-        JSON.stringify(
-          { company: aging.company, customers: aging.customers.length, ...result },
-          null,
-          2,
-        ),
+    const result = await runCollectionsFeed(pool);
+    console.error(
+      `read ${result.readInvoices} open AR documents, ${result.readCustomers} customers (${result.customersWithEmail} with an AR email on file)`,
+    );
+    for (const company of result.perCompany) {
+      if (company.skipped.length > 0) anySkipped = true;
+      console.log(JSON.stringify(company, null, 2));
+    }
+    const unaddressable = result.perCompany.reduce(
+      (n, r) => n + r.unaddressable,
+      0,
+    );
+    if (unaddressable > 0) {
+      console.error(
+        `${unaddressable} chase(s) have no AR contact email in Acumatica and must be addressed by hand`,
       );
     }
   } finally {
