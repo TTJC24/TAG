@@ -26,3 +26,4 @@ export * from "./traction-bridge.js";
 export * from "./worker.js";
 export * from "./schedule.js";
 export * from "./feed-runner.js";
+export * from "./preflight.js";

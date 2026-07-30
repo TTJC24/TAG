@@ -13,7 +13,8 @@
     "acumatica-collections:fetch": "node dist/acumatica-collections-fetch-cli.js",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "preflight": "node dist/preflight-cli.js"
   },
   "dependencies": {
     "@operating-layer/audit": "workspace:*",
