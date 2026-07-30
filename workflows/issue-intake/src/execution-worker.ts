@@ -40,6 +40,7 @@ interface ExecutionCommandRow {
   body: string | null;
   rendered_payload_hash: string | null;
   connector_config_version_id: string | null;
+  mailbox_address: string | null;
   active_config_version_id: string | null;
   connector_enabled: boolean | null;
   allowed_recipient_addresses: string[] | null;
@@ -105,6 +106,7 @@ async function prepareExecution(
            draft_authorization.connector_config_version_id,
            binding.active_config_version_id,
            config.enabled AS connector_enabled,
+           config.mailbox_address,
            config.allowed_recipient_addresses,
            config.allowed_recipient_domains,
            credential_binding.active_credential_version_id,
@@ -185,13 +187,18 @@ async function prepareExecution(
           command.active_credential_version_id !== null &&
           command.connector_config_version_id !== null &&
           command.connector_config_version_id ===
-            command.active_config_version_id;
+            command.active_config_version_id &&
+          // Graph needs an explicit destination mailbox. A database constraint
+          // already requires one whenever the connector is enabled, so this can
+          // only trip on a config that predates that rule — abandon with a
+          // reason rather than letting payload validation fail opaquely later.
+          command.mailbox_address !== null;
         if (!configMatches) {
           const abandonmentId = randomUUID();
           const reasonCode =
-            command.connector_enabled === true
-              ? "connector_config_changed"
-              : "connector_disabled";
+            command.connector_enabled !== true
+              ? "connector_disabled"
+              : "connector_config_changed";
           const abandoned = await client.query<{
             workflow_state: string;
             workflow_version: number;
@@ -338,6 +345,11 @@ async function prepareExecution(
                   capability: "drafts.create",
                   previewId: command.preview_id,
                   authorizationId: command.external_authorization_id,
+                  // Which mailbox the draft lands in, from the entity's pinned
+                  // connector config. Graph requires an explicit mailbox, and
+                  // the provider rejects a payload without one rather than
+                  // guessing a destination.
+                  mailbox: command.mailbox_address,
                   to: command.recipient,
                   subject: command.subject,
                   body: command.body,
