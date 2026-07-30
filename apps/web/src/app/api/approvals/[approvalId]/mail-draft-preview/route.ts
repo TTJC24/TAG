@@ -6,11 +6,11 @@ const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:3001";
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ previewId: string }> },
+  { params }: { params: Promise<{ approvalId: string }> },
 ) {
-  const { previewId } = await params;
+  const { approvalId } = await params;
   const response = await fetch(
-    `${apiBaseUrl}/v1/gmail-draft-previews/${encodeURIComponent(previewId)}/authorization`,
+    `${apiBaseUrl}/v1/approvals/${encodeURIComponent(approvalId)}/mail-draft-preview`,
     {
       method: "POST",
       headers: {

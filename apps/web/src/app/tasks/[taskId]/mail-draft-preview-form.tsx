@@ -26,7 +26,7 @@ const money = (value: number): string =>
     maximumFractionDigits: 2,
   })}`;
 
-export function GmailDraftPreviewForm({
+export function MailDraftPreviewForm({
   approvalId,
   organizationId,
   proposal = null,
@@ -50,7 +50,7 @@ export function GmailDraftPreviewForm({
     setError(null);
     try {
       const response = await fetch(
-        `/api/approvals/${encodeURIComponent(approvalId)}/gmail-draft-preview`,
+        `/api/approvals/${encodeURIComponent(approvalId)}/mail-draft-preview`,
         {
           method: "POST",
           headers: {
@@ -90,7 +90,7 @@ export function GmailDraftPreviewForm({
     >
       <p>
         Preview is exact and creates nothing. A second human authorization is
-        required before Gmail drafts.create can run.
+        required before Outlook drafts.create can run.
       </p>
       {proposal ? (
         <p className="chaseProposalNote">

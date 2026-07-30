@@ -117,7 +117,7 @@ sends a customer the wrong tone, not just a wrong number.
 Open `ops.blcsops.com`, find a `Collections:` task, and confirm:
 
 - The title names a **real customer**, not a raw code like `ACME01`.
-- Once approved, the Gmail draft form is **prefilled** — recipient, subject, and
+- Once approved, the Outlook draft form is **prefilled** — recipient, subject, and
   a body itemizing the actual overdue invoices.
 - A customer with no email shows an explicit warning, with the body still
   drafted and the recipient blank.
@@ -152,13 +152,13 @@ $DC logs worker | grep feed.refresh
 `feed.refresh.failed` carries the reason; the worker keeps processing approvals
 either way and retries the next day.
 
-## 7. (Separate decision) Gmail drafting
+## 7. (Separate decision) Outlook drafting
 
 Everything above stops at "the email is written and waiting." Turning an
-approved chase into an actual Gmail draft is a **separate, deliberate
+approved chase into an actual Outlook draft is a **separate, deliberate
 activation** with its own prerequisites — one-org pilot claim, a credential
-scoped to `gmail.compose` only, a recipient allowlist, and
-`GMAIL_DRAFT_NETWORK_ENABLED=true`. It is a stop-and-ask item under the WorkOS
+scoped to `mail.compose` only, a recipient allowlist, and
+`MAIL_DRAFT_NETWORK_ENABLED=true`. It is a stop-and-ask item under the WorkOS
 contract: log it in `APPROVALS.md` before enabling.
 
 Until then the loop is complete and useful without it — the AR person copies

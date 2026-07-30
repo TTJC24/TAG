@@ -2250,7 +2250,7 @@ describe("Phase 1 manual issue vertical slice", () => {
            WHERE audit.workflow_id = workflow.id
              AND audit.event_type IN (
                'execution.succeeded',
-               'gmail_draft.created'
+               'mail_draft.created'
              )
          ) AS success_audit_count,
          (

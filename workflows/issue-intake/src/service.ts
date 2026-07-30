@@ -506,7 +506,7 @@ export async function getTaskDetail(
          ORDER BY completed_at`,
         [taskId, organizationId],
       );
-      const gmailDraftConnector = await client.query(
+      const mailDraftConnector = await client.query(
         `SELECT
            config.id AS "configVersionId",
            config.version_number AS "versionNumber",
@@ -514,31 +514,31 @@ export async function getTaskDetail(
            config.allowed_recipient_addresses AS "allowedRecipientAddresses",
            config.allowed_recipient_domains AS "allowedRecipientDomains",
            config.oauth_scopes AS "oauthScopes"
-         FROM gmail_draft_connector_bindings binding
-         JOIN gmail_draft_connector_config_versions config
+         FROM mail_draft_connector_bindings binding
+         JOIN mail_draft_connector_config_versions config
            ON config.id = binding.active_config_version_id
           AND config.organization_id = binding.organization_id
          WHERE binding.organization_id = $1`,
         [organizationId],
       );
-      const gmailDraftPreviews = await client.query(
+      const mailDraftPreviews = await client.query(
         `SELECT
            preview.*,
            requester.name AS requester_name,
            requester.email AS requester_email
-         FROM gmail_draft_previews preview
+         FROM mail_draft_previews preview
          JOIN users requester ON requester.id = preview.requested_by_user_id
          WHERE preview.task_id = $1
            AND preview.organization_id = $2
          ORDER BY preview.created_at`,
         [taskId, organizationId],
       );
-      const gmailDraftAuthorizations = await client.query(
+      const mailDraftAuthorizations = await client.query(
         `SELECT
            draft_authorization.*,
            authorizer.name AS authorizer_name,
            authorizer.email AS authorizer_email
-         FROM gmail_draft_authorizations draft_authorization
+         FROM mail_draft_authorizations draft_authorization
          JOIN users authorizer
            ON authorizer.id = draft_authorization.authorized_by_user_id
          WHERE draft_authorization.task_id = $1
@@ -546,9 +546,9 @@ export async function getTaskDetail(
          ORDER BY draft_authorization.authorized_at`,
         [taskId, organizationId],
       );
-      const gmailDraftAbandonments = await client.query(
+      const mailDraftAbandonments = await client.query(
         `SELECT *
-         FROM gmail_draft_execution_abandonments
+         FROM mail_draft_execution_abandonments
          WHERE task_id = $1
            AND organization_id = $2
          ORDER BY abandoned_at`,
@@ -590,13 +590,13 @@ export async function getTaskDetail(
         approvalResolutions: approvalResolutions.rows,
         executionCommands: executionCommands.rows,
         executionResults: executionResults.rows,
-        gmailDraftConnector: gmailDraftConnector.rows[0] ?? {
+        mailDraftConnector: mailDraftConnector.rows[0] ?? {
           enabled: false,
           defaultState: "disabled",
         },
-        gmailDraftPreviews: gmailDraftPreviews.rows,
-        gmailDraftAuthorizations: gmailDraftAuthorizations.rows,
-        gmailDraftAbandonments: gmailDraftAbandonments.rows,
+        mailDraftPreviews: mailDraftPreviews.rows,
+        mailDraftAuthorizations: mailDraftAuthorizations.rows,
+        mailDraftAbandonments: mailDraftAbandonments.rows,
         auditHistory: audits.rows,
       };
     },

@@ -1,17 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  gmailCredentialResponseSchema,
-  gmailDraftConnectorConfigResponseSchema,
-  gmailDraftPilotClaimResponseSchema,
-  gmailDraftPilotPreflightResponseSchema,
-  type GmailCredentialResponse,
-  type GmailDraftConnectorConfigResponse,
-  type GmailDraftPilotClaimResponse,
-  type GmailDraftPilotPreflightResponse,
+  mailCredentialResponseSchema,
+  mailDraftConnectorConfigResponseSchema,
+  mailDraftPilotClaimResponseSchema,
+  mailDraftPilotPreflightResponseSchema,
+  type MailCredentialResponse,
+  type MailDraftConnectorConfigResponse,
+  type MailDraftPilotClaimResponse,
+  type MailDraftPilotPreflightResponse,
 } from "@operating-layer/schemas";
 
-export const GMAIL_COMPOSE_SCOPE =
-  "https://www.googleapis.com/auth/gmail.compose" as const;
+export const MAIL_COMPOSE_SCOPE =
+  "https://graph.microsoft.com/Mail.ReadWrite" as const;
 
 export interface OperatorHttpRequest {
   method: "POST";
@@ -29,12 +29,12 @@ export type OperatorHttpClient = (
   request: OperatorHttpRequest,
 ) => Promise<OperatorHttpResponse>;
 
-export interface GmailDraftPilotTarget {
+export interface MailDraftPilotTarget {
   organizationId: string;
   organizationCode: string;
 }
 
-export function gmailCredentialFingerprint(accessToken: string): string {
+export function mailCredentialFingerprint(accessToken: string): string {
   return createHash("sha256").update(accessToken, "utf8").digest("hex");
 }
 
@@ -73,18 +73,18 @@ function commandHeaders(
   };
 }
 
-export class GmailDraftPilotOperator {
+export class MailDraftPilotOperator {
   constructor(private readonly request: OperatorHttpClient) {}
 
   async preflight(input: {
-    target: GmailDraftPilotTarget;
+    target: MailDraftPilotTarget;
     expectedRecipient?: string;
     expectedCredentialFingerprint?: string;
     traceId?: string;
-  }): Promise<GmailDraftPilotPreflightResponse> {
+  }): Promise<MailDraftPilotPreflightResponse> {
     const response = await expectSuccess(this.request, {
       method: "POST",
-      path: "/v1/connectors/gmail-draft/pilot/preflight",
+      path: "/v1/connectors/mail-draft/pilot/preflight",
       headers: { "x-trace-id": input.traceId ?? randomUUID() },
       body: {
         organizationId: input.target.organizationId,
@@ -100,19 +100,19 @@ export class GmailDraftPilotOperator {
           : {}),
       },
     });
-    return gmailDraftPilotPreflightResponseSchema.parse(response);
+    return mailDraftPilotPreflightResponseSchema.parse(response);
   }
 
   private async setClaim(input: {
-    target: GmailDraftPilotTarget;
+    target: MailDraftPilotTarget;
     action: "claim" | "release";
     reason: string;
     operationId: string;
     traceId: string;
-  }): Promise<GmailDraftPilotClaimResponse> {
+  }): Promise<MailDraftPilotClaimResponse> {
     const response = await expectSuccess(this.request, {
       method: "POST",
-      path: "/v1/connectors/gmail-draft/pilot/claim",
+      path: "/v1/connectors/mail-draft/pilot/claim",
       headers: commandHeaders(
         input.operationId,
         `pilot-${input.action}`,
@@ -124,7 +124,7 @@ export class GmailDraftPilotOperator {
         reason: input.reason,
       },
     });
-    const parsed = gmailDraftPilotClaimResponseSchema.parse(response);
+    const parsed = mailDraftPilotClaimResponseSchema.parse(response);
     if (
       parsed.organizationCode.toUpperCase() !==
       input.target.organizationCode.toUpperCase()
@@ -135,15 +135,15 @@ export class GmailDraftPilotOperator {
   }
 
   private async disableConfiguration(input: {
-    target: GmailDraftPilotTarget;
+    target: MailDraftPilotTarget;
     reason: string;
     operationId: string;
     traceId: string;
     suffix: string;
-  }): Promise<GmailDraftConnectorConfigResponse> {
+  }): Promise<MailDraftConnectorConfigResponse> {
     const response = await expectSuccess(this.request, {
       method: "POST",
-      path: "/v1/connectors/gmail-draft/config",
+      path: "/v1/connectors/mail-draft/config",
       headers: commandHeaders(input.operationId, input.suffix, input.traceId),
       body: {
         organizationId: input.target.organizationId,
@@ -153,11 +153,11 @@ export class GmailDraftPilotOperator {
         reason: input.reason,
       },
     });
-    return gmailDraftConnectorConfigResponseSchema.parse(response);
+    return mailDraftConnectorConfigResponseSchema.parse(response);
   }
 
   async enable(input: {
-    target: GmailDraftPilotTarget;
+    target: MailDraftPilotTarget;
     recipient: string;
     accessToken: string;
     reason: string;
@@ -166,17 +166,17 @@ export class GmailDraftPilotOperator {
   }): Promise<{
     operationId: string;
     traceId: string;
-    claim: GmailDraftPilotClaimResponse;
-    credential: GmailCredentialResponse;
-    configuration: GmailDraftConnectorConfigResponse;
-    preflight: GmailDraftPilotPreflightResponse;
+    claim: MailDraftPilotClaimResponse;
+    credential: MailCredentialResponse;
+    configuration: MailDraftConnectorConfigResponse;
+    preflight: MailDraftPilotPreflightResponse;
   }> {
     const operationId = input.operationId ?? randomUUID();
     const traceId = input.traceId ?? randomUUID();
-    const fingerprint = gmailCredentialFingerprint(input.accessToken);
-    let claim: GmailDraftPilotClaimResponse | undefined;
-    let credential: GmailCredentialResponse | undefined;
-    let configuration: GmailDraftConnectorConfigResponse | undefined;
+    const fingerprint = mailCredentialFingerprint(input.accessToken);
+    let claim: MailDraftPilotClaimResponse | undefined;
+    let credential: MailCredentialResponse | undefined;
+    let configuration: MailDraftConnectorConfigResponse | undefined;
     try {
       claim = await this.setClaim({
         target: input.target,
@@ -187,19 +187,19 @@ export class GmailDraftPilotOperator {
       });
       const credentialResponse = await expectSuccess(this.request, {
         method: "POST",
-        path: "/v1/connectors/gmail-draft/credentials",
+        path: "/v1/connectors/mail-draft/credentials",
         headers: commandHeaders(operationId, "credential-store", traceId),
         body: {
           organizationId: input.target.organizationId,
           accessToken: input.accessToken,
-          grantedScopes: [GMAIL_COMPOSE_SCOPE],
+          grantedScopes: [MAIL_COMPOSE_SCOPE],
           reason: input.reason,
         },
       });
-      credential = gmailCredentialResponseSchema.parse(credentialResponse);
+      credential = mailCredentialResponseSchema.parse(credentialResponse);
       const configurationResponse = await expectSuccess(this.request, {
         method: "POST",
-        path: "/v1/connectors/gmail-draft/config",
+        path: "/v1/connectors/mail-draft/config",
         headers: commandHeaders(operationId, "config-enable", traceId),
         body: {
           organizationId: input.target.organizationId,
@@ -209,7 +209,7 @@ export class GmailDraftPilotOperator {
           reason: input.reason,
         },
       });
-      configuration = gmailDraftConnectorConfigResponseSchema.parse(
+      configuration = mailDraftConnectorConfigResponseSchema.parse(
         configurationResponse,
       );
       const preflight = await this.preflight({
@@ -220,7 +220,7 @@ export class GmailDraftPilotOperator {
       });
       if (!preflight.readyForLiveDraft) {
         throw new Error(
-          "Gmail draft live-pilot preflight did not pass every check",
+          "Outlook draft live-pilot preflight did not pass every check",
         );
       }
       return {
@@ -249,7 +249,7 @@ export class GmailDraftPilotOperator {
           try {
             await expectSuccess(this.request, {
               method: "POST",
-              path: "/v1/connectors/gmail-draft/credentials/revoke",
+              path: "/v1/connectors/mail-draft/credentials/revoke",
               headers: commandHeaders(operationId, "cleanup-revoke", traceId),
               body: {
                 organizationId: input.target.organizationId,
@@ -285,16 +285,16 @@ export class GmailDraftPilotOperator {
   }
 
   async disable(input: {
-    target: GmailDraftPilotTarget;
+    target: MailDraftPilotTarget;
     reason: string;
     operationId?: string;
     traceId?: string;
   }): Promise<{
     operationId: string;
     traceId: string;
-    configuration: GmailDraftConnectorConfigResponse;
-    claim: GmailDraftPilotClaimResponse;
-    preflight: GmailDraftPilotPreflightResponse;
+    configuration: MailDraftConnectorConfigResponse;
+    claim: MailDraftPilotClaimResponse;
+    preflight: MailDraftPilotPreflightResponse;
   }> {
     const operationId = input.operationId ?? randomUUID();
     const traceId = input.traceId ?? randomUUID();
@@ -318,7 +318,7 @@ export class GmailDraftPilotOperator {
     });
     if (!preflight.disabledByDefault) {
       throw new Error(
-        "Gmail draft pilot teardown did not restore disabled-by-default posture",
+        "Outlook draft pilot teardown did not restore disabled-by-default posture",
       );
     }
     return { operationId, traceId, configuration, claim, preflight };

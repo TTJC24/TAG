@@ -17,7 +17,7 @@ import {
  *
  * Governance is unchanged by this file. Nothing here sends, enqueues, or
  * authorizes anything: it only proposes text that a human then previews and
- * authorizes through the existing two-step Gmail-draft path. The proposal
+ * authorizes through the existing two-step Mail-draft path. The proposal
  * exists to remove retyping, not to remove the human.
  *
  * Tone ladder (from DEFAULT_LADDER, which stays the single source of the rung):
@@ -178,7 +178,7 @@ export interface StoredChaseProposal {
  *
  * Returns null when there is no proposal (any non-collections task), which the
  * caller renders as today's empty form — the prefill is additive, never a
- * precondition for using the Gmail draft path.
+ * precondition for using the Outlook draft path.
  */
 export async function getChaseProposal(
   pool: DatabasePool,

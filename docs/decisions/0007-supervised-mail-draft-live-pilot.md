@@ -1,4 +1,4 @@
-# ADR 0007: Supervised Gmail draft live pilot
+# ADR 0007: Supervised Outlook draft live pilot
 
 Status: Accepted for operator tooling; first live run remains pending human review
 
@@ -6,8 +6,8 @@ Date: 2026-07-25
 
 ## Context
 
-The Gmail draft connector already has a closed `drafts.create` capability,
-exact `gmail.compose` scope enforcement, encrypted credential versions,
+The Outlook draft connector already has a closed `drafts.create` capability,
+exact `mail.compose` scope enforcement, encrypted credential versions,
 organization and global kill controls, allowlisted recipients, immutable
 previews and authorizations, replay-safe commands, and no send surface. It
 ships disabled and automated tests use in-memory transports.
@@ -47,7 +47,7 @@ the credential-store endpoint, envelope-encrypted by the API, and never
 returned by the command. The CLI accepts no credential argument.
 
 The worker network gate remains `false` by default and in CI. A human starts a
-single supervised worker with `GMAIL_DRAFT_NETWORK_ENABLED=true` only after:
+single supervised worker with `MAIL_DRAFT_NETWORK_ENABLED=true` only after:
 
 1. the operator command reports every preflight check true;
 2. the exact draft preview has been inspected;
@@ -55,18 +55,18 @@ single supervised worker with `GMAIL_DRAFT_NETWORK_ENABLED=true` only after:
 4. no other external command is pending.
 
 The operator then authorizes one immutable preview, verifies one draft in
-Gmail and one immutable success audit, replays the same authorization to prove
+Mail and one immutable success audit, replays the same authorization to prove
 no second draft is created, disables the pilot, stops the live worker, and
-manually discards the draft in Gmail if rollback is required.
+manually discards the draft in Mail if rollback is required.
 
 ## Safety properties
 
 - The only provider target is
-  `https://gmail.googleapis.com/gmail/v1/users/me/drafts`.
+  `https://graph.microsoft.com/v1.0/users/{mailbox}/messages`.
 - The only connector capability is `drafts.create`; there is no send method,
   send route, or dynamic provider endpoint.
 - The stored and granted scope sets must both equal
-  `https://www.googleapis.com/auth/gmail.compose`.
+  `https://graph.microsoft.com/Mail.ReadWrite`.
 - The target configuration has one recipient address and no domain allowlist.
 - No other organization may be enabled while the pilot claim is active.
 - Enable fails closed: after a partial failure it attempts credential
@@ -79,12 +79,12 @@ manually discards the draft in Gmail if rollback is required.
 Google does not accept an application idempotency key for `drafts.create`.
 The existing ambiguous provider-accepted/database-not-recorded crash window
 therefore still exists. The first run is limited to one supervised command;
-the operator must check Gmail by exact subject before retrying after an
+the operator must check Mail by exact subject before retrying after an
 uncertain network failure.
 
 ## Verification
 
-`apps/api/src/gmail-draft.integration.test.ts` case
+`apps/api/src/mail-draft.integration.test.ts` case
 `enables one named live-pilot organization, proves preflight, and
 credential-kills on disable` uses mock transports and a clean PostgreSQL 16
 database to prove:
@@ -104,6 +104,6 @@ is committed.
 ## Consequences
 
 This creates deliberate operator ceremony around the first call. It does not
-enable Gmail by default, add a send capability, broaden scope, add a connector
+enable Mail by default, add a send capability, broaden scope, add a connector
 screen, or authorize more than one live pilot organization. General production
 enablement remains a later decision informed by the supervised evidence.

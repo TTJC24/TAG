@@ -1,6 +1,6 @@
 # Architecture
 
-Status: Approved through the disabled-by-default Gmail draft slice and supervised live-pilot tooling
+Status: Approved through the disabled-by-default Outlook draft slice and supervised live-pilot tooling
 Date: 2026-07-25
 Repository codename: `operating-layer` (not a permanent product name)
 
@@ -30,7 +30,7 @@ Approved sources
   -> retrieval/classification/recommendation agents
   -> recommendation with source citations and policy result
   -> approval queue when required
-  -> immutable internal or authorized Gmail-draft execution command
+  -> immutable internal or authorized Mail-draft execution command
   -> provider-neutral executor
   -> immutable result + completed|execution_failed + audit event
 ```
@@ -67,7 +67,7 @@ packages/
   auth/            identity, principal, RBAC, organization-scope policy
   connectors/      connector interfaces and capability declarations
   db/              schema, migrations, generated/query types
-  executors/       provider-neutral execution contract; internal default and gated Gmail draft
+  executors/       provider-neutral execution contract; internal default and gated Outlook draft
   observability/   trace, metrics, structured log contracts
   schemas/         shared command/event/domain schemas
   ui/              shared UI primitives
@@ -75,7 +75,7 @@ packages/
 connectors/
   acumatica/
   pipedrive/
-  gmail/
+  mail/
   google-drive/
   csv-import/
 workflows/
@@ -92,7 +92,7 @@ infrastructure/
 ```
 
 Manual intake, controlled CSV batch intake, internal approval resolution,
-deterministic internal execution, and a disabled-by-default Gmail
+deterministic internal execution, and a disabled-by-default Mail
 `drafts.create` provider are implemented. Live models, external sends, other
 connector mutations, and ERP/accounting write adapters remain deferred.
 
@@ -113,7 +113,7 @@ PostgreSQL stores:
   history;
 - immutable idempotency-retention versions and reaper history;
 - immutable execution commands and terminal execution results;
-- immutable Gmail connector config versions, exact draft previews, second
+- immutable Mail connector config versions, exact draft previews, second
   authorizations, and kill-switch abandonments;
 - immutable CSV batches, parsed rows, and accepted/failed row results;
 - `connector_sync_runs`, `outbox_events`, and idempotency records.
@@ -184,7 +184,7 @@ its audit and outbox records. Workers are at-least-once, so handlers are
 idempotent, leased, bounded by an attempt policy, and dead-lettered visibly
 when exhausted.
 
-The Gmail branch reaches only `drafts.create`, after exact preview and second
+The Mail branch reaches only `drafts.create`, after exact preview and second
 authorization. The worker revalidates the active organization config and
 allowlist immediately before invocation; config disablement/change records an
 immutable abandonment and returns to internal execution. Temporal remains
@@ -195,10 +195,10 @@ compensation become common.
 
 Execution uses a provider-neutral `ExecutionProvider` contract over a typed
 action and trace/idempotency context. `deterministic_internal` remains the
-default. The Gmail implementation declares only `drafts.create`, uses exactly
+default. The Mail implementation declares only `drafts.create`, uses exactly
 the compose OAuth scope, and receives a non-serializable ephemeral credential
 loaded/decrypted by the dedicated worker role for one invocation.
-All provider output is untrusted and schema-validated. The Gmail provider is
+All provider output is untrusted and schema-validated. The Mail provider is
 disabled by default at both the organization binding and worker network
 boundary; tests inject an in-memory transport and never call Google.
 

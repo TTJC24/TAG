@@ -1,6 +1,6 @@
 # Security and Control Model
 
-Status: Approved through the disabled-by-default Gmail draft slice and supervised live-pilot tooling with provisional role assignments
+Status: Approved through the disabled-by-default Outlook draft slice and supervised live-pilot tooling with provisional role assignments
 Date: 2026-07-25
 
 ## Security objectives
@@ -46,7 +46,7 @@ No endpoint infers organization access from a request body alone. Repository met
 | Risk | Capability                                  | Current behavior                                                    |
 | ---- | ------------------------------------------- | ------------------------------------------------------------------- |
 | 0    | read, summarize, classify                   | automatic, logged                                                   |
-| 1    | draft communication                         | approved Gmail draft only when connector gates pass; never sent     |
+| 1    | draft communication                         | approved Outlook draft only when connector gates pass; never sent   |
 | 2    | create/update internal operating-layer task | allowed by permission, logged                                       |
 | 3    | update CRM                                  | adapter absent; approval required in a later phase                  |
 | 4    | send external message                       | adapter absent; approval required in a later phase                  |
@@ -83,17 +83,17 @@ immutable policy-version ID/content hash, resulting state, and the workflow's
 root trace. Approval stops at `approved`; it does not imply completion.
 
 Only a user with `executions.trigger` in the owning organization can create an
-internal execution command. A Gmail command requires the approved
+internal execution command. A Mail command requires the approved
 `draft_external_follow_up` action, enabled organization config, allowlisted
 recipient, exact immutable preview, and a separate user authorization with
 `external_actions.authorize`. The worker rechecks the active config and
 allowlist immediately before invocation. A disabled/replaced config records an
-immutable abandonment and returns the workflow to `approved` without a Gmail
+immutable abandonment and returns the workflow to `approved` without a Mail
 call. The worker validates all provider output as untrusted data before one
 immutable terminal result. Multi-approver collection is not implemented even
 though the policy schema can represent the requirement.
 
-The Gmail credential is envelope-encrypted with a random AES-256-GCM data key
+The Outlook credential is envelope-encrypted with a random AES-256-GCM data key
 wrapped by an RSA-OAEP-SHA256 public key. PostgreSQL stores ciphertext and
 metadata only. The API has encryption-only key material; the separate worker
 environment holds the private key, and only the dedicated worker database role
@@ -102,7 +102,7 @@ credential versions and lifecycle facts record rotation, invalidation,
 revocation, load, and use without token plaintext.
 
 The adapter declares only `drafts.create` and the compose OAuth scope. No send
-API, capability, or route exists, and no separate `gmail.send`/broader Gmail
+API, capability, or route exists, and no separate `mail.send`/broader Mail
 scope is requested. Google's compose scope can authorize sending and there is
 no draft-create-only scope, so the closed provider capability set and fixed
 drafts-create HTTP transport are required controls. Both organization
@@ -202,7 +202,7 @@ no active encrypted credential.
 ## Explicit prohibitions
 
 - no Acumatica, accounting, payment, journal, customer-master, or vendor-master writes;
-- no external communication sends; Gmail is limited to an unsent
+- no external communication sends; Mail is limited to an unsent
   `drafts.create`;
 - no production secrets in source control or local example files;
 - no automatic duplicate merging;
@@ -210,5 +210,5 @@ no active encrypted credential.
 - no unlogged state mutation.
 - no private chain-of-thought persistence;
 - no unvalidated model output persistence.
-- no externally enabled Gmail provider without both the organization kill
+- no externally enabled Mail provider without both the organization kill
   switch and worker network gate; no unvalidated executor output.

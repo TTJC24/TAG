@@ -27,7 +27,7 @@ human control at the gates the owner sets.
 3. **Autonomy level: drafts of everything.** The machine prepares complete
    external actions — emails, packets, follow-ups — without approval, so the
    human's entire job is reading and clicking yes/no. Nothing external SENDS
-   without a human yes (the existing approval + Gmail-drafts.create
+   without a human yes (the existing approval + Mail-drafts.create
    architecture is exactly this shape). Autonomy beyond drafting is a future
    policy-version decision, not a code change.
 4. **First 90 days' users: the owner + the manager/approver layer** of each
@@ -48,9 +48,9 @@ human control at the gates the owner sets.
 ## Defaults where the interview stopped (owner may veto)
 
 - **Chase ladder:** standard three-step — ~7 days past due: friendly reminder
-  + invoice copy; ~30: firm follow-up + statement; ~60: final notice + human
-  call task + hold-new-orders flag. Encoded as policy data (tunable), and to
-  be reconciled with how the current AR person works before first send.
+  - invoice copy; ~30: firm follow-up + statement; ~60: final notice + human
+    call task + hold-new-orders flag. Encoded as policy data (tunable), and to
+    be reconciled with how the current AR person works before first send.
 - **AR person's future:** during calibration they keep working as today; the
   intended end state is approver/exception-handler (calls, disputes) once the
   owner delegates approvals. Measured decision at 90 days.
@@ -69,7 +69,7 @@ human control at the gates the owner sets.
    runbook. Until this exists nobody but the builder can touch the system.
 2. **Collections vertical** on the proven pipeline: AR aging in (file first,
    brain later) → ladder policy evaluates → machine drafts the chase (the
-   existing Gmail drafts.create connector is the output channel — built,
+   existing Outlook drafts.create connector is the output channel — built,
    hardened, and waiting) → owner approves → draft materializes → outcome,
    promise-to-pay, and every touch audited. The ladder is policy data, never
    prompt text.

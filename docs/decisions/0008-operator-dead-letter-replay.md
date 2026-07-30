@@ -62,7 +62,7 @@ requires `executions.replay` (seeded to the admin permission set only).
 - A repeated failure can be replayed again (each failed command no longer
   blocks a successor); the `execution_replays` dead-letter uniqueness prevents
   double-replaying the same job.
-- Scope is internal-only. Replay of a dead-lettered `gmail_draft` execution is
+- Scope is internal-only. Replay of a dead-lettered `mail_draft` execution is
   deferred: it involves the external-authorization state and remains gated
   behind the live-pilot work.
 - A task-detail "Replay" UI action is a thin follow-up over the shipped API.

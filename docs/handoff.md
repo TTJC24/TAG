@@ -28,11 +28,10 @@ it is trusted (fail-closed).
 - **Host:** DigitalOcean droplet **`jerry-data`** (which also runs
   `company-brain`). The app lives at **`/opt/operating-layer`**.
 - **URL:** **`https://ops.blcsops.com`**, behind **Cloudflare Access** (Zero
-  Trust). Login is a Google email on the allow-list (currently
-  `tclark@bigleaguecs.com`, `tim@utilitysupplyassociates.com`,
-  `ttjc24@gmail.com`). The origin publishes **no ports** — it is reachable only
-  through the Cloudflare tunnel, which is what makes the header-based identity
-  safe.
+  Trust). Login is a work email on the Access allow-list (currently
+  `tclark@bigleaguecs.com` and `tim@utilitysupplyassociates.com`). The origin
+  publishes **no ports** — it is reachable only through the Cloudflare tunnel,
+  which is what makes the header-based identity safe.
 - **Repo:** GitHub **`TTJC24/tag`**, working branch
   **`claude/phase-1-implementation-review-ujy1z1`**.
 - **Runtime:** Docker Compose (`compose.production.yaml`) — Postgres 16 + API
@@ -55,17 +54,17 @@ department = adding a doorway.** They all ship inert behind an env flag.
 
 ## 4. What's live vs. built
 
-| Capability                                               | State                                                                                                                                                                                              |
-| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| The system itself (tower, DB, governance)                | **Live** — deployed, 4 orgs seeded, owner + 2 work-email admins                                                                                                                                    |
-| **Sales (Pipedrive)**                                    | **Live** — reads deals from both Pipedrive accounts (read-only), flags deals past expected close, raises governed follow-ups routed per company/owner                                              |
-| **Collections (Acumatica)**                              | Connector **built & validated live** against the ERP (read 1,303 open AR docs, aged FS/BLC). Chases now arrive with the email **already drafted**; activation is `docs/collections-mvp-runbook.md` |
-| **Customer read (Acumatica)**                            | Built — names + AR contact emails, so a chase names a real company and has a recipient. Probe the live instance first (step 2 of the runbook)                                                      |
-| **Daily auto-refresh**                                   | Built, inert — set `COLLECTIONS_SCHEDULE_UTC` / `SALES_SCHEDULE_UTC` and the worker pulls each morning by itself                                                                                   |
-| DemandStar bid doorway                                   | Built, inert                                                                                                                                                                                       |
-| KPI exception scanner                                    | Built, inert (reads via company-brain)                                                                                                                                                             |
-| TractionOS bridge, morning brief                         | Built, inert                                                                                                                                                                                       |
-| **Gmail draft connector** (the "draft the email" output) | Built + hardened, inert — awaits a supervised pilot. Note the chase text is already composed and prefilled, so this step is now "put the draft in the mailbox", not "write the draft"              |
+| Capability                                                 | State                                                                                                                                                                                              |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The system itself (tower, DB, governance)                  | **Live** — deployed, 4 orgs seeded, owner + 2 work-email admins                                                                                                                                    |
+| **Sales (Pipedrive)**                                      | **Live** — reads deals from both Pipedrive accounts (read-only), flags deals past expected close, raises governed follow-ups routed per company/owner                                              |
+| **Collections (Acumatica)**                                | Connector **built & validated live** against the ERP (read 1,303 open AR docs, aged FS/BLC). Chases now arrive with the email **already drafted**; activation is `docs/collections-mvp-runbook.md` |
+| **Customer read (Acumatica)**                              | Built — names + AR contact emails, so a chase names a real company and has a recipient. Probe the live instance first (step 2 of the runbook)                                                      |
+| **Daily auto-refresh**                                     | Built, inert — set `COLLECTIONS_SCHEDULE_UTC` / `SALES_SCHEDULE_UTC` and the worker pulls each morning by itself                                                                                   |
+| DemandStar bid doorway                                     | Built, inert                                                                                                                                                                                       |
+| KPI exception scanner                                      | Built, inert (reads via company-brain)                                                                                                                                                             |
+| TractionOS bridge, morning brief                           | Built, inert                                                                                                                                                                                       |
+| **Outlook draft connector** (the "draft the email" output) | Built + hardened, inert — awaits a supervised pilot. Note the chase text is already composed and prefilled, so this step is now "put the draft in the mailbox", not "write the draft"              |
 
 ## 5. Data sources (wires)
 
@@ -123,7 +122,7 @@ department = adding a doorway.** They all ship inert behind an env flag.
   `traction-bridge`, `brief`) and the spine (`service`, `approval`,
   `execution`, `idempotency`, `policy`).
 - `packages/connectors/src/` — read connectors (`acumatica`, `pipedrive`,
-  `company-brain`) + the Gmail-draft credential envelope crypto.
+  `company-brain`) + the Mail-draft credential envelope crypto.
 - `apps/api`, `apps/worker`, `apps/web` — API, background worker, tower UI. The
   operator CLIs live in `apps/api/src/*-cli.ts`.
 - `packages/schemas`, `packages/db`, `packages/auth` — shared schema/enums, DB
@@ -153,9 +152,9 @@ To add a department module, follow `ar-collections.ts` / `pipedrive-sales.ts`:
    prefilled chase in the tower, then turn on the schedule. Reconcile the aging
    basis against Acumatica's own report before treating buckets as
    authoritative.
-2. **Gmail draft wire** — put an approved chase's (already composed) text into
+2. **Outlook draft wire** — put an approved chase's (already composed) text into
    the entity AR mailbox as a draft. Separate stop-and-ask activation: one-org
-   pilot claim, `gmail.compose`-only credential, recipient allowlist.
+   pilot claim, `mail.compose`-only credential, recipient allowlist.
 3. **Harden:** rotate the Acumatica service password (currently weak); populate
    missing AR contact emails in Acumatica (the `unaddressable` count in a run
    tells you how many); provision the AR person as the Collections approver.

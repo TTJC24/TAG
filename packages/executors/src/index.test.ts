@@ -2,23 +2,24 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { EphemeralConnectorCredential } from "@operating-layer/connectors";
 import {
   DeterministicInternalExecutionProvider,
-  DisabledGmailDraftExecutionProvider,
+  DisabledMailDraftExecutionProvider,
   DisabledExternalExecutionProvider,
-  GmailDraftExecutionProvider,
-  GoogleGmailDraftCreateTransport,
-  GMAIL_COMPOSE_OAUTH_SCOPE,
-  inspectGmailDraftStructuralSafety,
-  renderGmailDraftRaw,
+  MailDraftExecutionProvider,
+  GraphMailDraftCreateTransport,
+  MAIL_DRAFT_OAUTH_SCOPE,
+  inspectMailDraftStructuralSafety,
+  buildGraphDraftMessage,
+  mailDraftEndpointFor,
   resolveExecutionProvider,
-  type GmailDraftCreateTransport,
+  type MailDraftCreateTransport,
 } from "./index.js";
 
 type AssertFalse<T extends false> = T;
-type GmailTransportHasNoSend = AssertFalse<
-  "send" extends keyof GmailDraftCreateTransport ? true : false
+type MailTransportHasNoSend = AssertFalse<
+  "send" extends keyof MailDraftCreateTransport ? true : false
 >;
-type GmailProviderHasNoSend = AssertFalse<
-  "send" extends keyof GmailDraftExecutionProvider ? true : false
+type MailProviderHasNoSend = AssertFalse<
+  "send" extends keyof MailDraftExecutionProvider ? true : false
 >;
 
 const action = {
@@ -66,15 +67,16 @@ describe("execution provider seam", () => {
     expect(() => resolveExecutionProvider("external")).toThrow(/not enabled/i);
   });
 
-  it("exposes only drafts.create and renders the exact authorized payload", async () => {
-    const requests: Array<{ raw: string; accessToken: string }> = [];
-    const provider = new GmailDraftExecutionProvider({
+  it("exposes only drafts.create and sends the exact authorized payload to Graph", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const provider = new MailDraftExecutionProvider({
       async createDraft(request) {
-        requests.push(request);
+        requests.push(request as unknown as Record<string, unknown>);
         return {
-          draftId: "draft-123",
-          messageId: "message-123",
-          threadId: null,
+          draftId: "AAMkAG-draft-123",
+          conversationId: "conv-abc",
+          webLink:
+            "https://outlook.office365.com/mail/deeplink/AAMkAG-draft-123",
         };
       },
     });
@@ -82,6 +84,7 @@ describe("execution provider seam", () => {
       capability: "drafts.create" as const,
       previewId: "preview-1",
       authorizationId: "authorization-1",
+      mailbox: "ar@fasteningspecialists.example",
       to: "customer@example.com",
       subject: "Approved follow-up",
       body: "Line one\nLine two",
@@ -101,34 +104,117 @@ describe("execution provider seam", () => {
       outcome: "succeeded",
       output: {
         capability: "drafts.create",
-        draftId: "draft-123",
-        messageId: "message-123",
+        draftId: "AAMkAG-draft-123",
+        conversationId: "conv-abc",
+        // the deep link must be the one Graph vouched for, never constructed
+        draftLink:
+          "https://outlook.office365.com/mail/deeplink/AAMkAG-draft-123",
+        mailbox: "ar@fasteningspecialists.example",
         renderedPayloadHash: payload.renderedPayloadHash,
       },
     });
     expect(provider.capabilities).toEqual(["drafts.create"]);
-    expect(provider.oauthScopes).toEqual([GMAIL_COMPOSE_OAUTH_SCOPE]);
+    expect(provider.oauthScopes).toEqual([MAIL_DRAFT_OAUTH_SCOPE]);
     expect(Object.keys(provider)).not.toContain("send");
     expect(
-      Object.getOwnPropertyNames(GmailDraftExecutionProvider.prototype),
+      Object.getOwnPropertyNames(MailDraftExecutionProvider.prototype),
     ).toEqual(["constructor", "execute"]);
     expect(requests).toEqual([
       {
-        raw: renderGmailDraftRaw(payload),
+        mailbox: "ar@fasteningspecialists.example",
+        to: "customer@example.com",
+        subject: "Approved follow-up",
+        body: "Line one\nLine two",
         accessToken: "test-token-never-logged",
       },
     ]);
-    const decoded = Buffer.from(
-      requests[0]!.raw.replace(/-/g, "+").replace(/_/g, "/"),
-      "base64",
-    ).toString("utf8");
-    expect(decoded).toContain("To: customer@example.com\r\n");
-    expect(decoded).toContain("Subject: Approved follow-up\r\n");
-    expect(decoded).toContain("\r\n\r\nLine one\r\nLine two");
   });
 
-  it("ships the Gmail draft provider network-disabled by default", async () => {
-    const provider = new DisabledGmailDraftExecutionProvider();
+  it("builds a Graph message whose recipient and subject are JSON values, not headers", () => {
+    // The structured form is what makes header injection impossible: a newline
+    // in the subject stays data instead of forging a Bcc.
+    const message = buildGraphDraftMessage({
+      to: "customer@example.com",
+      subject: "Hello\r\nBcc: sneaky@example.com",
+      body: "Body text",
+    });
+    expect(message).toEqual({
+      subject: "Hello\r\nBcc: sneaky@example.com",
+      body: { contentType: "Text", content: "Body text" },
+      toRecipients: [{ emailAddress: { address: "customer@example.com" } }],
+    });
+  });
+
+  it("targets the mailbox's messages collection, never sendMail", () => {
+    const endpoint = mailDraftEndpointFor("ar@fasteningspecialists.example");
+    expect(endpoint).toBe(
+      "https://graph.microsoft.com/v1.0/users/ar%40fasteningspecialists.example/messages",
+    );
+    expect(endpoint).not.toMatch(/sendMail/i);
+  });
+
+  it("refuses to report success if Graph returns something that is not a draft", async () => {
+    const provider = new MailDraftExecutionProvider({
+      async createDraft() {
+        // a transport that silently sent instead of drafting
+        throw new Error(
+          "Microsoft Graph returned a message that is not a draft; refusing to report success",
+        );
+      },
+    });
+    await expect(
+      provider.execute(
+        {
+          ...action,
+          payload: {
+            capability: "drafts.create",
+            previewId: "p",
+            authorizationId: "a",
+            mailbox: "ar@x.example",
+            to: "c@example.com",
+            subject: "s",
+            body: "b",
+            renderedPayloadHash: "c".repeat(64),
+          },
+        },
+        {
+          ...context,
+          connectorCredential: new EphemeralConnectorCredential("tok"),
+        },
+      ),
+    ).rejects.toThrow(/not a draft/i);
+  });
+
+  it("rejects a payload with no mailbox, since the destination would be undefined", async () => {
+    const provider = new MailDraftExecutionProvider({
+      async createDraft() {
+        throw new Error("must not be reached");
+      },
+    });
+    await expect(
+      provider.execute(
+        {
+          ...action,
+          payload: {
+            capability: "drafts.create",
+            previewId: "p",
+            authorizationId: "a",
+            to: "c@example.com",
+            subject: "s",
+            body: "b",
+            renderedPayloadHash: "c".repeat(64),
+          },
+        },
+        {
+          ...context,
+          connectorCredential: new EphemeralConnectorCredential("tok"),
+        },
+      ),
+    ).rejects.toThrow(/payload is invalid/i);
+  });
+
+  it("ships the Outlook draft provider network-disabled by default", async () => {
+    const provider = new DisabledMailDraftExecutionProvider();
     expect(provider.enabled).toBe(false);
     expect(provider.capabilities).toEqual(["drafts.create"]);
     await expect(provider.execute(action, context)).rejects.toThrow(
@@ -137,56 +223,68 @@ describe("execution provider seam", () => {
   });
 
   it("makes messages.send unreachable at the type, object, prototype, route-target, and request levels", async () => {
-    const transportHasNoSend: GmailTransportHasNoSend = false;
-    const providerHasNoSend: GmailProviderHasNoSend = false;
+    const transportHasNoSend: MailTransportHasNoSend = false;
+    const providerHasNoSend: MailProviderHasNoSend = false;
     const fetchMock = vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
           id: "draft-fixed-1",
-          message: { id: "message-fixed-1", threadId: "thread-fixed-1" },
+          isDraft: true,
+          conversationId: "conv-fixed-1",
+          webLink: "https://outlook.office365.com/mail/deeplink/draft-fixed-1",
         }),
-        { status: 200, headers: { "content-type": "application/json" } },
+        { status: 201, headers: { "content-type": "application/json" } },
       ),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const transport = new GoogleGmailDraftCreateTransport();
-    const provider = new GmailDraftExecutionProvider(transport);
+    const transport = new GraphMailDraftCreateTransport();
+    const provider = new MailDraftExecutionProvider(transport);
     expect(transportHasNoSend).toBe(false);
     expect(providerHasNoSend).toBe(false);
     expect("send" in transport).toBe(false);
     expect("send" in provider).toBe(false);
     expect("messages.send" in transport).toBe(false);
     expect("messages.send" in provider).toBe(false);
-    expect(inspectGmailDraftStructuralSafety()).toMatchObject({
+    expect(inspectMailDraftStructuralSafety()).toMatchObject({
       capabilities: ["drafts.create"],
-      oauthScopes: [GMAIL_COMPOSE_OAUTH_SCOPE],
+      oauthScopes: [MAIL_DRAFT_OAUTH_SCOPE],
       hasSendSurface: false,
+      // Graph gates sending by permission as well as by path: proving Mail.Send
+      // is never requested is the stronger of the two guarantees.
+      requestsSendScope: false,
       structuralNoSend: true,
     });
     await expect(
       transport.createDraft({
-        raw: "base64url-message",
+        mailbox: "ar@fasteningspecialists.example",
+        to: "customer@example.com",
+        subject: "Approved follow-up",
+        body: "Body text",
         accessToken: "test-token-never-logged",
       }),
     ).resolves.toEqual({
       draftId: "draft-fixed-1",
-      messageId: "message-fixed-1",
-      threadId: "thread-fixed-1",
+      conversationId: "conv-fixed-1",
+      webLink: "https://outlook.office365.com/mail/deeplink/draft-fixed-1",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://gmail.googleapis.com/gmail/v1/users/me/drafts",
+      "https://graph.microsoft.com/v1.0/users/ar%40fasteningspecialists.example/messages",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ message: { raw: "base64url-message" } }),
+        body: JSON.stringify({
+          subject: "Approved follow-up",
+          body: { contentType: "Text", content: "Body text" },
+          toRecipients: [{ emailAddress: { address: "customer@example.com" } }],
+        }),
       }),
     );
-    expect(fetchMock.mock.calls[0]?.[0]).not.toContain("send");
+    expect(fetchMock.mock.calls[0]?.[0]).not.toMatch(/sendMail|\/send\b/i);
     expect(
-      Object.getOwnPropertyNames(GoogleGmailDraftCreateTransport.prototype),
+      Object.getOwnPropertyNames(GraphMailDraftCreateTransport.prototype),
     ).toEqual(["constructor", "createDraft"]);
     expect(
-      Object.getOwnPropertyNames(GmailDraftExecutionProvider.prototype),
+      Object.getOwnPropertyNames(MailDraftExecutionProvider.prototype),
     ).toEqual(["constructor", "execute"]);
   });
 });

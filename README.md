@@ -17,9 +17,9 @@ manual issue intake
   -> deterministic internal executor
   -> completed or execution_failed
   or, for an approved external-draft recommendation:
-     exact Gmail draft preview
+     exact Outlook draft preview
      -> second human authorization
-     -> Gmail drafts.create (disabled by default)
+     -> Outlook drafts.create (disabled by default)
      -> completed or execution_failed
   -> database-enforced workflow state
   -> append-only, verifiable audit history
@@ -28,7 +28,7 @@ manual issue intake
 
 General production connector enablement, live model calls, external sending,
 and ERP/accounting writes are intentionally absent. The repository includes a
-guarded, operator-executed procedure for one supervised Gmail draft; the real
+guarded, operator-executed procedure for one supervised Outlook draft; the real
 call remains manual, disabled by default, and outside CI.
 
 ## Local development
@@ -68,7 +68,7 @@ approved-only execution, success and exhausted-retry terminal paths,
 controlled CSV partial success, batch/row idempotency, immutable raw-file
 evidence, CSV downstream dead-letter visibility, cross-organization rejection,
 audit integrity, and trace continuity.
-It also proves the Gmail-draft connector remains disabled by default, exact
+It also proves the Outlook-draft connector remains disabled by default, exact
 preview creates nothing, allowlist/isolation and second authorization are
 enforced, stable result replay does not call the provider twice, kill-switch
 fallback remains internal, failures dead-letter visibly, and no send
@@ -90,20 +90,20 @@ Start with [the current state](docs/current-state.md), [architecture](docs/archi
 [security model](docs/security.md), [Phase 1 implementation record](docs/phase1-implementation.md),
 and [Phase 2 decision](docs/phase2-scope-proposal.md).
 The first external-write boundary is recorded in
-[ADR 0005](docs/decisions/0005-gmail-draft-external-write.md); its credential
+[ADR 0005](docs/decisions/0005-mail-draft-external-write.md); its credential
 boundary is recorded in
 [ADR 0006](docs/decisions/0006-connector-credential-and-kill-switch-hardening.md).
 The first supervised live-draft controls and manual procedure are recorded in
-[ADR 0007](docs/decisions/0007-supervised-gmail-draft-live-pilot.md) and
-[the runbook](docs/runbook.md#first-supervised-gmail-draft).
+[ADR 0007](docs/decisions/0007-supervised-mail-draft-live-pilot.md) and
+[the runbook](docs/runbook.md#first-supervised-mail-draft).
 
 ## Safety boundary
 
-- The Gmail `drafts.create` implementation ships disabled with no seeded
+- The Outlook `drafts.create` implementation ships disabled with no seeded
   organization config and network transport off by default.
 - Risk-5 and risk-6 actions are structurally prohibited.
 - External communication sending is absent; there is no `messages.send`
-  method, route, or capability, and no separate `gmail.send`/broader scope is
+  method, route, or capability, and no separate `Mail.Send`/broader scope is
   requested. Google requires the compose scope for draft creation; the fixed
   drafts-create transport is therefore a required control.
 - Connector credentials use RSA-OAEP/AES-256-GCM envelope encryption.
@@ -114,9 +114,9 @@ The first supervised live-draft controls and manual procedure are recorded in
   the guarded transition function and is checked for projection drift.
 - API and worker processes refuse to start as a PostgreSQL superuser,
   `BYPASSRLS` role, or owner of an RLS-protected table.
-- Gmail credentials are immutable, organization-scoped versions behind a
+- Outlook credentials are immutable, organization-scoped versions behind a
   guarded binding. Rotation invalidates the prior version without downtime;
-  organization disable, explicit revoke, and the global Gmail switch make
+  organization disable, explicit revoke, and the global Outlook switch make
   credentials unusable before bounded OAuth revocation is attempted.
 - Each audit event links to the prior stored hash and hashes its canonical
   event payload. The independent verifier checks linkage, event hashes,
@@ -130,7 +130,7 @@ The first supervised live-draft controls and manual procedure are recorded in
   move the workflow through `executing` to `completed` or
   `execution_failed`.
 - `deterministic_internal` remains the default. The only external provider
-  implementation can create an unsent Gmail draft after approval, enabled
+  implementation can create an unsent Outlook draft after approval, enabled
   organization config, allowlist validation, exact preview, and a second human
   authorization. It is inert unless both the database kill switch and worker
   network flag are explicitly enabled.

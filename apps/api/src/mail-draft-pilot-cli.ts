@@ -1,8 +1,8 @@
 import {
   createFetchOperatorHttpClient,
-  gmailCredentialFingerprint,
-  GmailDraftPilotOperator,
-} from "./gmail-draft-pilot-client.js";
+  mailCredentialFingerprint,
+  MailDraftPilotOperator,
+} from "./mail-draft-pilot-client.js";
 
 type Command = "enable" | "preflight" | "disable";
 
@@ -14,13 +14,13 @@ interface ParsedArguments {
 function usage(): string {
   return [
     "Usage:",
-    "  pnpm gmail-draft:pilot enable --organization-id <uuid> --organization-code <code> --recipient <email> --reason <text> --confirm-one-org --confirm-drafts-create-only [--operation-id <id>]",
-    "  pnpm gmail-draft:pilot preflight --organization-id <uuid> --organization-code <code> [--recipient <email>]",
-    "  pnpm gmail-draft:pilot disable --organization-id <uuid> --organization-code <code> --reason <text> [--operation-id <id>]",
+    "  pnpm mail-draft:pilot enable --organization-id <uuid> --organization-code <code> --recipient <email> --reason <text> --confirm-one-org --confirm-drafts-create-only [--operation-id <id>]",
+    "  pnpm mail-draft:pilot preflight --organization-id <uuid> --organization-code <code> [--recipient <email>]",
+    "  pnpm mail-draft:pilot disable --organization-id <uuid> --organization-code <code> --reason <text> [--operation-id <id>]",
     "",
     "Secrets are read only from environment variables:",
     "  OPERATING_LAYER_OPERATOR_BEARER_TOKEN",
-    "  GMAIL_DRAFT_OAUTH_ACCESS_TOKEN (enable; optional for fingerprint check during preflight)",
+    "  MAIL_DRAFT_OAUTH_ACCESS_TOKEN (enable; optional for fingerprint check during preflight)",
     "",
     "API_BASE_URL defaults to http://localhost:3001.",
     "Development auth requires --allow-development-auth and DEV_USER_EMAIL.",
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
           developmentUserEmail: developmentUserEmail!,
         },
   );
-  const operator = new GmailDraftPilotOperator(request);
+  const operator = new MailDraftPilotOperator(request);
   const target = { organizationId, organizationCode };
   const operationId = optionalFlag(parsed.flags, "--operation-id");
 
@@ -101,10 +101,10 @@ async function main(): Promise<void> {
         "Enable requires --confirm-one-org and --confirm-drafts-create-only",
       );
     }
-    const accessToken = process.env.GMAIL_DRAFT_OAUTH_ACCESS_TOKEN;
+    const accessToken = process.env.MAIL_DRAFT_OAUTH_ACCESS_TOKEN;
     if (!accessToken) {
       throw new Error(
-        "GMAIL_DRAFT_OAUTH_ACCESS_TOKEN is required and must not be passed as a command-line argument",
+        "MAIL_DRAFT_OAUTH_ACCESS_TOKEN is required and must not be passed as a command-line argument",
       );
     }
     const result = await operator.enable({
@@ -128,15 +128,14 @@ async function main(): Promise<void> {
     return;
   }
 
-  const accessToken = process.env.GMAIL_DRAFT_OAUTH_ACCESS_TOKEN;
+  const accessToken = process.env.MAIL_DRAFT_OAUTH_ACCESS_TOKEN;
   const expectedRecipient = optionalFlag(parsed.flags, "--recipient");
   const result = await operator.preflight({
     target,
     ...(expectedRecipient ? { expectedRecipient } : {}),
     ...(accessToken
       ? {
-          expectedCredentialFingerprint:
-            gmailCredentialFingerprint(accessToken),
+          expectedCredentialFingerprint: mailCredentialFingerprint(accessToken),
         }
       : {}),
   });

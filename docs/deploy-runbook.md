@@ -111,7 +111,7 @@ item logged in APPROVALS.md. In recommended order:
    TRACTION_BRIDGE_* variables; run `pnpm traction-bridge:sync`.
 4. DemandStar doorway: export messages JSON; `pnpm demandstar:sync`.
 5. KPI exceptions: certify a definition per the scoreboard ledger first.
-6. Gmail draft live pilot: docs/runbook.md supervised procedure.
+6. Outlook draft live pilot: docs/runbook.md supervised procedure.
 
 ## 8. Backups
 

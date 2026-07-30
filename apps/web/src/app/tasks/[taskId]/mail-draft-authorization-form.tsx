@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
-export function GmailDraftAuthorizationForm({
+export function MailDraftAuthorizationForm({
   previewId,
   organizationId,
 }: {
@@ -21,7 +21,7 @@ export function GmailDraftAuthorizationForm({
     setError(null);
     try {
       const response = await fetch(
-        `/api/gmail-draft-previews/${encodeURIComponent(previewId)}/authorization`,
+        `/api/mail-draft-previews/${encodeURIComponent(previewId)}/authorization`,
         {
           method: "POST",
           headers: {
@@ -67,7 +67,7 @@ export function GmailDraftAuthorizationForm({
         onClick={() => void authorize()}
         type="button"
       >
-        {pending ? "Authorizing…" : "Authorize Gmail draft creation"}
+        {pending ? "Authorizing…" : "Authorize Outlook draft creation"}
       </button>
     </div>
   );

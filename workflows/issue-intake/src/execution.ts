@@ -90,7 +90,7 @@ export async function requestInternalExecution(
          LEFT JOIN LATERAL (
            SELECT command.id
            FROM execution_commands command
-           LEFT JOIN gmail_draft_execution_abandonments abandonment
+           LEFT JOIN mail_draft_execution_abandonments abandonment
              ON abandonment.execution_command_id = command.id
             AND abandonment.organization_id = command.organization_id
            WHERE command.approval_id = approval.id

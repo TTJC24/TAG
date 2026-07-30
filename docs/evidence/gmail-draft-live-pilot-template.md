@@ -1,4 +1,4 @@
-# Gmail draft live-pilot evidence
+# Outlook draft live-pilot evidence
 
 Do not record OAuth tokens, authorization headers, private keys, or other
 credentials in this file. Complete this copy outside source control unless the
@@ -29,7 +29,7 @@ approved evidence store is explicitly designated.
 - [ ] Target connector is enabled.
 - [ ] Every other organization is disabled.
 - [ ] Credential envelope is present and structurally valid.
-- [ ] Stored and granted scopes are exactly `gmail.compose`.
+- [ ] Stored and granted scopes are exactly `mail.compose`.
 - [ ] Allowlist contains one exact address and no domains.
 - [ ] Expected recipient is allowlisted.
 - [ ] Global kill is clear and reachable.
@@ -58,18 +58,18 @@ approved evidence store is explicitly designated.
 
 ## Google result
 
-- Gmail draft ID:
-- Immutable `gmail_draft.created` audit event ID:
+- Outlook draft ID:
+- Immutable `mail_draft.created` audit event ID:
 - Audit event hash:
 - Audit chain verification result/reference:
 - Provider response evidence reference:
-- [ ] Exactly one matching draft appeared in Gmail.
+- [ ] Exactly one matching draft appeared in Mail.
 - [ ] Recipient, subject, and body matched the immutable preview.
 - [ ] No message was sent.
 - [ ] Intake/approval/preview/authorization/worker/audit trace IDs match.
 - [ ] Repeating the same authorization idempotency key replayed the prior
       result.
-- [ ] Repeating authorization created no second Gmail draft.
+- [ ] Repeating authorization created no second Outlook draft.
 
 ## Secret-containment review
 
@@ -95,18 +95,18 @@ approved evidence store is explicitly designated.
 - [ ] No active credential version remains.
 - [ ] Previously active credential is unusable locally.
 - [ ] Live worker was stopped.
-- [ ] `GMAIL_DRAFT_NETWORK_ENABLED` was removed/restored to false.
+- [ ] `MAIL_DRAFT_NETWORK_ENABLED` was removed/restored to false.
 - [ ] Token and key environment variables were removed from the operator
       shell.
 
 ## Rollback
 
 - Rollback required?:
-- Gmail draft discarded at (UTC):
-- Gmail account used:
+- Outlook draft discarded at (UTC):
+- Mail account used:
 - Observer:
 - [ ] Draft ID/subject matched before discard.
-- [ ] Draft no longer appears in Gmail Drafts.
+- [ ] Draft no longer appears in Mail Drafts.
 - [ ] Nothing was sent, so no recipient-side compensation was required.
 
 ## Exceptions and sign-off

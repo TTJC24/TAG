@@ -114,7 +114,7 @@ current exposure, measured, not a projection. What the system does with it:_
   morning refresh run itself.
 - **Put the draft in the mailbox.** Today the system writes the chase and the
   AR person approves it; the last hop is depositing that text directly into the
-  AR mailbox as a Gmail draft. Deliberately a separate decision, because it's
+  AR mailbox as a Outlook draft. Deliberately a separate decision, because it's
   the step that touches an outside system.
 - **Light up the scoreboard** — pull revenue, margin, days-to-collect, and
   orders straight from Acumatica so the numbers are live, not hand-built.

@@ -4,10 +4,10 @@ import {
   createDatabasePool,
 } from "@operating-layer/db";
 import {
-  assertGmailCredentialStartup,
+  assertMailCredentialStartup,
   DisabledOAuthTokenRevoker,
   FeedRunLog,
-  GoogleOAuthTokenRevoker,
+  GraphOAuthTokenRevoker,
   IDEMPOTENCY_REAPER_INTERVAL_MS,
   processNextOutboxJob,
   reapExpiredIdempotencyKeys,
@@ -16,9 +16,9 @@ import {
   runSalesFeed,
 } from "@operating-layer/issue-intake";
 import {
-  DisabledGmailDraftExecutionProvider,
-  GmailDraftExecutionProvider,
-  GoogleGmailDraftCreateTransport,
+  DisabledMailDraftExecutionProvider,
+  MailDraftExecutionProvider,
+  GraphMailDraftCreateTransport,
   resolveExecutionProvider,
 } from "@operating-layer/executors";
 import { RsaEnvelopeCredentialDecryptor } from "@operating-layer/connectors";
@@ -40,21 +40,21 @@ if (!privateKey) {
   await pool.end();
   throw new Error("CONNECTOR_CREDENTIAL_PRIVATE_KEY_DER_B64 is required");
 }
-const networkEnabled = process.env.GMAIL_DRAFT_NETWORK_ENABLED === "true";
+const networkEnabled = process.env.MAIL_DRAFT_NETWORK_ENABLED === "true";
 const credentialRuntime = {
   decryptor: new RsaEnvelopeCredentialDecryptor(privateKey),
   revoker: networkEnabled
-    ? new GoogleOAuthTokenRevoker()
+    ? new GraphOAuthTokenRevoker()
     : new DisabledOAuthTokenRevoker(),
 };
-await assertGmailCredentialStartup(pool, credentialRuntime);
+await assertMailCredentialStartup(pool, credentialRuntime);
 const workerId = process.env.WORKER_ID ?? `worker-${process.pid}`;
 const executionProvider = resolveExecutionProvider(
   process.env.EXECUTION_PROVIDER ?? "deterministic_internal",
 );
-const gmailDraftProvider = networkEnabled
-  ? new GmailDraftExecutionProvider(new GoogleGmailDraftCreateTransport())
-  : new DisabledGmailDraftExecutionProvider();
+const mailDraftProvider = networkEnabled
+  ? new MailDraftExecutionProvider(new GraphMailDraftCreateTransport())
+  : new DisabledMailDraftExecutionProvider();
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000);
 // Scheduled feed refreshes. Empty unless *_SCHEDULE_UTC is set explicitly, so
 // this ships inert and an unconfigured deploy behaves exactly as before.
@@ -209,7 +209,7 @@ async function loop(): Promise<void> {
       pool,
       workerId,
       executionProvider,
-      gmailDraftProvider,
+      mailDraftProvider,
       credentialRuntime,
     );
     if (result === "idle") {

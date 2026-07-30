@@ -39,7 +39,7 @@ skip those guards.
 
 The external-draft branch additionally requires an exact immutable preview and
 second human authorization. A transition back to `approved` is legal only when
-it references an immutable Gmail abandonment created after the active
+it references an immutable Mail abandonment created after the active
 organization connector config is disabled or replaced.
 
 ## State rules

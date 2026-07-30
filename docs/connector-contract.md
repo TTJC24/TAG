@@ -5,7 +5,7 @@ The executable TypeScript contract is in `packages/connectors`.
 ## Rules
 
 - Read capability and controlled-write capability are separate interfaces.
-- The only implemented write capability is Gmail `drafts.create`, behind its
+- The only implemented write capability is Mail `drafts.create`, behind its
   accepted ADR and disabled by default. Every other adapter remains read-only
   or a placeholder.
 - Every call carries organization, source-system, trace, and idempotency
@@ -35,8 +35,8 @@ Before implementing a production adapter, document:
 - contract fixtures with sensitive data removed.
 
 The Acumatica, Pipedrive, and Google Drive adapter directories remain
-placeholders until these facts are approved. Gmail draft creation is a narrow
-execution provider, not a general Gmail connector: it declares only
+placeholders until these facts are approved. Outlook draft creation is a narrow
+execution provider, not a general Mail connector: it declares only
 `drafts.create`, uses the compose scope, and has no send operation.
 Its scope allowlist is exact (not a subset check), its transport exposes only
 `createDraft`, and organization/global kill paths invalidate local use before

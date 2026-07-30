@@ -3,10 +3,10 @@ import { inspect } from "node:util";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   EphemeralConnectorCredential,
-  GMAIL_COMPOSE_SCOPE,
+  MAIL_COMPOSE_SCOPE,
   RsaEnvelopeCredentialDecryptor,
   RsaEnvelopeCredentialEncryptor,
-  assertExactGmailCredentialScopes,
+  assertExactMailCredentialScopes,
   redactSensitiveText,
 } from "./index.js";
 
@@ -63,17 +63,20 @@ describe("connector credential boundary", () => {
     ).toThrow();
   });
 
-  it("rejects every scope set that is not exactly gmail.compose", () => {
+  it("rejects every scope set that is not exactly mail.compose", () => {
     expect(() =>
-      assertExactGmailCredentialScopes([
-        GMAIL_COMPOSE_SCOPE,
-        "https://www.googleapis.com/auth/gmail.modify",
+      assertExactMailCredentialScopes([
+        MAIL_COMPOSE_SCOPE,
+        "https://graph.microsoft.com/Mail.Send",
       ]),
     ).toThrow(/exactly/i);
     expect(() =>
-      assertExactGmailCredentialScopes(["https://mail.google.com/"]),
+      assertExactMailCredentialScopes([
+        "https://graph.microsoft.com/Mail.ReadWrite",
+        "https://graph.microsoft.com/Mail.Send",
+      ]),
     ).toThrow(/exactly/i);
-    expect(() => assertExactGmailCredentialScopes([])).toThrow(/exactly/i);
+    expect(() => assertExactMailCredentialScopes([])).toThrow(/exactly/i);
   });
 
   it("redacts a credential object and an echoed token under structured logging duress", () => {

@@ -17,7 +17,7 @@ import {
  *
  * The AR aging (Detailed) export is parsed by ar-aging.ts; this turns each
  * past-due customer into a governed issue — classified, recommended, and
- * (once the Gmail-draft wire is enabled) drafted for the AR person to approve.
+ * (once the Mail-draft wire is enabled) drafted for the AR person to approve.
  * Nothing sends. The AR person is the approver, so their approvals and edits
  * are what calibrate the ladder to real practice over time.
  *
@@ -272,8 +272,8 @@ export function buildCollectionsDrafts(
 /**
  * Record the composed chase text for a task, so the approver reviews rather
  * than retypes. Inert by construction: this is a plain INSERT of text into an
- * append-only table. It authorizes nothing and enqueues nothing — the Gmail
- * draft still requires the same two human steps against gmail_draft_previews.
+ * append-only table. It authorizes nothing and enqueues nothing — the Mail
+ * draft still requires the same two human steps against mail_draft_previews.
  *
  * A failure here must never lose the governed issue: the issue is the thing
  * that matters, the prefill is a convenience. Callers treat this as best-effort.

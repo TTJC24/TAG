@@ -11,7 +11,7 @@ import {
 } from "@operating-layer/db";
 import type { AgentContext } from "@operating-layer/agents";
 import {
-  DisabledGmailDraftExecutionProvider,
+  DisabledMailDraftExecutionProvider,
   resolveExecutionProvider,
   type ExecutionProvider,
 } from "@operating-layer/executors";
@@ -27,8 +27,8 @@ import { finalizeCsvRowFailure, processCsvBatchRow } from "./csv.js";
 import {
   processCredentialRevocationJob,
   recordCredentialRevocationFailure,
-  type GmailCredentialRuntime,
-} from "./gmail-credential-worker.js";
+  type MailCredentialRuntime,
+} from "./mail-credential-worker.js";
 
 export interface OutboxJob {
   id: string;
@@ -798,8 +798,8 @@ export async function processNextOutboxJob(
   pool: DatabasePool,
   workerId: string,
   executionProvider: ExecutionProvider = resolveExecutionProvider(),
-  gmailDraftProvider: ExecutionProvider = new DisabledGmailDraftExecutionProvider(),
-  credentialRuntime?: GmailCredentialRuntime,
+  mailDraftProvider: ExecutionProvider = new DisabledMailDraftExecutionProvider(),
+  credentialRuntime?: MailCredentialRuntime,
 ): Promise<"idle" | "published" | "failed" | "dead_letter"> {
   const job = await claimNextOutboxJob(pool, workerId);
   if (!job) {
@@ -812,14 +812,14 @@ export async function processNextOutboxJob(
         pool,
         job,
         executionProvider,
-        gmailDraftProvider,
+        mailDraftProvider,
         credentialRuntime,
       );
       return "published";
     }
-    if (job.topic === "gmail.credential.revoke") {
+    if (job.topic === "mail.credential.revoke") {
       if (!credentialRuntime) {
-        throw new Error("Gmail credential runtime is unavailable");
+        throw new Error("Outlook credential runtime is unavailable");
       }
       await processCredentialRevocationJob(pool, job, credentialRuntime);
       return "published";
@@ -841,13 +841,13 @@ export async function processNextOutboxJob(
         pool,
         job,
         executionProvider,
-        gmailDraftProvider,
+        mailDraftProvider,
         error,
       );
       return "dead_letter";
     }
     if (
-      job.topic === "gmail.credential.revoke" &&
+      job.topic === "mail.credential.revoke" &&
       job.attempts >= job.max_attempts
     ) {
       await recordCredentialRevocationFailure(pool, job);
@@ -861,8 +861,8 @@ export async function drainOutbox(
   workerId: string,
   maximumJobs = 100,
   executionProvider: ExecutionProvider = resolveExecutionProvider(),
-  gmailDraftProvider: ExecutionProvider = new DisabledGmailDraftExecutionProvider(),
-  credentialRuntime?: GmailCredentialRuntime,
+  mailDraftProvider: ExecutionProvider = new DisabledMailDraftExecutionProvider(),
+  credentialRuntime?: MailCredentialRuntime,
 ): Promise<{
   published: number;
   failed: number;
@@ -874,7 +874,7 @@ export async function drainOutbox(
       pool,
       workerId,
       executionProvider,
-      gmailDraftProvider,
+      mailDraftProvider,
       credentialRuntime,
     );
     if (result === "idle") {

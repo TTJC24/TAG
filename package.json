@@ -12,7 +12,7 @@
     "check": "turbo run typecheck test",
     "dev": "turbo run dev --parallel",
     "format:check": "prettier --check .",
-    "gmail-draft:pilot": "pnpm --filter @operating-layer/api build && node apps/api/dist/gmail-draft-pilot-cli.js",
+    "mail-draft:pilot": "pnpm --filter @operating-layer/api build && node apps/api/dist/mail-draft-pilot-cli.js",
     "test": "turbo run test",
     "test:feature": "node scripts/feature-test.mjs",
     "test:smoke": "node scripts/smoke-test.mjs",

@@ -7,23 +7,23 @@ import type { DatabasePool } from "@operating-layer/db";
 import type { ConnectorCredentialEncryptor } from "@operating-layer/connectors";
 import {
   createManualIssue,
-  authorizeGmailDraft,
-  configureGmailDraftConnector,
-  createGmailDraftPreview,
+  authorizeMailDraft,
+  configureMailDraftConnector,
+  createMailDraftPreview,
   DomainError,
   getCsvBatch,
   getExecutiveQueue,
   getChaseProposal,
   getTaskDetail,
-  inspectGmailDraftPilotPreflight,
+  inspectMailDraftPilotPreflight,
   resolveApproval,
   requestInternalExecution,
   requestInternalExecutionReplay,
-  revokeGmailCredential,
+  revokeMailCredential,
   resolveApplicationPrincipal,
-  setGmailGlobalKill,
-  setGmailDraftPilotClaim,
-  storeGmailCredential,
+  setMailGlobalKill,
+  setMailDraftPilotClaim,
+  storeMailCredential,
   uploadCsvBatch,
 } from "@operating-layer/issue-intake";
 
@@ -109,7 +109,7 @@ export async function buildApi(
       externalWritesEnabled: false,
       modelProvider: "deterministic",
       csvUploadMode: "internal",
-      gmailDraftConnector: {
+      mailDraftConnector: {
         capability: "drafts.create",
         networkExecutionDefault: "disabled",
         defaultState: "disabled",
@@ -281,7 +281,7 @@ export async function buildApi(
     return reply.status(response.duplicate ? 200 : 202).send(response);
   });
 
-  app.post("/v1/connectors/gmail-draft/config", async (request, reply) => {
+  app.post("/v1/connectors/mail-draft/config", async (request, reply) => {
     const principal = await principalFor(request);
     const idempotencyKey = headerValue(request, "idempotency-key");
     if (!idempotencyKey) {
@@ -292,7 +292,7 @@ export async function buildApi(
       );
     }
     const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
-    const response = await configureGmailDraftConnector(dependencies.pool, {
+    const response = await configureMailDraftConnector(dependencies.pool, {
       principal,
       input: request.body as never,
       idempotencyKey,
@@ -301,7 +301,7 @@ export async function buildApi(
     return reply.status(response.duplicate ? 200 : 202).send(response);
   });
 
-  app.post("/v1/connectors/gmail-draft/credentials", async (request, reply) => {
+  app.post("/v1/connectors/mail-draft/credentials", async (request, reply) => {
     if (!dependencies.credentialEncryptor) {
       throw new DomainError(
         503,
@@ -319,7 +319,7 @@ export async function buildApi(
       );
     }
     const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
-    const response = await storeGmailCredential(
+    const response = await storeMailCredential(
       dependencies.pool,
       dependencies.credentialEncryptor,
       {
@@ -333,7 +333,7 @@ export async function buildApi(
   });
 
   app.post(
-    "/v1/connectors/gmail-draft/credentials/revoke",
+    "/v1/connectors/mail-draft/credentials/revoke",
     async (request, reply) => {
       const principal = await principalFor(request);
       const idempotencyKey = headerValue(request, "idempotency-key");
@@ -345,7 +345,7 @@ export async function buildApi(
         );
       }
       const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
-      const response = await revokeGmailCredential(dependencies.pool, {
+      const response = await revokeMailCredential(dependencies.pool, {
         principal,
         input: request.body as never,
         idempotencyKey,
@@ -355,10 +355,10 @@ export async function buildApi(
     },
   );
 
-  app.post("/v1/connectors/gmail-draft/global-kill", async (request, reply) => {
+  app.post("/v1/connectors/mail-draft/global-kill", async (request, reply) => {
     const principal = await principalFor(request);
     const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
-    const response = await setGmailGlobalKill(dependencies.pool, {
+    const response = await setMailGlobalKill(dependencies.pool, {
       principal,
       input: request.body,
       context: { traceId, requestId: request.id },
@@ -366,7 +366,7 @@ export async function buildApi(
     return reply.status(202).send(response);
   });
 
-  app.post("/v1/connectors/gmail-draft/pilot/claim", async (request, reply) => {
+  app.post("/v1/connectors/mail-draft/pilot/claim", async (request, reply) => {
     const principal = await principalFor(request);
     const idempotencyKey = headerValue(request, "idempotency-key");
     if (!idempotencyKey) {
@@ -377,7 +377,7 @@ export async function buildApi(
       );
     }
     const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
-    const response = await setGmailDraftPilotClaim(dependencies.pool, {
+    const response = await setMailDraftPilotClaim(dependencies.pool, {
       principal,
       input: request.body as never,
       idempotencyKey,
@@ -387,52 +387,46 @@ export async function buildApi(
   });
 
   app.post(
-    "/v1/connectors/gmail-draft/pilot/preflight",
+    "/v1/connectors/mail-draft/pilot/preflight",
     async (request, reply) => {
       const principal = await principalFor(request);
       const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
-      const response = await inspectGmailDraftPilotPreflight(
-        dependencies.pool,
-        {
-          principal,
-          input: request.body as never,
-          context: { traceId, requestId: request.id },
-        },
-      );
+      const response = await inspectMailDraftPilotPreflight(dependencies.pool, {
+        principal,
+        input: request.body as never,
+        context: { traceId, requestId: request.id },
+      });
       return reply.status(200).send(response);
     },
   );
 
   app.post<{
     Params: { approvalId: string };
-  }>(
-    "/v1/approvals/:approvalId/gmail-draft-preview",
-    async (request, reply) => {
-      const principal = await principalFor(request);
-      const idempotencyKey = headerValue(request, "idempotency-key");
-      if (!idempotencyKey) {
-        throw new DomainError(
-          400,
-          "idempotency_key_required",
-          "Idempotency-Key is required",
-        );
-      }
-      const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
-      const response = await createGmailDraftPreview(dependencies.pool, {
-        principal,
-        approvalId: z.string().uuid().parse(request.params.approvalId),
-        input: request.body as never,
-        idempotencyKey,
-        context: { traceId, requestId: request.id },
-      });
-      return reply.status(response.duplicate ? 200 : 202).send(response);
-    },
-  );
+  }>("/v1/approvals/:approvalId/mail-draft-preview", async (request, reply) => {
+    const principal = await principalFor(request);
+    const idempotencyKey = headerValue(request, "idempotency-key");
+    if (!idempotencyKey) {
+      throw new DomainError(
+        400,
+        "idempotency_key_required",
+        "Idempotency-Key is required",
+      );
+    }
+    const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
+    const response = await createMailDraftPreview(dependencies.pool, {
+      principal,
+      approvalId: z.string().uuid().parse(request.params.approvalId),
+      input: request.body as never,
+      idempotencyKey,
+      context: { traceId, requestId: request.id },
+    });
+    return reply.status(response.duplicate ? 200 : 202).send(response);
+  });
 
   app.post<{
     Params: { previewId: string };
   }>(
-    "/v1/gmail-draft-previews/:previewId/authorization",
+    "/v1/mail-draft-previews/:previewId/authorization",
     async (request, reply) => {
       const principal = await principalFor(request);
       const idempotencyKey = headerValue(request, "idempotency-key");
@@ -444,7 +438,7 @@ export async function buildApi(
         );
       }
       const traceId = headerValue(request, "x-trace-id") ?? randomUUID();
-      const response = await authorizeGmailDraft(dependencies.pool, {
+      const response = await authorizeMailDraft(dependencies.pool, {
         principal,
         previewId: z.string().uuid().parse(request.params.previewId),
         input: request.body as never,
@@ -491,7 +485,7 @@ export async function buildApi(
     );
   });
 
-  // The recorded chase text for a collections task, used to prefill the Gmail
+  // The recorded chase text for a collections task, used to prefill the Mail
   // draft form. Read-only and additive: no proposal simply means an empty form,
   // and the two-step preview/authorize path is unchanged either way.
   app.get<{

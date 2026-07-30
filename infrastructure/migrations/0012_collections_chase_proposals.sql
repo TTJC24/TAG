@@ -3,8 +3,8 @@
 --
 -- This table deliberately changes NOTHING about the governed path. A proposal
 -- is inert text: it does not authorize, enqueue, or send anything, and the
--- Gmail draft still requires the same two human steps (preview, then
--- authorize) against gmail_draft_previews. Its only job is to remove the
+-- Outlook draft still requires the same two human steps (preview, then
+-- authorize) against mail_draft_previews. Its only job is to remove the
 -- retyping that made the collections doorway impractical to work daily.
 --
 -- Append-only for the app role (INSERT + SELECT, no UPDATE/DELETE), matching
@@ -26,7 +26,7 @@ CREATE TABLE collections_chase_proposals (
     CHECK (length(btrim(customer_name)) BETWEEN 1 AND 500),
   -- Null when Acumatica has no AR contact email on file. Deliberately nullable:
   -- an unaddressable chase must surface as a visible gap for a human, never as
-  -- a guessed recipient. Same shape constraints as gmail_draft_previews so a
+  -- a guessed recipient. Same shape constraints as mail_draft_previews so a
   -- proposal can never prefill a recipient the preview would reject.
   recipient text CHECK (
     recipient IS NULL

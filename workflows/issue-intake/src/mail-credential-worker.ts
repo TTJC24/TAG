@@ -1,7 +1,7 @@
 import { appendAuditEvent, sha256 } from "@operating-layer/audit";
 import {
   EphemeralConnectorCredential,
-  assertExactGmailCredentialScopes,
+  assertExactMailCredentialScopes,
   type ConnectorCredentialDecryptor,
   type EncryptedCredentialEnvelope,
 } from "@operating-layer/connectors";
@@ -11,50 +11,76 @@ import {
 } from "@operating-layer/db";
 import type { OutboxJob } from "./worker.js";
 
+/**
+ * What actually happened when we tried to revoke remotely.
+ *
+ * This is a result rather than a bare void because the honest answer differs by
+ * provider, and reporting "revoked" for something that did not happen would
+ * misrepresent a safety control in the audit trail.
+ */
+export interface TokenRevocationOutcome {
+  remote: "revoked" | "unsupported_by_provider";
+  detail: string;
+}
+
 export interface OAuthTokenRevoker {
   readonly enabled: boolean;
-  revoke(accessToken: string): Promise<void>;
+  revoke(accessToken: string): Promise<TokenRevocationOutcome>;
 }
 
 export class DisabledOAuthTokenRevoker implements OAuthTokenRevoker {
   readonly enabled = false;
-  async revoke(_accessToken: string): Promise<void> {
+  async revoke(_accessToken: string): Promise<TokenRevocationOutcome> {
     throw new Error("OAuth revocation network access is disabled");
   }
 }
 
-export class GoogleOAuthTokenRevoker implements OAuthTokenRevoker {
+/**
+ * Microsoft Graph revocation — and the honest limits of it.
+ *
+ * There is no per-token revocation endpoint. A Graph access token is a signed
+ * JWT that stays valid until it expires (about an hour); nothing can call it
+ * back. The two things that genuinely revoke access both sit outside this
+ * worker's permission set on purpose:
+ *
+ *  - rotating or removing the app registration's secret in Entra (admin action)
+ *  - `POST /users/{id}/revokeSignInSessions`, which needs a scope we
+ *    deliberately do not hold — the grant is pinned to Mail.ReadWrite alone.
+ *
+ * So this reports `unsupported_by_provider` rather than claiming a revoke it did
+ * not perform. The controls that DO take effect immediately are local: the
+ * credential is marked invalid so the worker stops using it, and the kill switch
+ * stops the connector outright. Both are enforced by the database, not by a
+ * remote service being reachable.
+ */
+export class GraphOAuthTokenRevoker implements OAuthTokenRevoker {
   readonly enabled = true;
-  async revoke(accessToken: string): Promise<void> {
-    const response = await fetch("https://oauth2.googleapis.com/revoke", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ token: accessToken }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    if (!response.ok) {
-      throw new Error(`OAuth revocation failed with HTTP ${response.status}`);
-    }
+  async revoke(_accessToken: string): Promise<TokenRevocationOutcome> {
+    return {
+      remote: "unsupported_by_provider",
+      detail:
+        "Microsoft Graph has no per-token revocation endpoint; the token expires on its own. Access was stopped locally (credential invalidated). To revoke for real, rotate the app registration secret in Entra.",
+    };
   }
 }
 
-export interface GmailCredentialRuntime {
+export interface MailCredentialRuntime {
   decryptor: ConnectorCredentialDecryptor;
   revoker: OAuthTokenRevoker;
 }
 
-export async function assertGmailCredentialStartup(
+export async function assertMailCredentialStartup(
   pool: DatabasePool,
-  runtime: GmailCredentialRuntime,
+  runtime: MailCredentialRuntime,
 ): Promise<void> {
   if (!runtime.decryptor || !runtime.revoker) {
-    throw new Error("Gmail credential runtime dependencies are required");
+    throw new Error("Outlook credential runtime dependencies are required");
   }
   const result = await pool.query<{
     unsafe_legacy_references: string;
     enabled_without_active_credential: string;
   }>(
-    "SELECT * FROM operating_layer.assert_gmail_credential_storage_invariants()",
+    "SELECT * FROM operating_layer.assert_mail_credential_storage_invariants()",
   );
   const row = result.rows[0];
   if (
@@ -81,7 +107,7 @@ interface CredentialEnvelopeRow {
 
 export async function loadExecutionCredential(
   pool: DatabasePool,
-  runtime: GmailCredentialRuntime,
+  runtime: MailCredentialRuntime,
   input: {
     organizationId: string;
     userId: string;
@@ -95,19 +121,19 @@ export async function loadExecutionCredential(
     { userId: input.userId, organizationIds: [input.organizationId] },
     async (client) => {
       const loaded = await client.query<CredentialEnvelopeRow>(
-        "SELECT * FROM load_gmail_draft_credential($1, $2, $3, $4)",
+        "SELECT * FROM load_mail_draft_credential($1, $2, $3, $4)",
         [
           input.credentialVersionId,
           input.organizationId,
-          "gmail_draft_create",
+          "mail_draft_create",
           input.traceId,
         ],
       );
       const row = loaded.rows[0];
       if (!row) {
-        throw new Error("Active Gmail credential was not available");
+        throw new Error("Active Outlook credential was not available");
       }
-      assertExactGmailCredentialScopes(row.granted_scopes);
+      assertExactMailCredentialScopes(row.granted_scopes);
       const plaintext = runtime.decryptor.decrypt(
         {
           algorithm: row.algorithm,
@@ -125,12 +151,12 @@ export async function loadExecutionCredential(
       await appendAuditEvent(client, {
         organizationId: input.organizationId,
         actorType: "service",
-        actorId: "gmail-credential-worker",
-        eventType: "gmail_draft.credential_loaded",
+        actorId: "mail-credential-worker",
+        eventType: "mail_draft.credential_loaded",
         sourceRecordIds: [],
         inputHash: sha256({
           credentialVersionId: input.credentialVersionId,
-          purpose: "gmail_draft_create",
+          purpose: "mail_draft_create",
         }),
         outputHash: sha256({ fingerprint: row.token_fingerprint }),
         traceId: input.traceId,
@@ -139,7 +165,7 @@ export async function loadExecutionCredential(
           credentialVersionId: input.credentialVersionId,
           tokenFingerprint: row.token_fingerprint,
           grantedScopes: row.granted_scopes,
-          purpose: "gmail_draft_create",
+          purpose: "mail_draft_create",
         },
         occurredAt: new Date().toISOString(),
       });
@@ -164,11 +190,11 @@ export async function recordExecutionCredentialUse(
     { userId: input.userId, organizationIds: [input.organizationId] },
     async (client) => {
       await client.query(
-        "SELECT record_gmail_credential_use($1, $2, 'used', $3, $4, $5::jsonb)",
+        "SELECT record_mail_credential_use($1, $2, 'used', $3, $4, $5::jsonb)",
         [
           input.credentialVersionId,
           input.organizationId,
-          "gmail_draft_create",
+          "mail_draft_create",
           input.traceId,
           JSON.stringify({ outcome: input.outcome }),
         ],
@@ -176,19 +202,19 @@ export async function recordExecutionCredentialUse(
       await appendAuditEvent(client, {
         organizationId: input.organizationId,
         actorType: "service",
-        actorId: "gmail-credential-worker",
-        eventType: "gmail_draft.credential_used",
+        actorId: "mail-credential-worker",
+        eventType: "mail_draft.credential_used",
         sourceRecordIds: [],
         inputHash: sha256({
           credentialVersionId: input.credentialVersionId,
-          purpose: "gmail_draft_create",
+          purpose: "mail_draft_create",
         }),
         outputHash: sha256({ outcome: input.outcome }),
         traceId: input.traceId,
         requestId: input.requestId,
         metadata: {
           credentialVersionId: input.credentialVersionId,
-          purpose: "gmail_draft_create",
+          purpose: "mail_draft_create",
           outcome: input.outcome,
         },
         occurredAt: new Date().toISOString(),
@@ -200,7 +226,7 @@ export async function recordExecutionCredentialUse(
 export async function processCredentialRevocationJob(
   pool: DatabasePool,
   job: OutboxJob,
-  runtime: GmailCredentialRuntime,
+  runtime: MailCredentialRuntime,
 ): Promise<void> {
   await withWorkerOrganizationScope(
     pool,
@@ -210,7 +236,7 @@ export async function processCredentialRevocationJob(
     },
     async (client) => {
       const loaded = await client.query<CredentialEnvelopeRow>(
-        "SELECT * FROM load_gmail_draft_credential($1, $2, $3, $4)",
+        "SELECT * FROM load_mail_draft_credential($1, $2, $3, $4)",
         [
           job.aggregate_id,
           job.organization_id,
@@ -237,38 +263,50 @@ export async function processCredentialRevocationJob(
         },
       );
       try {
+        let outcome;
         try {
-          await runtime.revoker.revoke(token);
+          outcome = await runtime.revoker.revoke(token);
         } catch {
           throw new Error("OAuth credential revocation failed");
         }
         await client.query(
-          "SELECT record_gmail_credential_use($1, $2, 'revoked', $3, $4, $5::jsonb)",
+          "SELECT record_mail_credential_use($1, $2, 'revoked', $3, $4, $5::jsonb)",
           [
             job.aggregate_id,
             job.organization_id,
             "oauth_revocation",
             job.trace_id,
-            JSON.stringify({ revokerEnabled: runtime.revoker.enabled }),
+            // Record what actually happened remotely. With Graph this is
+            // "unsupported_by_provider": the credential is stopped locally, and
+            // the audit trail must not imply a remote revoke that cannot exist.
+            JSON.stringify({
+              revokerEnabled: runtime.revoker.enabled,
+              remoteRevocation: outcome.remote,
+              remoteRevocationDetail: outcome.detail,
+            }),
           ],
         );
         await appendAuditEvent(client, {
           organizationId: job.organization_id,
           actorType: "service",
-          actorId: "gmail-credential-worker",
-          eventType: "gmail_draft.credential_revoked",
+          actorId: "mail-credential-worker",
+          eventType: "mail_draft.credential_revoked",
           sourceRecordIds: [],
           inputHash: sha256({
             credentialVersionId: job.aggregate_id,
             purpose: "oauth_revocation",
           }),
-          outputHash: sha256({ revoked: true }),
+          outputHash: sha256({
+            localCredentialInvalidated: true,
+            remoteRevocation: outcome.remote,
+          }),
           traceId: job.trace_id,
           requestId: job.request_id,
           metadata: {
             credentialVersionId: job.aggregate_id,
             tokenFingerprint: row.token_fingerprint,
             purpose: "oauth_revocation",
+            remoteRevocation: outcome.remote,
           },
           occurredAt: new Date().toISOString(),
         });
@@ -298,7 +336,7 @@ export async function recordCredentialRevocationFailure(
     },
     async (client) => {
       await client.query(
-        "SELECT record_gmail_credential_use($1, $2, 'revocation_failed', $3, $4, $5::jsonb)",
+        "SELECT record_mail_credential_use($1, $2, 'revocation_failed', $3, $4, $5::jsonb)",
         [
           job.aggregate_id,
           job.organization_id,
@@ -310,8 +348,8 @@ export async function recordCredentialRevocationFailure(
       await appendAuditEvent(client, {
         organizationId: job.organization_id,
         actorType: "service",
-        actorId: "gmail-credential-worker",
-        eventType: "gmail_draft.credential_revocation_failed",
+        actorId: "mail-credential-worker",
+        eventType: "mail_draft.credential_revocation_failed",
         sourceRecordIds: [],
         inputHash: sha256({
           credentialVersionId: job.aggregate_id,

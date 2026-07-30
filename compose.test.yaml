@@ -22,6 +22,8 @@ services:
       - ./infrastructure/migrations/0009_gmail_live_pilot_operator_controls.sql:/docker-entrypoint-initdb.d/0009_gmail_live_pilot_operator_controls.sql:ro
       - ./infrastructure/migrations/0010_ops_dead_letter_replay.sql:/docker-entrypoint-initdb.d/0010_ops_dead_letter_replay.sql:ro
       - ./infrastructure/migrations/0011_grant_reaper_to_worker.sql:/docker-entrypoint-initdb.d/0011_grant_reaper_to_worker.sql:ro
+      - ./infrastructure/migrations/0012_collections_chase_proposals.sql:/docker-entrypoint-initdb.d/0012_collections_chase_proposals.sql:ro
+      - ./infrastructure/migrations/0013_mail_draft_microsoft_graph.sql:/docker-entrypoint-initdb.d/0013_mail_draft_microsoft_graph.sql:ro
       - ./infrastructure/seeds/0001_local.sql:/docker-entrypoint-initdb.d/9001_local_seed.sql:ro
     healthcheck:
       test:

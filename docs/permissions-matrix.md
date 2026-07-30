@@ -19,9 +19,9 @@ These are role templates, not final assignments. Organization membership always 
 | Execute risk 6 action                  | Prohibited            | Prohibited    | Prohibited         | Prohibited     | Prohibited    | Prohibited    |
 | Manage users/memberships               | Yes                   | No            | No                 | No             | No            | No            |
 | Manage encrypted connector credentials | With separate grant   | No            | No                 | No             | No            | No            |
-| Configure Gmail draft kill switch      | Yes                   | No            | No                 | No             | No            | No            |
-| Render exact Gmail draft preview       | Yes                   | Yes           | Yes                | Yes            | No            | No            |
-| Authorize previewed Gmail draft        | Yes                   | Yes           | No                 | No             | Yes           | No            |
+| Configure Outlook draft kill switch    | Yes                   | No            | No                 | No             | No            | No            |
+| Render exact Outlook draft preview     | Yes                   | Yes           | Yes                | Yes            | No            | No            |
+| Authorize previewed Outlook draft      | Yes                   | Yes           | No                 | No             | Yes           | No            |
 | View connector health                  | Yes                   | Yes           | Yes                | Yes            | Yes           | Yes           |
 | View audit history                     | Yes                   | Yes           | Yes                | Own scope      | Yes           | Yes           |
 | Export audit data                      | With grant            | With grant    | No                 | No             | No            | With grant    |
@@ -40,7 +40,7 @@ Controlled CSV upload grants are split into `csv_batches.create` and
 `csv_batches.read`. Every grant remains limited by active organization
 membership and forced database RLS.
 
-Gmail grants are split into `connectors.admin`, `external_actions.preview`, and
+Mail grants are split into `connectors.admin`, `external_actions.preview`, and
 `external_actions.authorize`. An active organization binding and allowlist are
 still required; a grant alone cannot reach the provider. The connector can
 create an unsent draft only and has no send permission or route.

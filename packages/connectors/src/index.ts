@@ -114,9 +114,9 @@ export interface ActionPreview {
   warnings: readonly string[];
 }
 
-export const GMAIL_COMPOSE_SCOPE =
-  "https://www.googleapis.com/auth/gmail.compose" as const;
-export const GMAIL_CREDENTIAL_SCOPE_ALLOWLIST = [GMAIL_COMPOSE_SCOPE] as const;
+export const MAIL_COMPOSE_SCOPE =
+  "https://graph.microsoft.com/Mail.ReadWrite" as const;
+export const MAIL_CREDENTIAL_SCOPE_ALLOWLIST = [MAIL_COMPOSE_SCOPE] as const;
 
 export interface EncryptedCredentialEnvelope {
   algorithm: "rsa-oaep-sha256+aes-256-gcm-v1";
@@ -141,11 +141,13 @@ export interface ConnectorCredentialDecryptor {
   ): string;
 }
 
-export function assertExactGmailCredentialScopes(
+export function assertExactMailCredentialScopes(
   scopes: readonly string[],
-): asserts scopes is readonly [typeof GMAIL_COMPOSE_SCOPE] {
-  if (scopes.length !== 1 || scopes[0] !== GMAIL_COMPOSE_SCOPE) {
-    throw new Error(`Gmail credentials require exactly ${GMAIL_COMPOSE_SCOPE}`);
+): asserts scopes is readonly [typeof MAIL_COMPOSE_SCOPE] {
+  if (scopes.length !== 1 || scopes[0] !== MAIL_COMPOSE_SCOPE) {
+    throw new Error(
+      `Outlook credentials require exactly ${MAIL_COMPOSE_SCOPE}`,
+    );
   }
 }
 
@@ -170,7 +172,7 @@ function aad(context: {
   credentialVersionId: string;
 }): Buffer {
   return Buffer.from(
-    `gmail-draft:${context.organizationId}:${context.credentialVersionId}`,
+    `mail-draft:${context.organizationId}:${context.credentialVersionId}`,
     "utf8",
   );
 }

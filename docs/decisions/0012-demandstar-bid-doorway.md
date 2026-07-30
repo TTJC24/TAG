@@ -17,7 +17,7 @@ A deterministic, inert-by-default doorway that turns exported DemandStar
 messages into governed USA intake:
 
 - Input is exported message JSON ({id, subject, from, date, body}); how the
-  export is produced (manual, Gmail API later) is deployment choice. Live
+  export is produced (manual, Microsoft Graph later) is deployment choice. Live
   mailbox OAuth is deliberately out of scope pending the owner's explicit
   approval per the WorkOS contract's stop-and-ask rules.
 - Parsing is deterministic (labeled-field extraction from the real email
@@ -44,7 +44,7 @@ messages into governed USA intake:
   auditable act.
 - The fourth doorway (humans, meetings, numbers, now revenue mail) reuses the
   same governed pipeline; no parallel path.
-- Automating the mailbox pull (Gmail API read-only) is a follow-up requiring
+- Automating the mailbox pull (Microsoft Graph read-only) is a follow-up requiring
   owner-approved OAuth; the parser and pipeline are unchanged by it.
 
 ## Amendment (2026-07-26): Pipedrive is canonical for pursuit state

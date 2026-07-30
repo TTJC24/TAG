@@ -1,15 +1,15 @@
 import { appendAuditEvent, sha256 } from "@operating-layer/audit";
 import { withOrganizationScope, type DatabasePool } from "@operating-layer/db";
-import { inspectGmailDraftStructuralSafety } from "@operating-layer/executors";
+import { inspectMailDraftStructuralSafety } from "@operating-layer/executors";
 import {
-  gmailDraftPilotClaimInputSchema,
-  gmailDraftPilotClaimResponseSchema,
-  gmailDraftPilotPreflightInputSchema,
-  gmailDraftPilotPreflightResponseSchema,
-  type GmailDraftPilotClaimInput,
-  type GmailDraftPilotClaimResponse,
-  type GmailDraftPilotPreflightInput,
-  type GmailDraftPilotPreflightResponse,
+  mailDraftPilotClaimInputSchema,
+  mailDraftPilotClaimResponseSchema,
+  mailDraftPilotPreflightInputSchema,
+  mailDraftPilotPreflightResponseSchema,
+  type MailDraftPilotClaimInput,
+  type MailDraftPilotClaimResponse,
+  type MailDraftPilotPreflightInput,
+  type MailDraftPilotPreflightResponse,
 } from "@operating-layer/schemas";
 import { DomainError } from "./errors.js";
 import {
@@ -44,16 +44,16 @@ async function activeOrganizationIds(
   return ids;
 }
 
-export async function setGmailDraftPilotClaim(
+export async function setMailDraftPilotClaim(
   pool: DatabasePool,
   command: {
     principal: ApplicationPrincipal;
-    input: GmailDraftPilotClaimInput;
+    input: MailDraftPilotClaimInput;
     idempotencyKey: string;
     context: RequestContext;
   },
-): Promise<GmailDraftPilotClaimResponse> {
-  const input = gmailDraftPilotClaimInputSchema.parse(command.input);
+): Promise<MailDraftPilotClaimResponse> {
+  const input = mailDraftPilotClaimInputSchema.parse(command.input);
   requireOrganizationPermission(
     command.principal,
     input.organizationId,
@@ -62,13 +62,13 @@ export async function setGmailDraftPilotClaim(
   const organizationIds = await activeOrganizationIds(pool, command.principal);
   const idempotencyKey = ensureIdempotencyKey(command.idempotencyKey);
   const requestHash = sha256(input);
-  const scope = "gmail_draft_live_pilot_claim";
+  const scope = "mail_draft_live_pilot_claim";
 
   return withOrganizationScope(
     pool,
     { userId: command.principal.userId, organizationIds },
     async (client) => {
-      const claim = await claimIdempotentCommand<GmailDraftPilotClaimResponse>(
+      const claim = await claimIdempotentCommand<MailDraftPilotClaimResponse>(
         client,
         {
           organizationId: input.organizationId,
@@ -83,8 +83,8 @@ export async function setGmailDraftPilotClaim(
 
       const functionName =
         input.action === "claim"
-          ? "claim_gmail_draft_live_pilot"
-          : "release_gmail_draft_live_pilot";
+          ? "claim_mail_draft_live_pilot"
+          : "release_mail_draft_live_pilot";
       const changed = await client.query<{
         organization_id: string;
         organization_code: string;
@@ -101,14 +101,14 @@ export async function setGmailDraftPilotClaim(
       );
       const row = changed.rows[0];
       if (!row) {
-        throw new Error("Gmail live-pilot claim did not return state");
+        throw new Error("Mail live-pilot claim did not return state");
       }
       const action = input.action === "claim" ? "claimed" : "released";
       await appendAuditEvent(client, {
         organizationId: input.organizationId,
         actorType: "user",
         actorId: command.principal.userId,
-        eventType: `gmail_draft.live_pilot_${action}`,
+        eventType: `mail_draft.live_pilot_${action}`,
         sourceRecordIds: [],
         inputHash: requestHash,
         outputHash: sha256({
@@ -127,7 +127,7 @@ export async function setGmailDraftPilotClaim(
         },
         occurredAt: new Date().toISOString(),
       });
-      const response = gmailDraftPilotClaimResponseSchema.parse({
+      const response = mailDraftPilotClaimResponseSchema.parse({
         organizationId: row.organization_id,
         organizationCode: row.organization_code,
         action,
@@ -147,15 +147,15 @@ export async function setGmailDraftPilotClaim(
   );
 }
 
-export async function inspectGmailDraftPilotPreflight(
+export async function inspectMailDraftPilotPreflight(
   pool: DatabasePool,
   command: {
     principal: ApplicationPrincipal;
-    input: GmailDraftPilotPreflightInput;
+    input: MailDraftPilotPreflightInput;
     context: RequestContext;
   },
-): Promise<GmailDraftPilotPreflightResponse> {
-  const input = gmailDraftPilotPreflightInputSchema.parse(command.input);
+): Promise<MailDraftPilotPreflightResponse> {
+  const input = mailDraftPilotPreflightInputSchema.parse(command.input);
   requireOrganizationPermission(
     command.principal,
     input.organizationId,
@@ -185,7 +185,7 @@ export async function inspectGmailDraftPilotPreflight(
         kill_switch_reachable: boolean;
       }>(
         `SELECT *
-         FROM inspect_gmail_draft_live_pilot($1, $2, $3)`,
+         FROM inspect_mail_draft_live_pilot($1, $2, $3)`,
         [
           input.organizationId,
           input.expectedRecipient ?? null,
@@ -196,7 +196,7 @@ export async function inspectGmailDraftPilotPreflight(
       if (!row) {
         throw new DomainError(
           404,
-          "gmail_draft_pilot_organization_not_found",
+          "mail_draft_pilot_organization_not_found",
           "The live-pilot organization is not active",
         );
       }
@@ -206,12 +206,12 @@ export async function inspectGmailDraftPilotPreflight(
       ) {
         throw new DomainError(
           409,
-          "gmail_draft_pilot_organization_mismatch",
+          "mail_draft_pilot_organization_mismatch",
           "The organization code does not match the requested organization ID",
         );
       }
 
-      const structural = inspectGmailDraftStructuralSafety();
+      const structural = inspectMailDraftStructuralSafety();
       const checks = {
         pilotClaimedForTarget: row.pilot_claimed_for_target,
         targetConnectorEnabled: row.target_connector_enabled,
@@ -235,7 +235,7 @@ export async function inspectGmailDraftPilotPreflight(
         row.all_other_organizations_disabled &&
         row.kill_switch_reachable &&
         structural.structuralNoSend;
-      return gmailDraftPilotPreflightResponseSchema.parse({
+      return mailDraftPilotPreflightResponseSchema.parse({
         organizationId: row.organization_id,
         organizationCode: row.organization_code,
         organizationName: row.organization_name,

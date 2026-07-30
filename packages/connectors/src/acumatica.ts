@@ -28,7 +28,7 @@ export interface OpenArInvoice {
 
 /**
  * The one definition of a usable recipient, matching the CHECK constraint on
- * collections_chase_proposals.recipient and Gmail's own address rule.
+ * collections_chase_proposals.recipient and Mail's own address rule.
  *
  * ERP contact fields hold things like "Acme AP <ap@acme.com>", "ap@acme" with
  * no dot, or two addresses comma-separated. A looser test here would let those

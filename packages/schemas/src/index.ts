@@ -304,7 +304,7 @@ export type ExecutionProviderOutput = z.infer<
   typeof executionProviderOutputSchema
 >;
 
-const gmailAddressSchema = z
+const mailAddressSchema = z
   .string()
   .trim()
   .toLowerCase()
@@ -312,11 +312,11 @@ const gmailAddressSchema = z
   .max(320)
   .refine((value) => !/[\r\n]/.test(value), "email cannot contain newlines");
 
-export const gmailDraftConnectorConfigInputSchema = z
+export const mailDraftConnectorConfigInputSchema = z
   .object({
     organizationId: z.string().uuid(),
     enabled: z.boolean(),
-    allowedRecipientAddresses: z.array(gmailAddressSchema).max(500),
+    allowedRecipientAddresses: z.array(mailAddressSchema).max(500),
     allowedRecipientDomains: z
       .array(
         z
@@ -340,91 +340,91 @@ export const gmailDraftConnectorConfigInputSchema = z
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          "enabled Gmail draft configuration requires a recipient allowlist",
+          "enabled Outlook draft configuration requires a recipient allowlist",
       });
     }
   });
-export type GmailDraftConnectorConfigInput = z.infer<
-  typeof gmailDraftConnectorConfigInputSchema
+export type MailDraftConnectorConfigInput = z.infer<
+  typeof mailDraftConnectorConfigInputSchema
 >;
 
-export const gmailDraftConnectorConfigResponseSchema = z.object({
+export const mailDraftConnectorConfigResponseSchema = z.object({
   configVersionId: z.string().uuid(),
   organizationId: z.string().uuid(),
   versionNumber: z.number().int().positive(),
   bindingVersion: z.number().int().positive(),
   enabled: z.boolean(),
-  allowedRecipientAddresses: z.array(gmailAddressSchema),
+  allowedRecipientAddresses: z.array(mailAddressSchema),
   allowedRecipientDomains: z.array(z.string()),
   oauthScopes: z.tuple([
-    z.literal("https://www.googleapis.com/auth/gmail.compose"),
+    z.literal("https://graph.microsoft.com/Mail.ReadWrite"),
   ]),
   reason: z.string(),
   duplicate: z.boolean(),
   traceId: z.string().min(1),
 });
-export type GmailDraftConnectorConfigResponse = z.infer<
-  typeof gmailDraftConnectorConfigResponseSchema
+export type MailDraftConnectorConfigResponse = z.infer<
+  typeof mailDraftConnectorConfigResponseSchema
 >;
 
-export const gmailCredentialInputSchema = z.object({
+export const mailCredentialInputSchema = z.object({
   organizationId: z.string().uuid(),
   accessToken: z.string().min(16).max(20_000),
   grantedScopes: z.array(z.string()).min(1).max(20),
   reason: z.string().trim().min(3).max(1000),
 });
-export type GmailCredentialInput = z.infer<typeof gmailCredentialInputSchema>;
+export type MailCredentialInput = z.infer<typeof mailCredentialInputSchema>;
 
-export const gmailCredentialResponseSchema = z.object({
+export const mailCredentialResponseSchema = z.object({
   credentialVersionId: z.string().uuid(),
   organizationId: z.string().uuid(),
   versionNumber: z.number().int().positive(),
   replacedCredentialVersionId: z.string().uuid().nullable(),
   revocationOutboxEventId: z.string().uuid().nullable(),
   grantedScopes: z.tuple([
-    z.literal("https://www.googleapis.com/auth/gmail.compose"),
+    z.literal("https://graph.microsoft.com/Mail.ReadWrite"),
   ]),
   duplicate: z.boolean(),
   traceId: z.string().min(1),
 });
-export type GmailCredentialResponse = z.infer<
-  typeof gmailCredentialResponseSchema
+export type MailCredentialResponse = z.infer<
+  typeof mailCredentialResponseSchema
 >;
 
-export const gmailCredentialRevokeInputSchema = z.object({
+export const mailCredentialRevokeInputSchema = z.object({
   organizationId: z.string().uuid(),
   reason: z.string().trim().min(3).max(1000),
 });
-export type GmailCredentialRevokeInput = z.infer<
-  typeof gmailCredentialRevokeInputSchema
+export type MailCredentialRevokeInput = z.infer<
+  typeof mailCredentialRevokeInputSchema
 >;
 
-export const gmailCredentialRevokeResponseSchema = z.object({
+export const mailCredentialRevokeResponseSchema = z.object({
   organizationId: z.string().uuid(),
   invalidatedCredentialVersionId: z.string().uuid().nullable(),
   revocationOutboxEventId: z.string().uuid().nullable(),
   duplicate: z.boolean(),
   traceId: z.string().min(1),
 });
-export type GmailCredentialRevokeResponse = z.infer<
-  typeof gmailCredentialRevokeResponseSchema
+export type MailCredentialRevokeResponse = z.infer<
+  typeof mailCredentialRevokeResponseSchema
 >;
 
-export const gmailGlobalKillInputSchema = z.object({
+export const mailGlobalKillInputSchema = z.object({
   killed: z.boolean(),
   reason: z.string().trim().min(3).max(1000),
 });
 
-export const gmailDraftPilotClaimInputSchema = z.object({
+export const mailDraftPilotClaimInputSchema = z.object({
   organizationId: z.string().uuid(),
   action: z.enum(["claim", "release"]),
   reason: z.string().trim().min(3).max(1000),
 });
-export type GmailDraftPilotClaimInput = z.infer<
-  typeof gmailDraftPilotClaimInputSchema
+export type MailDraftPilotClaimInput = z.infer<
+  typeof mailDraftPilotClaimInputSchema
 >;
 
-export const gmailDraftPilotClaimResponseSchema = z.object({
+export const mailDraftPilotClaimResponseSchema = z.object({
   organizationId: z.string().uuid(),
   organizationCode: z.string().trim().min(1).max(50),
   action: z.enum(["claimed", "released"]),
@@ -432,25 +432,25 @@ export const gmailDraftPilotClaimResponseSchema = z.object({
   duplicate: z.boolean(),
   traceId: z.string().min(1),
 });
-export type GmailDraftPilotClaimResponse = z.infer<
-  typeof gmailDraftPilotClaimResponseSchema
+export type MailDraftPilotClaimResponse = z.infer<
+  typeof mailDraftPilotClaimResponseSchema
 >;
 
-export const gmailDraftPilotPreflightInputSchema = z.object({
+export const mailDraftPilotPreflightInputSchema = z.object({
   organizationId: z.string().uuid(),
   expectedOrganizationCode: z.string().trim().min(1).max(50),
-  expectedRecipient: gmailAddressSchema.optional(),
+  expectedRecipient: mailAddressSchema.optional(),
   expectedCredentialFingerprint: z
     .string()
     .length(64)
     .regex(/^[a-f0-9]{64}$/)
     .optional(),
 });
-export type GmailDraftPilotPreflightInput = z.infer<
-  typeof gmailDraftPilotPreflightInputSchema
+export type MailDraftPilotPreflightInput = z.infer<
+  typeof mailDraftPilotPreflightInputSchema
 >;
 
-export const gmailDraftPilotPreflightResponseSchema = z.object({
+export const mailDraftPilotPreflightResponseSchema = z.object({
   organizationId: z.string().uuid(),
   organizationCode: z.string().trim().min(1).max(50),
   organizationName: z.string().trim().min(1),
@@ -473,13 +473,13 @@ export const gmailDraftPilotPreflightResponseSchema = z.object({
   checks: z.record(z.boolean()),
   traceId: z.string().min(1),
 });
-export type GmailDraftPilotPreflightResponse = z.infer<
-  typeof gmailDraftPilotPreflightResponseSchema
+export type MailDraftPilotPreflightResponse = z.infer<
+  typeof mailDraftPilotPreflightResponseSchema
 >;
 
-export const gmailDraftPreviewInputSchema = z.object({
+export const mailDraftPreviewInputSchema = z.object({
   organizationId: z.string().uuid(),
-  to: gmailAddressSchema,
+  to: mailAddressSchema,
   subject: z
     .string()
     .trim()
@@ -491,11 +491,9 @@ export const gmailDraftPreviewInputSchema = z.object({
     ),
   body: z.string().min(1).max(100_000),
 });
-export type GmailDraftPreviewInput = z.infer<
-  typeof gmailDraftPreviewInputSchema
->;
+export type MailDraftPreviewInput = z.infer<typeof mailDraftPreviewInputSchema>;
 
-export const gmailDraftPreviewResponseSchema = z.object({
+export const mailDraftPreviewResponseSchema = z.object({
   previewId: z.string().uuid(),
   taskId: z.string().uuid(),
   workflowId: z.string().uuid(),
@@ -503,7 +501,7 @@ export const gmailDraftPreviewResponseSchema = z.object({
   connectorConfigVersionId: z.string().uuid(),
   policyVersionId: z.string().uuid(),
   renderedPayload: z.object({
-    to: gmailAddressSchema,
+    to: mailAddressSchema,
     subject: z.string(),
     body: z.string(),
   }),
@@ -512,19 +510,19 @@ export const gmailDraftPreviewResponseSchema = z.object({
   duplicate: z.boolean(),
   traceId: z.string().min(1),
 });
-export type GmailDraftPreviewResponse = z.infer<
-  typeof gmailDraftPreviewResponseSchema
+export type MailDraftPreviewResponse = z.infer<
+  typeof mailDraftPreviewResponseSchema
 >;
 
-export const gmailDraftAuthorizationInputSchema = z.object({
+export const mailDraftAuthorizationInputSchema = z.object({
   organizationId: z.string().uuid(),
   reason: z.string().trim().min(3).max(1000),
 });
-export type GmailDraftAuthorizationInput = z.infer<
-  typeof gmailDraftAuthorizationInputSchema
+export type MailDraftAuthorizationInput = z.infer<
+  typeof mailDraftAuthorizationInputSchema
 >;
 
-export const gmailDraftAuthorizationResponseSchema = z.object({
+export const mailDraftAuthorizationResponseSchema = z.object({
   authorizationId: z.string().uuid(),
   previewId: z.string().uuid(),
   executionCommandId: z.string().uuid(),
@@ -537,11 +535,11 @@ export const gmailDraftAuthorizationResponseSchema = z.object({
   duplicate: z.boolean(),
   traceId: z.string().min(1),
 });
-export type GmailDraftAuthorizationResponse = z.infer<
-  typeof gmailDraftAuthorizationResponseSchema
+export type MailDraftAuthorizationResponse = z.infer<
+  typeof mailDraftAuthorizationResponseSchema
 >;
 
-export const gmailDraftProviderOutputSchema = z.object({
+export const mailDraftProviderOutputSchema = z.object({
   outcome: z.literal("succeeded"),
   summary: z.string().trim().min(1).max(4000),
   output: z.object({
@@ -553,8 +551,8 @@ export const gmailDraftProviderOutputSchema = z.object({
     renderedPayloadHash: z.string().length(64),
   }),
 });
-export type GmailDraftProviderOutput = z.infer<
-  typeof gmailDraftProviderOutputSchema
+export type MailDraftProviderOutput = z.infer<
+  typeof mailDraftProviderOutputSchema
 >;
 
 export type OutputSchema<T> = {

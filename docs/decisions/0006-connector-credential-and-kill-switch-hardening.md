@@ -5,9 +5,9 @@ Date: 2026-07-25
 
 ## Context
 
-Google's `gmail.compose` scope is the minimum scope accepted by
+Google's `mail.compose` scope is the minimum scope accepted by
 `users.drafts.create`, but that token can also authorize sending. OAuth scope
-alone therefore cannot be the send boundary. The existing disabled Gmail-draft
+alone therefore cannot be the send boundary. The existing disabled Mail-draft
 slice needed an enforceable credential boundary before further connector work.
 
 ## Decision
@@ -39,7 +39,7 @@ before queuing revocation.
 
 A global connector-type kill switch serializes with configuration and
 credential changes through a transaction advisory lock. Enabling the switch
-invalidates every active Gmail credential and queues one OAuth revocation
+invalidates every active Outlook credential and queues one OAuth revocation
 attempt per credential. Clearing it does not restore credentials; an
 organization must provision a new version and explicitly enable its config.
 
@@ -48,16 +48,16 @@ organization must provision a new version and explicitly enable its config.
 The accepted scope allowlist is exactly:
 
 ```text
-https://www.googleapis.com/auth/gmail.compose
+https://graph.microsoft.com/Mail.ReadWrite
 ```
 
 Broader or additional scopes are rejected by typed validation and a database
-constraint. The Gmail transport has one method, `createDraft`, fixed to
-`POST /gmail/v1/users/me/drafts`. There is no send method, route, capability,
-or dynamic Gmail endpoint. A structural test pins both prototype method sets,
+constraint. The Mail transport has one method, `createDraft`, fixed to
+`POST /mail/v1/users/me/drafts`. There is no send method, route, capability,
+or dynamic Mail endpoint. A structural test pins both prototype method sets,
 so adding a send method fails verification.
 
-`GMAIL_DRAFT_NETWORK_ENABLED` remains `false` by default. Tests perform no
+`MAIL_DRAFT_NETWORK_ENABLED` remains `false` by default. Tests perform no
 Google network request. OAuth revocation uses the same gate: while disabled,
 the credential is already locally unusable and the bounded revocation job
 becomes visibly failed/dead-lettered instead of making a hidden call.
@@ -83,5 +83,5 @@ the public encryption key. Keys and credentials never enable network access.
 - JavaScript strings cannot be reliably zeroed. Decrypted strings are scoped
   to one execution call, wrapped in a redacting ephemeral object, and never
   persisted or logged.
-- Gmail sending, other connectors, live model calls, ERP/accounting writes,
+- Mail sending, other connectors, live model calls, ERP/accounting writes,
   and live connector enablement remain outside this change.

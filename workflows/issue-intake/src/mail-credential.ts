@@ -1,21 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { appendAuditEvent, sha256 } from "@operating-layer/audit";
 import {
-  assertExactGmailCredentialScopes,
-  GMAIL_CREDENTIAL_SCOPE_ALLOWLIST,
+  assertExactMailCredentialScopes,
+  MAIL_CREDENTIAL_SCOPE_ALLOWLIST,
   type ConnectorCredentialEncryptor,
 } from "@operating-layer/connectors";
 import { withOrganizationScope, type DatabasePool } from "@operating-layer/db";
 import {
-  gmailCredentialInputSchema,
-  gmailCredentialResponseSchema,
-  gmailCredentialRevokeInputSchema,
-  gmailCredentialRevokeResponseSchema,
-  gmailGlobalKillInputSchema,
-  type GmailCredentialInput,
-  type GmailCredentialResponse,
-  type GmailCredentialRevokeInput,
-  type GmailCredentialRevokeResponse,
+  mailCredentialInputSchema,
+  mailCredentialResponseSchema,
+  mailCredentialRevokeInputSchema,
+  mailCredentialRevokeResponseSchema,
+  mailGlobalKillInputSchema,
+  type MailCredentialInput,
+  type MailCredentialResponse,
+  type MailCredentialRevokeInput,
+  type MailCredentialRevokeResponse,
 } from "@operating-layer/schemas";
 import {
   claimIdempotentCommand,
@@ -29,31 +29,31 @@ import {
 import type { RequestContext } from "./service.js";
 import { DomainError } from "./errors.js";
 
-export interface StoreGmailCredentialCommand {
+export interface StoreMailCredentialCommand {
   principal: ApplicationPrincipal;
-  input: GmailCredentialInput;
+  input: MailCredentialInput;
   idempotencyKey: string;
   context: RequestContext;
 }
 
-export async function storeGmailCredential(
+export async function storeMailCredential(
   pool: DatabasePool,
   encryptor: ConnectorCredentialEncryptor,
-  command: StoreGmailCredentialCommand,
-): Promise<GmailCredentialResponse> {
-  const input = gmailCredentialInputSchema.parse(command.input);
+  command: StoreMailCredentialCommand,
+): Promise<MailCredentialResponse> {
+  const input = mailCredentialInputSchema.parse(command.input);
   requireOrganizationPermission(
     command.principal,
     input.organizationId,
     "connectors.admin",
   );
   try {
-    assertExactGmailCredentialScopes(input.grantedScopes);
+    assertExactMailCredentialScopes(input.grantedScopes);
   } catch {
     throw new DomainError(
       400,
-      "gmail_credential_scope_rejected",
-      "Gmail credential scopes must match the exact approved allowlist",
+      "mail_credential_scope_rejected",
+      "Outlook credential scopes must match the exact approved allowlist",
     );
   }
   const idempotencyKey = ensureIdempotencyKey(command.idempotencyKey);
@@ -68,7 +68,7 @@ export async function storeGmailCredential(
     grantedScopes: input.grantedScopes,
     reason: input.reason,
   });
-  const scope = "gmail_draft_credential_store";
+  const scope = "mail_draft_credential_store";
 
   return withOrganizationScope(
     pool,
@@ -77,7 +77,7 @@ export async function storeGmailCredential(
       organizationIds: [input.organizationId],
     },
     async (client) => {
-      const claim = await claimIdempotentCommand<GmailCredentialResponse>(
+      const claim = await claimIdempotentCommand<MailCredentialResponse>(
         client,
         {
           organizationId: input.organizationId,
@@ -95,7 +95,7 @@ export async function storeGmailCredential(
         replaced_credential_version_id: string | null;
         revocation_outbox_event_id: string | null;
       }>(
-        `SELECT * FROM store_gmail_draft_credential(
+        `SELECT * FROM store_mail_draft_credential(
            $1, $2, $3, $4, $5, $6, $7, $8, $9::text[], $10, $11, $12
          )`,
         [
@@ -115,8 +115,8 @@ export async function storeGmailCredential(
       );
       const row = stored.rows[0]!;
       const eventType = row.replaced_credential_version_id
-        ? "gmail_draft.credential_rotated"
-        : "gmail_draft.credential_enabled";
+        ? "mail_draft.credential_rotated"
+        : "mail_draft.credential_enabled";
       await appendAuditEvent(client, {
         organizationId: input.organizationId,
         actorType: "user",
@@ -143,7 +143,7 @@ export async function storeGmailCredential(
         },
         occurredAt: new Date().toISOString(),
       });
-      const response = gmailCredentialResponseSchema.parse({
+      const response = mailCredentialResponseSchema.parse({
         credentialVersionId,
         organizationId: input.organizationId,
         versionNumber: row.version_number,
@@ -165,18 +165,18 @@ export async function storeGmailCredential(
   );
 }
 
-export interface RevokeGmailCredentialCommand {
+export interface RevokeMailCredentialCommand {
   principal: ApplicationPrincipal;
-  input: GmailCredentialRevokeInput;
+  input: MailCredentialRevokeInput;
   idempotencyKey: string;
   context: RequestContext;
 }
 
-export async function revokeGmailCredential(
+export async function revokeMailCredential(
   pool: DatabasePool,
-  command: RevokeGmailCredentialCommand,
-): Promise<GmailCredentialRevokeResponse> {
-  const input = gmailCredentialRevokeInputSchema.parse(command.input);
+  command: RevokeMailCredentialCommand,
+): Promise<MailCredentialRevokeResponse> {
+  const input = mailCredentialRevokeInputSchema.parse(command.input);
   requireOrganizationPermission(
     command.principal,
     input.organizationId,
@@ -184,7 +184,7 @@ export async function revokeGmailCredential(
   );
   const idempotencyKey = ensureIdempotencyKey(command.idempotencyKey);
   const requestHash = sha256(input);
-  const scope = "gmail_draft_credential_revoke";
+  const scope = "mail_draft_credential_revoke";
   return withOrganizationScope(
     pool,
     {
@@ -192,7 +192,7 @@ export async function revokeGmailCredential(
       organizationIds: [input.organizationId],
     },
     async (client) => {
-      const claim = await claimIdempotentCommand<GmailCredentialRevokeResponse>(
+      const claim = await claimIdempotentCommand<MailCredentialRevokeResponse>(
         client,
         {
           organizationId: input.organizationId,
@@ -207,7 +207,7 @@ export async function revokeGmailCredential(
       const result = await client.query<{
         invalidated_credential_version_id: string | null;
         revocation_outbox_event_id: string | null;
-      }>("SELECT * FROM invalidate_gmail_draft_credential($1, $2, $3, $4)", [
+      }>("SELECT * FROM invalidate_mail_draft_credential($1, $2, $3, $4)", [
         input.organizationId,
         input.reason,
         command.context.traceId,
@@ -218,7 +218,7 @@ export async function revokeGmailCredential(
         organizationId: input.organizationId,
         actorType: "user",
         actorId: command.principal.userId,
-        eventType: "gmail_draft.credential_revocation_requested",
+        eventType: "mail_draft.credential_revocation_requested",
         sourceRecordIds: [],
         inputHash: requestHash,
         outputHash: sha256(row),
@@ -231,7 +231,7 @@ export async function revokeGmailCredential(
         },
         occurredAt: new Date().toISOString(),
       });
-      const response = gmailCredentialRevokeResponseSchema.parse({
+      const response = mailCredentialRevokeResponseSchema.parse({
         organizationId: input.organizationId,
         invalidatedCredentialVersionId: row.invalidated_credential_version_id,
         revocationOutboxEventId: row.revocation_outbox_event_id,
@@ -250,7 +250,7 @@ export async function revokeGmailCredential(
   );
 }
 
-export async function setGmailGlobalKill(
+export async function setMailGlobalKill(
   pool: DatabasePool,
   command: {
     principal: ApplicationPrincipal;
@@ -262,7 +262,7 @@ export async function setGmailGlobalKill(
   affectedOrganizations: number;
   traceId: string;
 }> {
-  const input = gmailGlobalKillInputSchema.parse(command.input);
+  const input = mailGlobalKillInputSchema.parse(command.input);
   const organizationIds = command.principal.organizationIds.filter(
     (organizationId) =>
       command.principal.permissionsByOrganization[organizationId]?.includes(
@@ -280,7 +280,7 @@ export async function setGmailGlobalKill(
         organization_id: string;
         invalidated_credential_version_id: string;
         revocation_outbox_event_id: string;
-      }>("SELECT * FROM set_gmail_draft_global_kill($1, $2, $3, $4)", [
+      }>("SELECT * FROM set_mail_draft_global_kill($1, $2, $3, $4)", [
         input.killed,
         command.context.traceId,
         command.context.requestId,
@@ -299,8 +299,8 @@ export async function setGmailGlobalKill(
           actorType: "user",
           actorId: command.principal.userId,
           eventType: input.killed
-            ? "gmail_draft.global_kill_enabled"
-            : "gmail_draft.global_kill_cleared",
+            ? "mail_draft.global_kill_enabled"
+            : "mail_draft.global_kill_cleared",
           sourceRecordIds: [],
           inputHash: sha256(input),
           outputHash: sha256(row),
@@ -323,4 +323,4 @@ export async function setGmailGlobalKill(
   );
 }
 
-export { GMAIL_CREDENTIAL_SCOPE_ALLOWLIST };
+export { MAIL_CREDENTIAL_SCOPE_ALLOWLIST };

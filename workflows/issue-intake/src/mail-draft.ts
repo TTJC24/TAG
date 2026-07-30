@@ -2,18 +2,18 @@ import { randomUUID } from "node:crypto";
 import { appendAuditEvent, sha256 } from "@operating-layer/audit";
 import { withOrganizationScope, type DatabasePool } from "@operating-layer/db";
 import {
-  gmailDraftAuthorizationInputSchema,
-  gmailDraftAuthorizationResponseSchema,
-  gmailDraftConnectorConfigInputSchema,
-  gmailDraftConnectorConfigResponseSchema,
-  gmailDraftPreviewInputSchema,
-  gmailDraftPreviewResponseSchema,
-  type GmailDraftAuthorizationInput,
-  type GmailDraftAuthorizationResponse,
-  type GmailDraftConnectorConfigInput,
-  type GmailDraftConnectorConfigResponse,
-  type GmailDraftPreviewInput,
-  type GmailDraftPreviewResponse,
+  mailDraftAuthorizationInputSchema,
+  mailDraftAuthorizationResponseSchema,
+  mailDraftConnectorConfigInputSchema,
+  mailDraftConnectorConfigResponseSchema,
+  mailDraftPreviewInputSchema,
+  mailDraftPreviewResponseSchema,
+  type MailDraftAuthorizationInput,
+  type MailDraftAuthorizationResponse,
+  type MailDraftConnectorConfigInput,
+  type MailDraftConnectorConfigResponse,
+  type MailDraftPreviewInput,
+  type MailDraftPreviewResponse,
 } from "@operating-layer/schemas";
 import { DomainError } from "./errors.js";
 import {
@@ -27,25 +27,25 @@ import {
 } from "./identity.js";
 import type { RequestContext } from "./service.js";
 
-const GMAIL_COMPOSE_SCOPE =
-  "https://www.googleapis.com/auth/gmail.compose" as const;
+const MAIL_COMPOSE_SCOPE =
+  "https://graph.microsoft.com/Mail.ReadWrite" as const;
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim().toLowerCase()))].sort();
 }
 
-export interface ConfigureGmailDraftConnectorCommand {
+export interface ConfigureMailDraftConnectorCommand {
   principal: ApplicationPrincipal;
-  input: GmailDraftConnectorConfigInput;
+  input: MailDraftConnectorConfigInput;
   idempotencyKey: string;
   context: RequestContext;
 }
 
-export async function configureGmailDraftConnector(
+export async function configureMailDraftConnector(
   pool: DatabasePool,
-  command: ConfigureGmailDraftConnectorCommand,
-): Promise<GmailDraftConnectorConfigResponse> {
-  const input = gmailDraftConnectorConfigInputSchema.parse(command.input);
+  command: ConfigureMailDraftConnectorCommand,
+): Promise<MailDraftConnectorConfigResponse> {
+  const input = mailDraftConnectorConfigInputSchema.parse(command.input);
   requireOrganizationPermission(
     command.principal,
     input.organizationId,
@@ -59,10 +59,10 @@ export async function configureGmailDraftConnector(
     enabled: input.enabled,
     allowedRecipientAddresses: addresses,
     allowedRecipientDomains: domains,
-    oauthScopes: [GMAIL_COMPOSE_SCOPE],
+    oauthScopes: [MAIL_COMPOSE_SCOPE],
     reason: input.reason,
   });
-  const scope = "gmail_draft_connector_config";
+  const scope = "mail_draft_connector_config";
 
   return withOrganizationScope(
     pool,
@@ -72,27 +72,24 @@ export async function configureGmailDraftConnector(
     },
     async (client) => {
       const claim =
-        await claimIdempotentCommand<GmailDraftConnectorConfigResponse>(
-          client,
-          {
-            organizationId: input.organizationId,
-            scope,
-            idempotencyKey,
-            requestHash,
-          },
-        );
+        await claimIdempotentCommand<MailDraftConnectorConfigResponse>(client, {
+          organizationId: input.organizationId,
+          scope,
+          idempotencyKey,
+          requestHash,
+        });
       if (claim.kind === "replay") {
         return { ...claim.response, duplicate: true };
       }
 
       await client.query(
-        "SELECT pg_advisory_xact_lock(hashtext('gmail-draft-global-kill'))",
+        "SELECT pg_advisory_xact_lock(hashtext('mail-draft-global-kill'))",
       );
       const pilotControl = await client.query<{
         target_organization_id: string | null;
       }>(
         `SELECT target_organization_id
-         FROM gmail_draft_live_pilot_control
+         FROM mail_draft_live_pilot_control
          WHERE singleton`,
       );
       const pilotTarget = pilotControl.rows[0]?.target_organization_id ?? null;
@@ -103,8 +100,8 @@ export async function configureGmailDraftConnector(
       ) {
         throw new DomainError(
           409,
-          "gmail_draft_live_pilot_org_locked",
-          "The live Gmail pilot permits exactly one enabled organization",
+          "mail_draft_live_pilot_org_locked",
+          "The live Mail pilot permits exactly one enabled organization",
         );
       }
       const credentialState = await client.query<{
@@ -112,8 +109,8 @@ export async function configureGmailDraftConnector(
         killed: boolean;
       }>(
         `SELECT binding.active_credential_version_id, kill.killed
-         FROM gmail_draft_global_kill_switch kill
-         LEFT JOIN gmail_draft_credential_bindings binding
+         FROM mail_draft_global_kill_switch kill
+         LEFT JOIN mail_draft_credential_bindings binding
            ON binding.organization_id = $1
          WHERE kill.singleton`,
         [input.organizationId],
@@ -125,8 +122,8 @@ export async function configureGmailDraftConnector(
       ) {
         throw new DomainError(
           409,
-          "gmail_draft_credential_unavailable",
-          "An active, scope-constrained Gmail credential is required",
+          "mail_draft_credential_unavailable",
+          "An active, scope-constrained Outlook credential is required",
         );
       }
       const configVersionId = randomUUID();
@@ -137,7 +134,7 @@ export async function configureGmailDraftConnector(
         enabled: boolean;
       }>(
         `SELECT *
-         FROM set_gmail_draft_connector_config(
+         FROM set_mail_draft_connector_config(
            $1, $2, $3, $4::text[], $5::text[], $6, $7, $8
          )`,
         [
@@ -146,14 +143,14 @@ export async function configureGmailDraftConnector(
           input.enabled,
           addresses,
           domains,
-          input.enabled ? "credential://gmail-draft/active" : null,
+          input.enabled ? "credential://mail-draft/active" : null,
           requestHash,
           input.reason,
         ],
       );
       const row = configured.rows[0];
       if (!row) {
-        throw new Error("Gmail draft configuration was not persisted");
+        throw new Error("Outlook draft configuration was not persisted");
       }
       let invalidatedCredentialVersionId: string | null = null;
       let revocationOutboxEventId: string | null = null;
@@ -161,7 +158,7 @@ export async function configureGmailDraftConnector(
         const invalidated = await client.query<{
           invalidated_credential_version_id: string | null;
           revocation_outbox_event_id: string | null;
-        }>("SELECT * FROM invalidate_gmail_draft_credential($1, $2, $3, $4)", [
+        }>("SELECT * FROM invalidate_mail_draft_credential($1, $2, $3, $4)", [
           input.organizationId,
           input.reason,
           command.context.traceId,
@@ -177,7 +174,7 @@ export async function configureGmailDraftConnector(
         organizationId: input.organizationId,
         actorType: "user",
         actorId: command.principal.userId,
-        eventType: "gmail_draft.connector_configured",
+        eventType: "mail_draft.connector_configured",
         sourceRecordIds: [],
         inputHash: requestHash,
         outputHash: sha256({
@@ -195,7 +192,7 @@ export async function configureGmailDraftConnector(
           enabled: row.enabled,
           allowedRecipientAddresses: addresses,
           allowedRecipientDomains: domains,
-          oauthScopes: [GMAIL_COMPOSE_SCOPE],
+          oauthScopes: [MAIL_COMPOSE_SCOPE],
           invalidatedCredentialVersionId,
           revocationOutboxEventId,
           reason: input.reason,
@@ -207,8 +204,8 @@ export async function configureGmailDraftConnector(
         actorType: "user",
         actorId: command.principal.userId,
         eventType: input.enabled
-          ? "gmail_draft.connector_enabled"
-          : "gmail_draft.connector_disabled",
+          ? "mail_draft.connector_enabled"
+          : "mail_draft.connector_disabled",
         sourceRecordIds: [],
         inputHash: requestHash,
         outputHash: sha256({
@@ -228,7 +225,7 @@ export async function configureGmailDraftConnector(
         occurredAt: new Date().toISOString(),
       });
 
-      const response = gmailDraftConnectorConfigResponseSchema.parse({
+      const response = mailDraftConnectorConfigResponseSchema.parse({
         configVersionId,
         organizationId: input.organizationId,
         versionNumber: row.version_number,
@@ -236,7 +233,7 @@ export async function configureGmailDraftConnector(
         enabled: row.enabled,
         allowedRecipientAddresses: addresses,
         allowedRecipientDomains: domains,
-        oauthScopes: [GMAIL_COMPOSE_SCOPE],
+        oauthScopes: [MAIL_COMPOSE_SCOPE],
         reason: input.reason,
         duplicate: false,
         traceId: command.context.traceId,
@@ -253,19 +250,19 @@ export async function configureGmailDraftConnector(
   );
 }
 
-export interface CreateGmailDraftPreviewCommand {
+export interface CreateMailDraftPreviewCommand {
   principal: ApplicationPrincipal;
   approvalId: string;
-  input: GmailDraftPreviewInput;
+  input: MailDraftPreviewInput;
   idempotencyKey: string;
   context: RequestContext;
 }
 
-export async function createGmailDraftPreview(
+export async function createMailDraftPreview(
   pool: DatabasePool,
-  command: CreateGmailDraftPreviewCommand,
-): Promise<GmailDraftPreviewResponse> {
-  const input = gmailDraftPreviewInputSchema.parse(command.input);
+  command: CreateMailDraftPreviewCommand,
+): Promise<MailDraftPreviewResponse> {
+  const input = mailDraftPreviewInputSchema.parse(command.input);
   requireOrganizationPermission(
     command.principal,
     input.organizationId,
@@ -283,7 +280,7 @@ export async function createGmailDraftPreview(
     approvalId: command.approvalId,
     renderedPayload,
   });
-  const scope = `gmail_draft_preview:${command.approvalId}`;
+  const scope = `mail_draft_preview:${command.approvalId}`;
 
   return withOrganizationScope(
     pool,
@@ -292,7 +289,7 @@ export async function createGmailDraftPreview(
       organizationIds: [input.organizationId],
     },
     async (client) => {
-      const claim = await claimIdempotentCommand<GmailDraftPreviewResponse>(
+      const claim = await claimIdempotentCommand<MailDraftPreviewResponse>(
         client,
         {
           organizationId: input.organizationId,
@@ -342,14 +339,14 @@ export async function createGmailDraftPreview(
            ON approval.payload_reference =
              'recommendation:' || recommendation.id::text
           AND recommendation.organization_id = approval.organization_id
-         LEFT JOIN gmail_draft_connector_bindings binding
+         LEFT JOIN mail_draft_connector_bindings binding
            ON binding.organization_id = approval.organization_id
-         LEFT JOIN gmail_draft_connector_config_versions config
+         LEFT JOIN mail_draft_connector_config_versions config
            ON config.id = binding.active_config_version_id
           AND config.organization_id = binding.organization_id
-         LEFT JOIN gmail_draft_credential_bindings credential_binding
+         LEFT JOIN mail_draft_credential_bindings credential_binding
            ON credential_binding.organization_id = approval.organization_id
-         JOIN gmail_draft_global_kill_switch kill ON kill.singleton
+         JOIN mail_draft_global_kill_switch kill ON kill.singleton
          WHERE approval.id = $1
            AND approval.organization_id = $2
            AND approval.status = 'approved'
@@ -361,7 +358,7 @@ export async function createGmailDraftPreview(
       if (!context) {
         throw new DomainError(
           409,
-          "gmail_draft_not_approved",
+          "mail_draft_not_approved",
           "An approved external-draft recommendation is required",
         );
       }
@@ -373,8 +370,8 @@ export async function createGmailDraftPreview(
       ) {
         throw new DomainError(
           409,
-          "gmail_draft_connector_disabled",
-          "The Gmail draft connector is disabled for this organization",
+          "mail_draft_connector_disabled",
+          "The Outlook draft connector is disabled for this organization",
         );
       }
       const recipientDomain = input.to.split("@")[1]!;
@@ -384,14 +381,14 @@ export async function createGmailDraftPreview(
       ) {
         throw new DomainError(
           422,
-          "gmail_draft_recipient_not_allowed",
+          "mail_draft_recipient_not_allowed",
           "The draft recipient is not on the organization allowlist",
         );
       }
 
       const previewId = randomUUID();
       await client.query(
-        `INSERT INTO gmail_draft_previews (
+        `INSERT INTO mail_draft_previews (
            id,
            organization_id,
            workflow_id,
@@ -469,7 +466,7 @@ export async function createGmailDraftPreview(
         organizationId: input.organizationId,
         actorType: "user",
         actorId: command.principal.userId,
-        eventType: "gmail_draft.previewed",
+        eventType: "mail_draft.previewed",
         workflowId: context.workflow_id,
         sourceRecordIds: [],
         inputHash: requestHash,
@@ -491,7 +488,7 @@ export async function createGmailDraftPreview(
         occurredAt: new Date().toISOString(),
       });
 
-      const response = gmailDraftPreviewResponseSchema.parse({
+      const response = mailDraftPreviewResponseSchema.parse({
         previewId,
         taskId: context.task_id,
         workflowId: context.workflow_id,
@@ -516,19 +513,19 @@ export async function createGmailDraftPreview(
   );
 }
 
-export interface AuthorizeGmailDraftCommand {
+export interface AuthorizeMailDraftCommand {
   principal: ApplicationPrincipal;
   previewId: string;
-  input: GmailDraftAuthorizationInput;
+  input: MailDraftAuthorizationInput;
   idempotencyKey: string;
   context: RequestContext;
 }
 
-export async function authorizeGmailDraft(
+export async function authorizeMailDraft(
   pool: DatabasePool,
-  command: AuthorizeGmailDraftCommand,
-): Promise<GmailDraftAuthorizationResponse> {
-  const input = gmailDraftAuthorizationInputSchema.parse(command.input);
+  command: AuthorizeMailDraftCommand,
+): Promise<MailDraftAuthorizationResponse> {
+  const input = mailDraftAuthorizationInputSchema.parse(command.input);
   requireOrganizationPermission(
     command.principal,
     input.organizationId,
@@ -540,7 +537,7 @@ export async function authorizeGmailDraft(
     previewId: command.previewId,
     reason: input.reason,
   });
-  const scope = `gmail_draft_authorize:${command.previewId}`;
+  const scope = `mail_draft_authorize:${command.previewId}`;
 
   return withOrganizationScope(
     pool,
@@ -550,7 +547,7 @@ export async function authorizeGmailDraft(
     },
     async (client) => {
       const claim =
-        await claimIdempotentCommand<GmailDraftAuthorizationResponse>(client, {
+        await claimIdempotentCommand<MailDraftAuthorizationResponse>(client, {
           organizationId: input.organizationId,
           scope,
           idempotencyKey,
@@ -577,7 +574,7 @@ export async function authorizeGmailDraft(
            preview.connector_config_version_id,
            preview.rendered_payload_hash,
            preview.trace_id
-         FROM gmail_draft_previews preview
+         FROM mail_draft_previews preview
          JOIN workflows workflow
            ON workflow.id = preview.workflow_id
           AND workflow.organization_id = preview.organization_id
@@ -589,14 +586,14 @@ export async function authorizeGmailDraft(
       if (!preview) {
         throw new DomainError(
           404,
-          "gmail_draft_preview_not_found",
-          "Gmail draft preview not found",
+          "mail_draft_preview_not_found",
+          "Outlook draft preview not found",
         );
       }
 
       const authorizationId = randomUUID();
       await client.query(
-        `INSERT INTO gmail_draft_authorizations (
+        `INSERT INTO mail_draft_authorizations (
            id,
            organization_id,
            preview_id,
@@ -668,7 +665,7 @@ export async function authorizeGmailDraft(
         outbox_event_id: string;
       }>(
         `SELECT execution_command_id, outbox_event_id
-         FROM enqueue_gmail_draft_execution(
+         FROM enqueue_mail_draft_execution(
            $1, $2, $3, $4, $5, $6, $7
          )`,
         [
@@ -682,7 +679,7 @@ export async function authorizeGmailDraft(
         ],
       );
       if (!enqueued.rows[0]) {
-        throw new Error("Gmail draft execution was not queued");
+        throw new Error("Outlook draft execution was not queued");
       }
 
       const now = new Date().toISOString();
@@ -690,7 +687,7 @@ export async function authorizeGmailDraft(
         organizationId: input.organizationId,
         actorType: "user",
         actorId: command.principal.userId,
-        eventType: "gmail_draft.authorized",
+        eventType: "mail_draft.authorized",
         workflowId: preview.workflow_id,
         sourceRecordIds: [],
         inputHash: requestHash,
@@ -727,7 +724,7 @@ export async function authorizeGmailDraft(
         outputHash: sha256({
           executionCommandId,
           outboxEventId,
-          provider: "gmail_draft",
+          provider: "mail_draft",
         }),
         traceId: preview.trace_id,
         requestId: command.context.requestId,
@@ -737,14 +734,14 @@ export async function authorizeGmailDraft(
           executionCommandId,
           outboxEventId,
           externalAuthorizationId: authorizationId,
-          actionType: "gmail_draft_create",
+          actionType: "mail_draft_create",
           actionPayloadHash: preview.rendered_payload_hash,
-          provider: "gmail_draft",
+          provider: "mail_draft",
         },
         occurredAt: now,
       });
 
-      const response = gmailDraftAuthorizationResponseSchema.parse({
+      const response = mailDraftAuthorizationResponseSchema.parse({
         authorizationId,
         previewId: command.previewId,
         executionCommandId,

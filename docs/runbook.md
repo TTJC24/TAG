@@ -99,14 +99,14 @@ equality, and dead-letter visibility. It also uploads a mixed CSV batch,
 proves exact immutable raw-file evidence and source linkage, rejects malformed
 rows without rolling back valid siblings, replays duplicate batch/row
 commands, and exhausts a real downstream CSV row job into a visible failure.
-It additionally proves the disabled-by-default Gmail-draft branch: exact
+It additionally proves the disabled-by-default Mail-draft branch: exact
 preview without materialization, approval/config/authorization gates,
 recipient allowlist, API plus RLS isolation, stored-result replay without a
 second provider call, kill-switch fallback to internal execution, trace/audit
 continuity, bounded-retry dead-letter visibility, ciphertext-at-rest,
 worker-only/RLS credential access, exact scope rejection, replay-safe rotation,
 old-version invalidation, global kill across organizations, startup invariants,
-and token absence from durable audit/trace data. Tests inject in-memory Gmail
+and token absence from durable audit/trace data. Tests inject in-memory Mail
 and OAuth-revocation transports and make no Google network request. The suite
 also exercises the supervised-pilot operator path: one-org claim, second-org
 rejection, exact-scope/ciphertext/allowlist preflight, out-of-allowlist
@@ -177,15 +177,15 @@ is allowed to persist.
   internal outcome; it never implies that an external system was changed.
 - `EXECUTION_PROVIDER` defaults to `deterministic_internal`. Any other value
   refuses selection as the internal provider.
-- Gmail draft creation is separately inert by default. No seeded organization
+- Outlook draft creation is separately inert by default. No seeded organization
   has a connector binding, and the worker uses
-  `DisabledGmailDraftExecutionProvider` unless
-  `GMAIL_DRAFT_NETWORK_ENABLED=true`. Do not set that variable or create an
+  `DisabledMailDraftExecutionProvider` unless
+  `MAIL_DRAFT_NETWORK_ENABLED=true`. Do not set that variable or create an
   enabled organization config without a production-enablement review,
   least-privilege credential, allowlist, and crash-window decision.
-- The Gmail adapter exposes only `drafts.create` under
-  `https://www.googleapis.com/auth/gmail.compose`. There is no send route or
-  send method, and the separate `gmail.send`/broader Gmail scopes are not
+- The Mail adapter exposes only `drafts.create` under
+  `https://graph.microsoft.com/Mail.ReadWrite`. There is no send route or
+  send method, and the separate `mail.send`/broader Mail scopes are not
   requested. Google's compose scope can itself authorize sending; because no
   draft-only scope exists, the fixed drafts-create transport and credential
   controls are part of the safety boundary.
@@ -197,24 +197,24 @@ is allowed to persist.
   browser state, or safe error fields.
 - Organization disable, explicit revoke, and rotation synchronously invalidate
   the active credential before queuing bounded OAuth revocation. The global
-  Gmail kill switch invalidates every organization binding. Clearing it never
+  Mail kill switch invalidates every organization binding. Clearing it never
   resurrects credentials.
 - Preview stores the exact recipient, subject, body, and hash but queues no
-  external command. A second authorized action creates the Gmail command.
+  external command. A second authorized action creates the Mail command.
   The worker rechecks the active config and allowlist immediately before the
   call. If the config is disabled or replaced, it records abandonment, makes
-  no Gmail call, and returns the task to `approved` for internal execution.
+  no Mail call, and returns the task to `approved` for internal execution.
 - An execution enters `executing` before provider invocation. A successful
   result reaches `completed`; an executor failure retries at most three times,
   then atomically records `execution_failed`, an immutable failure result and
   audit event, and a visible `issue.execute` dead-letter.
 
-## First supervised Gmail draft
+## First supervised Outlook draft
 
 This is a manual, attended smoke procedure for exactly one named organization,
 one internal recipient, and one draft. It is not a CI procedure and it does
 not authorize general production use. Read ADR 0007 and make a working copy of
-`docs/evidence/gmail-draft-live-pilot-template.md` in the approved evidence
+`docs/evidence/mail-draft-live-pilot-template.md` in the approved evidence
 store before starting.
 
 ### Required people and system posture
@@ -222,17 +222,17 @@ store before starting.
 - One operator has `connectors.admin` for the target organization and
   `admin.manage` for every active organization.
 - One authorized approver/authorizer can inspect and approve the exact draft.
-- An independent observer watches the Gmail mailbox and teardown.
+- An independent observer watches the Mail mailbox and teardown.
 - API and worker runtime database identities pass the non-owner,
   non-superuser, non-`BYPASSRLS` startup checks.
 - Production RSA key material is loaded from the secret manager: public key
   only in the API, private key only in the worker.
 - The approved Google Workspace OAuth flow requests exactly
-  `https://www.googleapis.com/auth/gmail.compose`. Reject a consent/token
-  response that contains another Gmail scope. Do not use `gmail.send`,
-  `gmail.modify`, or `mail.google.com`.
-- `GMAIL_DRAFT_NETWORK_ENABLED` is absent or `false` on every worker.
-- The global Gmail kill is clear but remains reachable.
+  `https://graph.microsoft.com/Mail.ReadWrite`. Reject a consent/token
+  response that contains another Mail scope. Do not use `mail.send`,
+  `Mail.Send`, or `Mail.ReadWrite` beyond the pinned grant.
+- `MAIL_DRAFT_NETWORK_ENABLED` is absent or `false` on every worker.
+- The global Mail kill is clear but remains reachable.
 - No connector token, private key, or bearer token is placed in command
   arguments, source files, tickets, evidence, or chat.
 
@@ -244,7 +244,7 @@ Use a fresh PowerShell session with history disabled or protected according to
 the organization's workstation policy. Inject
 `OPERATING_LAYER_OPERATOR_BEARER_TOKEN`,
 `OPERATING_LAYER_AUTHORIZER_BEARER_TOKEN`, and
-`GMAIL_DRAFT_OAUTH_ACCESS_TOKEN` directly from the approved secret manager;
+`MAIL_DRAFT_OAUTH_ACCESS_TOKEN` directly from the approved secret manager;
 do not type their values into the command line. Set only the non-secret values
 manually:
 
@@ -256,11 +256,11 @@ $pilotRecipient = "<single-internal-test-address>"
 $enableOperationId = [guid]::NewGuid().ToString()
 if (-not $env:OPERATING_LAYER_OPERATOR_BEARER_TOKEN) { throw "Missing operator token" }
 if (-not $env:OPERATING_LAYER_AUTHORIZER_BEARER_TOKEN) { throw "Missing authorizer token" }
-if (-not $env:GMAIL_DRAFT_OAUTH_ACCESS_TOKEN) { throw "Missing Gmail OAuth token" }
+if (-not $env:MAIL_DRAFT_OAUTH_ACCESS_TOKEN) { throw "Missing Mail OAuth token" }
 ```
 
 The OAuth access token is read only from
-`GMAIL_DRAFT_OAUTH_ACCESS_TOKEN`. The CLI intentionally has no token flag and
+`MAIL_DRAFT_OAUTH_ACCESS_TOKEN`. The CLI intentionally has no token flag and
 never returns token plaintext.
 
 ### 2. Claim, credential, enable, and preflight
@@ -268,11 +268,11 @@ never returns token plaintext.
 From the repository release commit:
 
 ```powershell
-pnpm gmail-draft:pilot enable `
+pnpm mail-draft:pilot enable `
   --organization-id $pilotOrgId `
   --organization-code $pilotOrgCode `
   --recipient $pilotRecipient `
-  --reason "First supervised Gmail drafts.create smoke" `
+  --reason "First supervised Outlook drafts.create smoke" `
   --operation-id $enableOperationId `
   --confirm-one-org `
   --confirm-drafts-create-only
@@ -284,7 +284,7 @@ Save the non-secret JSON output in the evidence store. Do not continue unless
 - target pilot claim and connector enabled;
 - active structurally valid credential envelope and matching SHA-256
   fingerprint;
-- stored/configured scope sets exactly `gmail.compose`;
+- stored/configured scope sets exactly `mail.compose`;
 - one exact recipient address, no recipient domains, and the expected address
   accepted;
 - zero other enabled organizations;
@@ -294,7 +294,7 @@ Save the non-secret JSON output in the evidence store. Do not continue unless
 Re-run the read-only check at any point with:
 
 ```powershell
-pnpm gmail-draft:pilot preflight `
+pnpm mail-draft:pilot preflight `
   --organization-id $pilotOrgId `
   --organization-code $pilotOrgCode `
   --recipient $pilotRecipient
@@ -311,7 +311,7 @@ set the global kill.
 In the web application:
 
 1. Create one issue in the claimed organization with a unique title beginning
-   `LIVE GMAIL DRAFT SMOKE - <UTC timestamp>`.
+   `LIVE MAIL DRAFT SMOKE - <UTC timestamp>`.
 2. Use non-sensitive test content. The recommendation must be
    `draft_external_follow_up`.
 3. Wait for classification/recommendation and inspect all citations.
@@ -323,7 +323,7 @@ for this smoke.
 
 ### 4. Render and inspect the exact preview
 
-On task detail, create one Gmail preview addressed exactly to
+On task detail, create one Mail preview addressed exactly to
 `$pilotRecipient`. Use a unique subject containing the task ID and UTC
 timestamp. Before proceeding, the operator and observer compare the rendered
 recipient, subject, and body with the intended smoke content and record the
@@ -348,10 +348,10 @@ FROM operating_layer.execution_commands AS command
 LEFT JOIN operating_layer.execution_results AS result
   ON result.organization_id = command.organization_id
  AND result.execution_command_id = command.id
-LEFT JOIN operating_layer.gmail_draft_execution_abandonments AS abandonment
+LEFT JOIN operating_layer.mail_draft_execution_abandonments AS abandonment
   ON abandonment.organization_id = command.organization_id
  AND abandonment.execution_command_id = command.id
-WHERE command.provider_name = 'gmail_draft'
+WHERE command.provider_name = 'mail_draft'
   AND result.id IS NULL
   AND abandonment.id IS NULL;
 ```
@@ -370,8 +370,8 @@ In a dedicated terminal with the approved worker database URL and private key
 already loaded from the secret manager:
 
 ```powershell
-$env:GMAIL_DRAFT_NETWORK_ENABLED = "true"
-$env:WORKER_ID = "supervised-gmail-draft-<change-id>"
+$env:MAIL_DRAFT_NETWORK_ENABLED = "true"
+$env:WORKER_ID = "supervised-mail-draft-<change-id>"
 pnpm --filter @operating-layer/worker start
 ```
 
@@ -395,11 +395,11 @@ $authorizationHeaders = @{
 }
 $authorizationBody = @{
   organizationId = $pilotOrgId
-  reason = "Authorize exactly one supervised unsent Gmail draft"
+  reason = "Authorize exactly one supervised unsent Outlook draft"
 } | ConvertTo-Json
 $authorizationResult = Invoke-RestMethod `
   -Method Post `
-  -Uri "$env:API_BASE_URL/v1/gmail-draft-previews/$previewId/authorization" `
+  -Uri "$env:API_BASE_URL/v1/mail-draft-previews/$previewId/authorization" `
   -Headers $authorizationHeaders `
   -Body $authorizationBody
 $authorizationResult | ConvertTo-Json -Depth 10
@@ -411,9 +411,9 @@ creates one outbox command; the worker may then call only
 
 Wait for task detail to reach `completed`, then verify all of the following:
 
-1. Gmail Drafts contains exactly one item with the expected recipient, subject,
+1. Mail Drafts contains exactly one item with the expected recipient, subject,
    and body.
-2. Task detail contains one immutable `gmail_draft.created` audit event whose
+2. Task detail contains one immutable `mail_draft.created` audit event whose
    metadata includes the returned draft ID, preview ID, authorization ID,
    command ID, payload hash, and `drafts.create` capability.
 3. The root trace is unchanged across intake, approval, preview,
@@ -425,16 +425,16 @@ Replay the authorization with the _same_ idempotency key and identical body:
 ```powershell
 $replayResult = Invoke-RestMethod `
   -Method Post `
-  -Uri "$env:API_BASE_URL/v1/gmail-draft-previews/$previewId/authorization" `
+  -Uri "$env:API_BASE_URL/v1/mail-draft-previews/$previewId/authorization" `
   -Headers $authorizationHeaders `
   -Body $authorizationBody
 $replayResult | ConvertTo-Json -Depth 10
 ```
 
-It must return `duplicate: true` with the stored prior IDs, and Gmail must
+It must return `duplicate: true` with the stored prior IDs, and Mail must
 still contain exactly one matching draft. Never retry with a new key after an
 ambiguous timeout. Google does not accept the operating layer's idempotency
-key; first inspect Gmail by exact subject and draft ID.
+key; first inspect Mail by exact subject and draft ID.
 
 Search API, worker, trace, and audit output for the token fingerprint and, in a
 controlled secret-scanning tool, the token value. Record only the negative
@@ -448,10 +448,10 @@ session:
 
 ```powershell
 $disableOperationId = [guid]::NewGuid().ToString()
-pnpm gmail-draft:pilot disable `
+pnpm mail-draft:pilot disable `
   --organization-id $pilotOrgId `
   --organization-code $pilotOrgCode `
-  --reason "End first supervised Gmail draft smoke" `
+  --reason "End first supervised Outlook draft smoke" `
   --operation-id $disableOperationId
 ```
 
@@ -468,8 +468,8 @@ reports:
 Allow the bounded OAuth revocation job to finish, then stop the live worker:
 
 ```powershell
-Remove-Item Env:GMAIL_DRAFT_NETWORK_ENABLED -ErrorAction SilentlyContinue
-Remove-Item Env:GMAIL_DRAFT_OAUTH_ACCESS_TOKEN -ErrorAction SilentlyContinue
+Remove-Item Env:MAIL_DRAFT_NETWORK_ENABLED -ErrorAction SilentlyContinue
+Remove-Item Env:MAIL_DRAFT_OAUTH_ACCESS_TOKEN -ErrorAction SilentlyContinue
 Remove-Item Env:OPERATING_LAYER_OPERATOR_BEARER_TOKEN -ErrorAction SilentlyContinue
 Remove-Item Env:OPERATING_LAYER_AUTHORIZER_BEARER_TOKEN -ErrorAction SilentlyContinue
 Remove-Item Env:CONNECTOR_CREDENTIAL_PRIVATE_KEY_DER_B64 -ErrorAction SilentlyContinue
@@ -484,9 +484,9 @@ load even if provider revocation is delayed.
 Rollback is deliberately manual because the connector has no delete or send
 capability:
 
-1. Open the exact mailbox in Gmail.
+1. Open the exact mailbox in Mail.
 2. Open **Drafts**.
-3. Find the item by the recorded unique subject and confirm its Gmail draft ID
+3. Find the item by the recorded unique subject and confirm its Outlook draft ID
    when available.
 4. Open it, choose **Discard draft**, and confirm it no longer appears.
 5. Record the UTC time and observer in the evidence copy.
@@ -520,7 +520,7 @@ this procedure against a shared or production environment.
 - approved model providers and data-handling rules;
 - source-system schemas and read-only credentials.
 
-The Gmail draft code path must remain disabled until the production-enablement
+The Outlook draft code path must remain disabled until the production-enablement
 items above are approved. Do not add an external send, another connector
 mutation, or an ERP/accounting write without a separate architecture and
 security review.

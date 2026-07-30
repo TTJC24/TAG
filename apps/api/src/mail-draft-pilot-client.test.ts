@@ -1,15 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
-  GmailDraftPilotOperator,
+  MailDraftPilotOperator,
   type OperatorHttpRequest,
-} from "./gmail-draft-pilot-client.js";
+} from "./mail-draft-pilot-client.js";
 
 const organizationId = "10000000-0000-4000-8000-000000000003";
 
-describe("GmailDraftPilotOperator", () => {
+describe("MailDraftPilotOperator", () => {
   it("kills any potentially committed credential when a downstream response is malformed", async () => {
     const requests: OperatorHttpRequest[] = [];
-    const operator = new GmailDraftPilotOperator(async (request) => {
+    const operator = new MailDraftPilotOperator(async (request) => {
       requests.push(request);
       if (request.path.endsWith("/pilot/claim")) {
         const action = (request.body as { action: "claim" | "release" }).action;
@@ -41,7 +41,7 @@ describe("GmailDraftPilotOperator", () => {
             enabled: false,
             allowedRecipientAddresses: [],
             allowedRecipientDomains: [],
-            oauthScopes: ["https://www.googleapis.com/auth/gmail.compose"],
+            oauthScopes: ["https://graph.microsoft.com/Mail.ReadWrite"],
             reason: "Fail-closed cleanup: supervised pilot malformed response",
             duplicate: false,
             traceId: "trace-fail-closed",
@@ -69,10 +69,10 @@ describe("GmailDraftPilotOperator", () => {
           (request.body as { enabled?: boolean }).enabled,
       ]),
     ).toEqual([
-      ["/v1/connectors/gmail-draft/pilot/claim", "claim"],
-      ["/v1/connectors/gmail-draft/credentials", undefined],
-      ["/v1/connectors/gmail-draft/config", false],
-      ["/v1/connectors/gmail-draft/pilot/claim", "release"],
+      ["/v1/connectors/mail-draft/pilot/claim", "claim"],
+      ["/v1/connectors/mail-draft/credentials", undefined],
+      ["/v1/connectors/mail-draft/config", false],
+      ["/v1/connectors/mail-draft/pilot/claim", "release"],
     ]);
   });
 });

@@ -24,7 +24,7 @@ The first deployable workflow is Operational Issue Intake and Resolution. It acc
 
 ### Excluded
 
-- production Acumatica, Pipedrive, Gmail, or Google Drive credentials;
+- production Acumatica, Pipedrive, Mail, or Google Drive credentials;
 - source-system writes or external message sends;
 - payments, journals, customer/vendor master workflows;
 - automatic record merging;
