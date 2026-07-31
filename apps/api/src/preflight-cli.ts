@@ -1,5 +1,10 @@
 import { createDatabasePool } from "@operating-layer/db";
-import { AcumaticaClient, PipedriveClient } from "@operating-layer/connectors";
+import {
+  AcumaticaClient,
+  PipedriveClient,
+  resolveAcumaticaGuard,
+  withAcumaticaRunLock,
+} from "@operating-layer/connectors";
 import {
   buildAgingFromInvoices,
   buildCollectionsDrafts,
@@ -109,55 +114,89 @@ async function main(): Promise<void> {
         detail: "ACUMATICA_BASE_URL / USERNAME / PASSWORD not set",
       });
     } else {
+      const guard = resolveAcumaticaGuard();
+      const breakerState = guard.breaker.read();
+      results.push({
+        section: "acumatica",
+        name: "auth guard",
+        status: guard.enforced && breakerState.tripped ? "fail" : "pass",
+        detail:
+          guard.enforced && breakerState.tripped
+            ? `breaker TRIPPED (${breakerState.kind}) at ${breakerState.trippedAt}: ${breakerState.reason} — clear deliberately with acumatica-breaker-cli`
+            : `${guard.environment}, breaker clear (state: ${guard.statePath})`,
+      });
+
       const client = new AcumaticaClient({
         baseUrl: process.env.ACUMATICA_BASE_URL!,
         username: process.env.ACUMATICA_USERNAME!,
         password: process.env.ACUMATICA_PASSWORD!,
         company: process.env.ACUMATICA_COMPANY ?? "Production",
+        breaker: guard.breaker,
         ...(process.env.ACUMATICA_ENDPOINT_VERSION
           ? { endpointVersion: process.env.ACUMATICA_ENDPOINT_VERSION }
           : {}),
       });
-      const acumaticaResults = await checkAcumatica(client, {
-        keepSessionOpen: dryRun,
-      });
-      results.push(...acumaticaResults);
-      // Only preview if we actually got in. Running it against a session that
-      // was never established just produces a second, misleading failure (a 401
-      // that looks like a permissions problem rather than the login it was).
-      const authenticated =
-        acumaticaResults.find((r) => r.name === "authenticates")?.status ===
-        "pass";
-
-      // Dry run: show exactly what Collections WOULD raise, writing nothing.
+      // Everything that can authenticate runs under the exclusive lock, so a
+      // scheduled feed and a hand-run preflight can never log in at once.
       //
-      // Fault-isolated deliberately. This runs BEFORE the report is printed, so
-      // an unhandled failure here would discard every check that already
-      // passed — which is exactly what a preflight must never do.
-      if (dryRun && authenticated) {
-        try {
-          await runDryRun(client);
-        } catch (error) {
-          results.push({
-            section: "acumatica",
-            name: "dry run",
-            status: "fail",
-            detail: `preview failed: ${
-              error instanceof Error ? error.message : "unknown"
-            }`,
+      // Fault-isolated: a held lock or a tripped breaker is a reportable FAIL,
+      // not a crash. Letting it escape would discard the platform checks that
+      // already passed and leave the operator with less information than they
+      // started with.
+      const acumaticaResults = await withAcumaticaRunLock(
+        guard,
+        "preflight",
+        async () => {
+          const checks = await checkAcumatica(client, {
+            keepSessionOpen: dryRun,
           });
-        } finally {
-          // The checks handed us the session; releasing it is ours to do.
-          await client.logout();
-        }
-      } else if (dryRun) {
-        results.push({
+          // Only preview if we actually got in. Running it against a session
+          // that was never established just produces a second, misleading
+          // failure (a 401 that looks like a permissions problem rather than
+          // the login it was).
+          const authenticated =
+            checks.find((r) => r.name === "authenticates")?.status === "pass";
+
+          // Dry run: show exactly what Collections WOULD raise, writing nothing.
+          //
+          // Fault-isolated deliberately. This runs BEFORE the report is printed,
+          // so an unhandled failure here would discard every check that already
+          // passed — which is exactly what a preflight must never do.
+          if (dryRun && authenticated) {
+            try {
+              await runDryRun(client);
+            } catch (error) {
+              checks.push({
+                section: "acumatica",
+                name: "dry run",
+                status: "fail",
+                detail: `preview failed: ${
+                  error instanceof Error ? error.message : "unknown"
+                }`,
+              });
+            } finally {
+              // The checks handed us the session; releasing it is ours to do.
+              await client.logout();
+            }
+          } else if (dryRun) {
+            checks.push({
+              section: "acumatica",
+              name: "dry run",
+              status: "skip",
+              detail: "skipped because authentication failed",
+            });
+          }
+          return checks;
+        },
+      ).catch((error): CheckResult[] => [
+        {
           section: "acumatica",
-          name: "dry run",
-          status: "skip",
-          detail: "skipped because authentication failed",
-        });
-      }
+          name: "connectivity",
+          status: "fail",
+          detail: error instanceof Error ? error.message : "unknown failure",
+        },
+      ]);
+      results.push(...acumaticaResults);
     }
 
     // --- pipedrive --------------------------------------------------------

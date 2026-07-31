@@ -13,9 +13,19 @@ edit if needed, and approve. **Nothing sends without two human actions.**
 
 ## 0. Prerequisites
 
+> **Production Acumatica work is currently halted.** The service account was
+> locked out twice by this integration. Before running any stage below against
+> production, complete the sandbox validation in
+> [`acumatica-auth-lifecycle.md`](acumatica-auth-lifecycle.md). Every command
+> here that logs in is now gated by a persistent circuit breaker and an
+> exclusive run lock; if a command reports the breaker is tripped, do **not**
+> clear it without first checking the ERP account itself.
+
 - The stack is deployed and healthy at `ops.blcsops.com` (see `deploy-runbook.md`).
 - Acumatica read-only credentials are in `.env.production` (see `APPROVALS.md`).
 - You are on the droplet at `/opt/operating-layer`.
+- The breaker reports clear:
+  `$DC exec api node apps/api/dist/acumatica-breaker-cli.js status`
 
 Shorthand used below:
 

@@ -1,6 +1,8 @@
 import { writeFileSync } from "node:fs";
 import {
   AcumaticaClient,
+  resolveAcumaticaGuard,
+  withAcumaticaRunLock,
   type AcumaticaCustomerLocation,
 } from "@operating-layer/connectors";
 
@@ -122,35 +124,45 @@ async function main(): Promise<void> {
   const asCsv = process.argv.includes("--csv");
   const outPath = arg("--out");
 
+  const guard = resolveAcumaticaGuard();
   const client = new AcumaticaClient({
     baseUrl: required("ACUMATICA_BASE_URL"),
     username: required("ACUMATICA_USERNAME"),
     password: required("ACUMATICA_PASSWORD"),
     company: process.env.ACUMATICA_COMPANY ?? "Production",
+    breaker: guard.breaker,
     ...(process.env.ACUMATICA_ENDPOINT_VERSION
       ? { endpointVersion: process.env.ACUMATICA_ENDPOINT_VERSION }
       : {}),
   });
 
-  await client.login();
-  let customers;
   let locationsByCustomer = new Map<string, AcumaticaCustomerLocation[]>();
   let locationsAvailable = true;
   let locationError = "";
-  try {
-    customers = await client.fetchCustomers();
-    // A tenant that does not use multi-location customers may not expose this
-    // entity. Degrade to a customer-only export and SAY SO rather than
-    // silently shipping a reference that looks complete but is not.
-    try {
-      locationsByCustomer = await client.fetchCustomerLocations();
-    } catch (error) {
-      locationsAvailable = false;
-      locationError = error instanceof Error ? error.message : "unknown";
-    }
-  } finally {
-    await client.logout();
-  }
+  // Under the exclusive lock: this command logs in, so it must not run beside
+  // the scheduled feed or a hand-run preflight.
+  const customers = await withAcumaticaRunLock(
+    guard,
+    "customer-export",
+    async () => {
+      await client.login();
+      try {
+        const read = await client.fetchCustomers();
+        // A tenant that does not use multi-location customers may not expose
+        // this entity. Degrade to a customer-only export and SAY SO rather than
+        // silently shipping a reference that looks complete but is not.
+        try {
+          locationsByCustomer = await client.fetchCustomerLocations();
+        } catch (error) {
+          locationsAvailable = false;
+          locationError = error instanceof Error ? error.message : "unknown";
+        }
+        return read;
+      } finally {
+        await client.logout();
+      }
+    },
+  );
 
   const exported: ExportedCustomer[] = [...customers.values()]
     .map((customer) => ({

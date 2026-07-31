@@ -1,4 +1,8 @@
-import { AcumaticaClient } from "@operating-layer/connectors";
+import {
+  AcumaticaClient,
+  resolveAcumaticaGuard,
+  withAcumaticaRunLock,
+} from "@operating-layer/connectors";
 
 /**
  * Operator command: discover what the live Acumatica instance actually exposes
@@ -64,23 +68,27 @@ const EXPECTED: Record<string, string[]> = {
 
 async function main(): Promise<void> {
   const entity = process.argv[2] ?? "Customer";
+  const guard = resolveAcumaticaGuard();
   const client = new AcumaticaClient({
     baseUrl: required("ACUMATICA_BASE_URL"),
     username: required("ACUMATICA_USERNAME"),
     password: required("ACUMATICA_PASSWORD"),
     company: process.env.ACUMATICA_COMPANY ?? "Production",
+    breaker: guard.breaker,
     ...(process.env.ACUMATICA_ENDPOINT_VERSION
       ? { endpointVersion: process.env.ACUMATICA_ENDPOINT_VERSION }
       : {}),
   });
 
-  await client.login();
-  let records: Record<string, unknown>[];
-  try {
-    records = await client.probeEntity(entity, 1);
-  } finally {
-    await client.logout();
-  }
+  // Under the exclusive lock: this command logs in.
+  const records = await withAcumaticaRunLock(guard, "probe", async () => {
+    await client.login();
+    try {
+      return await client.probeEntity(entity, 1);
+    } finally {
+      await client.logout();
+    }
+  });
 
   if (records.length === 0) {
     console.log(`no ${entity} records returned — cannot infer the shape`);

@@ -338,3 +338,5 @@ export interface ControlledWriteConnector {
 export * from "./company-brain.js";
 export * from "./pipedrive.js";
 export * from "./acumatica.js";
+export * from "./auth-guard.js";
+export * from "./acumatica-guard.js";

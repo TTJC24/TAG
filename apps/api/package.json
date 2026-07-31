@@ -15,7 +15,9 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "preflight": "node dist/preflight-cli.js",
-    "acumatica-customers:export": "node dist/acumatica-customer-export-cli.js"
+    "acumatica-customers:export": "node dist/acumatica-customer-export-cli.js",
+    "acumatica-probe": "node dist/acumatica-probe-cli.js",
+    "acumatica-breaker": "node dist/acumatica-breaker-cli.js"
   },
   "dependencies": {
     "@operating-layer/audit": "workspace:*",

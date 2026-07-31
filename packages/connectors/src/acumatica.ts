@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  AuthCircuitBreaker,
+  classifyAuthFailure,
+  type AuthFailureKind,
+} from "./auth-guard.js";
 
 /**
  * Read-only Acumatica client (contract-based REST API).
@@ -236,6 +241,12 @@ export interface AcumaticaClientOptions {
   endpointVersion?: string;
   timeoutMs?: number;
   fetchImpl?: typeof fetch;
+  /**
+   * Gate on authentication. Required for production: without it a restarted
+   * process will happily re-authenticate into a failing state and drive the
+   * account toward lockout again.
+   */
+  breaker?: AuthCircuitBreaker;
   maxPages?: number;
   pageSize?: number;
 }
@@ -299,6 +310,12 @@ export class AcumaticaClient {
       : `${this.baseUrl}${path}`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    // Whether the server answered at all. A failure after this point has
+    // already been classified from its status, and must not be re-recorded by
+    // the catch below as a transport failure — one request producing two
+    // entries makes the operator's failure count a fiction, and the second,
+    // vaguer entry overwrites the first, more useful one.
+    let responded = false;
     try {
       const headers: Record<string, string> = {
         accept: "application/json",
@@ -314,8 +331,25 @@ export class AcumaticaClient {
         headers,
         signal: controller.signal,
       });
+      responded = true;
       // A 401 means the session is gone. Latch it so nothing else is sent.
       if (response.status === 401) this.sessionInvalidated = true;
+
+      // Classify and record every unsuccessful response on a non-auth path.
+      // The kinds are deliberately not equivalent: a 401 here is the shape that
+      // preceded the account lockout and must stop the next run, while a 403 is
+      // a permissions fact and a 429 is back-pressure — neither is a security
+      // event and neither may block tomorrow's run.
+      //
+      // Auth paths are excluded because login() classifies its own failure from
+      // the response body; recording here as well would count one failure twice.
+      const isAuthPath = path.includes("/entity/auth/");
+      if (!response.ok && response.status !== 204 && !isAuthPath) {
+        this.options.breaker?.recordFailure(
+          classifyAuthFailure(response.status, ""),
+          `HTTP ${response.status} from ${path.split("?")[0]}`,
+        );
+      }
 
       // Merge any Set-Cookie into the jar by name. Never replace the jar: a
       // response that re-sets one cookie must not evict the others.
@@ -357,6 +391,21 @@ export class AcumaticaClient {
       }
       return response;
     } catch (error) {
+      // A request that never got an answer is recorded but does NOT trip the
+      // breaker. Note the honest limitation: an aborted login may still have
+      // reached the server and counted against the lockout threshold, so this
+      // is a judgement call — tripping on every network blip would turn a
+      // transient outage into a manual reset, and that trade is only acceptable
+      // because a real lockout also produces a 401 or a 5xx, both of which do
+      // trip. An operator reviewing a lockout should still read these.
+      if (!responded) {
+        this.options.breaker?.recordFailure(
+          "transport",
+          `no response from ${path.split("?")[0]}: ${
+            error instanceof Error ? error.message : "unknown"
+          }`,
+        );
+      }
       throw new AcumaticaUnavailableError(
         error instanceof Error ? error.message : "Acumatica request failed",
       );
@@ -367,6 +416,10 @@ export class AcumaticaClient {
 
   /** Establish a read session. The client owns its own login. */
   async login(): Promise<void> {
+    // Refuse before touching the network. A blocked breaker means a previous
+    // run ended in a way that may have counted against the account, and only a
+    // deliberate operator action may start another attempt.
+    this.options.breaker?.assertMayAuthenticate();
     this.sessionInvalidated = false;
     const response = await this.request("/entity/auth/login", {
       method: "POST",
@@ -384,22 +437,35 @@ export class AcumaticaClient {
       // or licence limit rather than a bad credential — and a bare status code
       // sends an operator hunting the wrong problem. The credential itself is
       // never in that body, so this is safe to surface.
-      let detail = "";
+      let body = "";
       try {
-        const text = await response.text();
-        if (text) detail = `: ${text.slice(0, 300)}`;
+        body = await response.text();
       } catch {
         // body already consumed or unreadable; the status alone will have to do
       }
+      // Distinguish the kinds. Only those that plausibly count against an
+      // authentication threshold trip the breaker; a 429 must not, or
+      // back-pressure would look like a security event.
+      const kind: AuthFailureKind = classifyAuthFailure(response.status, body);
+      const detail = body ? `: ${body.slice(0, 300)}` : "";
+      this.options.breaker?.recordFailure(
+        kind,
+        `login failed (${response.status})${detail}`,
+      );
       throw new AcumaticaUnavailableError(
-        `Acumatica login failed (${response.status})${detail}`,
+        `Acumatica login failed (${response.status}, ${kind})${detail}`,
       );
     }
     if (this.cookies.size === 0) {
+      this.options.breaker?.recordFailure(
+        "unauthorized",
+        "login returned no session cookie",
+      );
       throw new AcumaticaUnavailableError(
         "Acumatica login returned no session cookie",
       );
     }
+    this.options.breaker?.recordSuccess();
   }
 
   async logout(): Promise<void> {

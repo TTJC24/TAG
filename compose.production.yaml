@@ -53,6 +53,9 @@ services:
       DATABASE_URL: postgresql://operating_layer_runtime:${RUNTIME_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
       AUTH_MODE: cloudflare_access
       PORT: "3001"
+    volumes:
+      # SHARED with the worker on purpose — see the note on the volume below.
+      - acumatica-guard:/var/lib/operating-layer/acumatica
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +69,8 @@ services:
     env_file: .env.production
     environment:
       DATABASE_URL: postgresql://operating_layer_worker_runtime:${WORKER_DB_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - acumatica-guard:/var/lib/operating-layer/acumatica
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,3 +98,17 @@ services:
 
 volumes:
   postgres-data:
+  # Acumatica authentication circuit breaker and run lock.
+  #
+  # A named volume, not a bind mount or a container path, for two reasons:
+  #
+  #  1. It must SURVIVE restarts and redeploys. The account lockout it protects
+  #     against survives them; a breaker that resets on `up -d` would let a
+  #     redeploy authenticate straight back into a locked account, which is the
+  #     in-memory latch's failure repeated with extra steps.
+  #  2. It is MOUNTED IN BOTH api AND worker deliberately. The worker runs the
+  #     scheduled collections feed; the api runs the operator commands. If each
+  #     held its own copy, the run lock would not be a lock — the nightly feed
+  #     and a hand-run preflight could authenticate at the same moment, and a
+  #     breaker tripped by one would not stop the other.
+  acumatica-guard:

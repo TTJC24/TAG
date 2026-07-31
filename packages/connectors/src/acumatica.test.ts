@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   AcumaticaClient,
   normalizeArInvoice,
@@ -6,6 +9,7 @@ import {
   normalizeCustomerLocation,
   usableRecipient,
 } from "./acumatica.js";
+import { AuthCircuitBreaker, AuthCircuitOpenError } from "./auth-guard.js";
 
 describe("normalizeCustomer", () => {
   it("pulls the AR contact email out of the nested MainContact", () => {
@@ -458,5 +462,142 @@ describe("account lockout interlock", () => {
     await expect(client.probeEntity("Invoice", 1)).rejects.toThrow();
     await client.login();
     await expect(client.probeEntity("Invoice", 1)).resolves.toEqual([]);
+  });
+});
+
+describe("AcumaticaClient authentication guard", () => {
+  // These assert the behaviour that stops a third production lockout: the
+  // client must refuse to authenticate at all once the breaker is tripped, and
+  // must not treat back-pressure as a security event.
+  let dir: string;
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "acumatica-guard-"));
+  });
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const breakerAt = (name: string): AuthCircuitBreaker =>
+    new AuthCircuitBreaker(join(dir, `${name}.json`));
+
+  function reply(status: number, body: string, cookies: string[] = []) {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      text: async () => body,
+      headers: { getSetCookie: () => cookies },
+    } as unknown as Response;
+  }
+
+  function clientWith(
+    breaker: AuthCircuitBreaker,
+    fetchImpl: typeof fetch,
+  ): AcumaticaClient {
+    return new AcumaticaClient({
+      baseUrl: "https://example.acumatica.com",
+      username: "svc",
+      password: "secret",
+      company: "Production",
+      breaker,
+      fetchImpl,
+    });
+  }
+
+  it("does not touch the network when the breaker is already tripped", async () => {
+    const breaker = breakerAt("tripped");
+    breaker.recordFailure("unauthorized", "previous run");
+    let called = 0;
+    const client = clientWith(breaker, (async () => {
+      called += 1;
+      return reply(204, "", ["ASP.NET_SessionId=s1"]);
+    }) as unknown as typeof fetch);
+
+    await expect(client.login()).rejects.toThrow(AuthCircuitOpenError);
+    // The point of the breaker is that the request is never sent at all.
+    expect(called).toBe(0);
+  });
+
+  it("trips on a rejected login, so the next process cannot try again", async () => {
+    const breaker = breakerAt("rejected");
+    const client = clientWith(
+      breaker,
+      (async () => reply(401, "Invalid credentials")) as unknown as typeof fetch,
+    );
+    await expect(client.login()).rejects.toThrow(/401/);
+    expect(breaker.read()).toMatchObject({
+      tripped: true,
+      kind: "unauthorized",
+    });
+  });
+
+  it("records a rate-limited login without tripping", async () => {
+    const breaker = breakerAt("throttled");
+    const client = clientWith(
+      breaker,
+      (async () => reply(429, "Too many requests")) as unknown as typeof fetch,
+    );
+    await expect(client.login()).rejects.toThrow(/429/);
+    const state = breaker.read();
+    expect(state.tripped).toBe(false);
+    expect(state.lastFailureAt).not.toBeNull();
+    // And a later attempt is still permitted — throttling is not a lockout.
+    expect(() => breaker.assertMayAuthenticate()).not.toThrow();
+  });
+
+  it("counts a rejected login exactly once, not once per code path", async () => {
+    const breaker = breakerAt("once");
+    const client = clientWith(
+      breaker,
+      (async () => reply(401, "Invalid credentials")) as unknown as typeof fetch,
+    );
+    await expect(client.login()).rejects.toThrow();
+    // request() also sees the 401. If both recorded it, this would be 2 and the
+    // operator's failure count would be a fiction.
+    expect(breaker.read().consecutiveFailures).toBe(1);
+  });
+
+  it("trips when a mid-run read comes back unauthenticated", async () => {
+    const breaker = breakerAt("midrun");
+    let loggedIn = false;
+    const client = clientWith(breaker, (async (url: URL | string) => {
+      if (String(url).includes("/entity/auth/login")) {
+        loggedIn = true;
+        return reply(204, "", ["ASP.NET_SessionId=s1"]);
+      }
+      return loggedIn ? reply(401, "") : reply(200, "[]");
+    }) as unknown as typeof fetch);
+
+    await client.login();
+    expect(breaker.read().tripped).toBe(false); // a good login clears the slate
+    await expect(client.probeEntity("Invoice", 1)).rejects.toThrow();
+    expect(breaker.read()).toMatchObject({ tripped: true, kind: "unauthorized" });
+  });
+
+  it("does not trip when a read is merely forbidden", async () => {
+    const breaker = breakerAt("forbidden");
+    const client = clientWith(breaker, (async (url: URL | string) =>
+      String(url).includes("/entity/auth/login")
+        ? reply(204, "", ["ASP.NET_SessionId=s1"])
+        : reply(403, "No access rights to Invoice")) as unknown as typeof fetch);
+
+    await client.login();
+    await expect(client.probeEntity("Invoice", 1)).rejects.toThrow();
+    // A permissions gap is a configuration fact for a human to fix, not a
+    // reason to block tomorrow's run.
+    expect(breaker.read()).toMatchObject({
+      tripped: false,
+      lastFailureKind: "forbidden",
+    });
+  });
+
+  it("recognises an explicit lockout in the login body", async () => {
+    const breaker = breakerAt("lockout");
+    const client = clientWith(
+      breaker,
+      (async () =>
+        reply(500, "The user is locked out of the system.")) as unknown as typeof fetch,
+    );
+    await expect(client.login()).rejects.toThrow(/locked_out/);
+    expect(breaker.read()).toMatchObject({ tripped: true, kind: "locked_out" });
   });
 });

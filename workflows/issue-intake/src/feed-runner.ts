@@ -1,4 +1,9 @@
-import { AcumaticaClient, PipedriveClient } from "@operating-layer/connectors";
+import {
+  AcumaticaClient,
+  PipedriveClient,
+  resolveAcumaticaGuard,
+  withAcumaticaRunLock,
+} from "@operating-layer/connectors";
 import type { DatabasePool } from "@operating-layer/db";
 import { buildAgingFromInvoices } from "./acumatica-aging.js";
 import {
@@ -57,33 +62,46 @@ export async function runCollectionsFeed(
   env: AcumaticaEnv & Record<string, string | undefined> = process.env as never,
 ): Promise<CollectionsFeedResult> {
   const config = resolveCollectionsConfig(env as never);
+  const guard = resolveAcumaticaGuard(env);
   const client = new AcumaticaClient({
     baseUrl: required(env, "ACUMATICA_BASE_URL"),
     username: required(env, "ACUMATICA_USERNAME"),
     password: required(env, "ACUMATICA_PASSWORD"),
     company: env.ACUMATICA_COMPANY ?? "Production",
+    breaker: guard.breaker,
     ...(env.ACUMATICA_ENDPOINT_VERSION
       ? { endpointVersion: env.ACUMATICA_ENDPOINT_VERSION }
       : {}),
   });
   const asOf = env.COLLECTIONS_ASOF ?? new Date().toISOString().slice(0, 10);
 
-  await client.login();
-  let invoices;
-  let contacts;
-  try {
-    invoices = await client.fetchOpenArInvoices();
-    // Names and addresses are a nice-to-have on top of the AR truth: losing
-    // them degrades chases to id-labelled and unaddressed, but must not lose
-    // the run.
-    try {
-      contacts = await client.fetchCustomers();
-    } catch {
-      contacts = undefined;
-    }
-  } finally {
-    await client.logout();
-  }
+  // This is the unattended path, so the guard matters most here. A tripped
+  // breaker stops the scheduled run cold rather than retrying every night into
+  // a locked account, and the lock stops it colliding with a hand-run command.
+  //
+  // Deliberately NOT caught: a blocked run must fail loudly and leave the
+  // breaker tripped. Swallowing it would produce a worker that quietly does
+  // nothing every night while reporting success.
+  const { invoices, contacts } = await withAcumaticaRunLock(
+    guard,
+    "collections-feed",
+    async () => {
+      await client.login();
+      try {
+        const read = await client.fetchOpenArInvoices();
+        // Names and addresses are a nice-to-have on top of the AR truth:
+        // losing them degrades chases to id-labelled and unaddressed, but must
+        // not lose the run.
+        try {
+          return { invoices: read, contacts: await client.fetchCustomers() };
+        } catch {
+          return { invoices: read, contacts: undefined };
+        }
+      } finally {
+        await client.logout();
+      }
+    },
+  );
 
   const agingByCompany = buildAgingFromInvoices(invoices, asOf, {
     ...(contacts ? { contacts } : {}),
