@@ -118,16 +118,23 @@ async function main(): Promise<void> {
           ? { endpointVersion: process.env.ACUMATICA_ENDPOINT_VERSION }
           : {}),
       });
-      results.push(
-        ...(await checkAcumatica(client, { keepSessionOpen: dryRun })),
-      );
+      const acumaticaResults = await checkAcumatica(client, {
+        keepSessionOpen: dryRun,
+      });
+      results.push(...acumaticaResults);
+      // Only preview if we actually got in. Running it against a session that
+      // was never established just produces a second, misleading failure (a 401
+      // that looks like a permissions problem rather than the login it was).
+      const authenticated =
+        acumaticaResults.find((r) => r.name === "authenticates")?.status ===
+        "pass";
 
       // Dry run: show exactly what Collections WOULD raise, writing nothing.
       //
       // Fault-isolated deliberately. This runs BEFORE the report is printed, so
       // an unhandled failure here would discard every check that already
       // passed — which is exactly what a preflight must never do.
-      if (dryRun) {
+      if (dryRun && authenticated) {
         try {
           await runDryRun(client);
         } catch (error) {
@@ -143,6 +150,13 @@ async function main(): Promise<void> {
           // The checks handed us the session; releasing it is ours to do.
           await client.logout();
         }
+      } else if (dryRun) {
+        results.push({
+          section: "acumatica",
+          name: "dry run",
+          status: "skip",
+          detail: "skipped because authentication failed",
+        });
       }
     }
 
