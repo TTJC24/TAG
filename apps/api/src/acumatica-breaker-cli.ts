@@ -1,4 +1,5 @@
 import { resolveAcumaticaGuard } from "@operating-layer/connectors";
+import { resolveFeedSchedules } from "@operating-layer/issue-intake";
 
 /**
  * Operator command: inspect, and deliberately clear, the ERP authentication
@@ -59,6 +60,39 @@ function main(): void {
   // it becomes the reason somebody is clearing a breaker at 6am.
   console.log(`  kind      : ${state.lastFailureKind ?? "—"}`);
   console.log(`  detail    : ${state.lastFailureReason || "—"}`);
+
+  // Unattended authentication. Printed here, from the same resolver the worker
+  // uses, so "the scheduled jobs are off" is something an operator can SEE on
+  // the running host rather than something they are told.
+  const raw = process.env.ACUMATICA_UNATTENDED_ENABLED;
+  const permitted = raw === "true";
+  const scheduled = resolveFeedSchedules(process.env as never);
+  const collections = scheduled.find((s) => s.name === "collections");
+  console.log("");
+  console.log("── unattended Acumatica authentication ──");
+  console.log(
+    `ACUMATICA_UNATTENDED_ENABLED : ${raw === undefined ? "<unset>" : JSON.stringify(raw)}`,
+  );
+  console.log(
+    `  accepted true value?       : ${permitted ? "YES" : "NO"}   (the ONLY accepted value is the exact string "true")`,
+  );
+  console.log(
+    `COLLECTIONS_SCHEDULE_UTC     : ${process.env.COLLECTIONS_SCHEDULE_UTC ?? "<unset>"}`,
+  );
+  console.log(
+    `→ collections feed scheduled : ${
+      collections
+        ? `YES at ${String(collections.hourUtc).padStart(2, "0")}:${String(collections.minuteUtc).padStart(2, "0")} UTC`
+        : "NO — no unattended Acumatica login can occur"
+    }`,
+  );
+  console.log(
+    `  (sales/Pipedrive is listed separately and is not gated: no lockout policy)`,
+  );
+  const sales = scheduled.find((s) => s.name === "sales");
+  console.log(
+    `→ sales feed scheduled       : ${sales ? "YES" : "NO"}   [does not touch Acumatica]`,
+  );
 
   if (command === "status") {
     // Exit 1 while blocked, so a health check or a deploy gate can see it.
