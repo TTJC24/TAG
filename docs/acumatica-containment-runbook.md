@@ -142,44 +142,94 @@ to confirm no *running container* still holds this account.
 
 ### R2. Apply the scoreboard code fix
 
-The fix is committed in the local scoreboard checkout and exported as a patch.
-It is **not** pushed: that repository's `origin` currently points at
-`TTJC24/TAG`, which is not its real remote, and pushing there would be wrong.
-Route it through scoreboard's actual repository.
+Committed in the local scoreboard checkout and exported as a two-commit patch.
+**Not pushed:** that repository's `origin` currently points at `TTJC24/TAG`,
+which is not its real remote. Route it through scoreboard's actual repository.
 
 ```bash
 cd /path/to/scoreboard
-git apply --check /opt/operating-layer/docs/patches/scoreboard-acumatica-containment.patch
-git apply       /opt/operating-layer/docs/patches/scoreboard-acumatica-containment.patch
-python3 -m pytest tests/ -q     # expect 43 passed
+git am --3way < /opt/operating-layer/docs/patches/scoreboard-acumatica-containment.patch
+python3 -m pytest tests/ -q          # expect 76 passed
 ```
 
-What it changes:
+Verified: the patch applies cleanly to the unmodified tree and the suite passes
+afterwards.
 
-1. **Authentication is never retried.** `_request_json` takes a per-call
-   `retries` override; `authenticate()` passes `0`. Data reads keep retrying —
-   they carry a session, not a credential. This removes the three-attempt
-   signature.
-2. **A rejected credential latches for the process.** Removing retries alone is
-   not enough: with a client built per HTTP request, an endpoint polled every
-   30 seconds would still spend one attempt per poll and reach the threshold in
-   minutes.
-3. **The connector is disabled by default.** `SCOREBOARD_ACUMATICA_ENABLED`
-   must be exactly `"true"`. Fails closed, so a deploy that forgets it cannot
-   resume authenticating.
-4. **Status endpoints no longer authenticate.** `platform_status()` and
-   `connector_status()` use `status_snapshot()`, which reports connector state
-   without contacting Acumatica and without disclosing credential material.
+**What it changes**
 
-Note a deliberate behaviour change: `platform_status()` no longer reads
-branches, so it reports `branch_mapping_state` as
-`"not_verified_no_acumatica_read"` instead of deriving `"governed_complete"`
-from an empty branch list. An empty list is not evidence that every branch is
-mapped, and a status endpoint reporting unearned green is worse than one
-reporting unknown. Anything consuming that field needs to handle the new value.
+1. **On-demand authentication is prohibited.** `allow_authentication` defaults
+   to `False`; only the refresh job sets it. Reads no longer authenticate
+   implicitly — that implicit login is what made every data endpoint a
+   credential attempt — and are never followed by automatic re-authentication.
+2. **Every HTTP route holds a `CachedAcumaticaReader`**: same read interface, no
+   credential, no opener, no code path to the network. `leadership_flash` and
+   the financial endpoints are covered too, since they reach Acumatica only via
+   `AcumaticaFinancialExtractor.fetch_ar_invoices`. Routes serve cached
+   last-known state labelled with its age; a cache miss is reported as a miss,
+   not as an empty result set.
+3. **The auth latch is a shared file**, not an object attribute. A client per
+   request and several worker processes mean an in-object or in-process latch
+   dies before it can protect anything — the account's failed-attempt counter is
+   global to the tenant, so the guard is too. A success does not clear it; only
+   an operator does.
+4. **Login is never retried**, and read retries are classified: 401/403
+   terminal, 429 honouring `Retry-After` (capped at 30s), transport and 5xx
+   bounded.
+5. **`SCOREBOARD_ACUMATICA_ENABLED` stays disabled by default**, exact string
+   `"true"` only.
 
-**Deploy with `SCOREBOARD_ACUMATICA_ENABLED` unset.** Do not set it until the
-account has been reset and the credential updated.
+**Required environment for the deploy**
+
+```bash
+# Do NOT set SCOREBOARD_ACUMATICA_ENABLED. Deploy with Acumatica disabled.
+
+# Shared across every scoreboard process and container — see below.
+SCOREBOARD_ACUMATICA_STATE_DIR=/var/lib/scoreboard/acumatica
+SCOREBOARD_ACUMATICA_CACHE_DIR=/var/lib/scoreboard/acumatica/cache
+```
+
+**The state directory must be shared.** If scoreboard runs more than one
+process or container, they must all mount the same path — a Docker named volume
+or a host bind mount. If they do not, the latch degrades to per-process, which
+is weaker than intended. The service reports which it has:
+
+```bash
+python3 -m backend.scoreboard.cli.refresh_acumatica 2>&1 | head -1
+# "auth latch coordination: shared:/var/lib/scoreboard/acumatica"   <- good
+# "auth latch coordination: process-local-only:..."                 <- fix the mount
+```
+
+**Behaviour change to communicate:** `platform_status()` no longer reads
+branches, so `branch_mapping_state` reports `"not_verified_no_acumatica_read"`
+rather than deriving `"governed_complete"` from an empty branch list. An empty
+list is not evidence that branches are mapped, and a status endpoint reporting
+unearned green is worse than one reporting unknown. Anything consuming that
+field needs to handle the new value. Financial and dashboard endpoints will
+serve cache misses until the refresh job has run, which cannot happen until the
+account is reset — so expect explicit "no cached data" responses in the interim
+rather than silently empty ones.
+
+**Verify on the running production service**
+
+```bash
+# 1. The flag is off.
+<exec into the scoreboard service> printenv SCOREBOARD_ACUMATICA_ENABLED
+# expect: empty / unset
+
+# 2. Routes hold a cache-backed reader with no credential.
+<exec> python3 -c "
+from backend.scoreboard.api import routes
+from backend.scoreboard.connectors.acumatica_cache import CachedAcumaticaReader
+_,_,acu,_,_ = routes._build_dependencies()
+assert isinstance(acu, CachedAcumaticaReader), type(acu)
+assert not hasattr(acu, 'password') and not hasattr(acu, '_opener')
+print('OK: routes cannot authenticate')"
+
+# 3. A status endpoint returns without contacting Acumatica.
+curl -s localhost:<port>/connector-status | head -c 400
+```
+
+None of these authenticate to Acumatica.
 
 ### R3. Deploy the operating-layer safeguards
 

@@ -1,8 +1,8 @@
 From b6e9f821ea2f29372b6a678d7a8aa4b233cf4523 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 31 Jul 2026 13:13:15 +0000
-Subject: [PATCH] Stop Acumatica login retries and per-request auth on status
- endpoints
+Subject: [PATCH 1/2] Stop Acumatica login retries and per-request auth on
+ status endpoints
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -2462,6 +2462,2300 @@ index 01fe41e..cc8324c 100644
 +    # And it discloses no credential material.
 +    assert "secret" not in json.dumps(snapshot)
 +    assert "svc" not in json.dumps(snapshot)
+-- 
+2.43.0
+
+
+From 3b86cd0f175565a854301cc8258411343348d532 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 31 Jul 2026 13:28:15 +0000
+Subject: [PATCH 2/2] Prohibit route-initiated Acumatica auth; share the latch;
+ classify read retries
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Closes five gaps in the first containment attempt.
+
+1. The latch must survive per-request client construction.
+
+   The first fix latched on the client object. This service builds a new
+   AcumaticaClient per HTTP request and may run several workers or containers,
+   so an instance latch dies with the request, a module latch dies with the
+   process, and neither is visible to a sibling container. The thing being
+   protected — the account's failed-attempt counter — is global to the tenant,
+   so the guard must be at least as global.
+
+   AuthLatch is now a shared JSON file (SCOREBOARD_ACUMATICA_STATE_DIR). A
+   success does not clear it; only clear_by_operator does. coordination_scope()
+   reports whether the directory is actually writable, so a silent degradation
+   to per-process is visible from the running service rather than discovered
+   during the next incident.
+
+   Test: ten independent clients across ten simulated HTTP requests produce
+   exactly ONE network login. Verified this test detects the insufficient fix —
+   substituting a per-instance latch yields 10 logins.
+
+2. On-demand authentication is prohibited outright, not merely rate-limited.
+
+   allow_authentication defaults to False; only the refresh job sets it. Reads
+   no longer authenticate implicitly — _read_domain used to call authenticate()
+   whenever it found no session, which is what made every data endpoint a
+   credential attempt. A read on an unauthenticated client is now a failure to
+   report, never a login to perform, and is never followed by automatic
+   re-authentication.
+
+3. Route audit. Every externally callable route, leadership_flash included,
+   now holds a CachedAcumaticaReader: same read interface, no credential, no
+   opener, no code path to the network. leadership_flash and the financial
+   endpoints reach Acumatica only via AcumaticaFinancialExtractor's
+   fetch_ar_invoices, so substituting the reader in _build_dependencies covers
+   them without touching the KPI layer. "No route authenticates" is now a
+   property of the object graph rather than a rule each route must remember.
+
+   Cache misses are reported as misses. An empty result set and "we have no
+   data" are different facts, and a dashboard must not show one as the other.
+
+4. Read retries are classified. 401 and 403 are terminal — never retried,
+   never followed by re-authentication. 429 honours Retry-After, capped at 30s,
+   falling back to backoff when absent or in HTTP-date form. Transport and 5xx
+   retry within the existing bound. Non-401/403 4xx and malformed bodies are
+   terminal: repeating an unchanged bad request cannot succeed.
+
+5. Route-level proof: every route × flag disabled AND enabled produces zero
+   Acumatica requests. Enabled is the stronger case and the one that matters —
+   a guarantee that only holds while the feature is switched off is not a
+   guarantee.
+
+   The first version of this test passed vacuously: with no Acumatica settings
+   in the environment, authenticate() short-circuited on "not fully configured"
+   and nothing could have reached the network. The fixture now populates
+   plausible settings, and the negative case was verified — a route that
+   authenticates is caught in both flag states.
+
+   test_route_list_is_complete asserts the route list covers every public
+   callable in the module, so a new route cannot escape the check.
+
+New: refresh_acumatica CLI, the only code path permitted to authenticate.
+SCOREBOARD_ACUMATICA_ENABLED remains disabled by default.
+
+76 passed (37 pre-existing, 39 new).
+---
+ artifacts/financial_validation/latest.json    |   4 +-
+ .../api/__pycache__/routes.cpython-311.pyc    | Bin 10798 -> 11348 bytes
+ backend/scoreboard/api/routes.py              |  26 +-
+ .../refresh_acumatica.cpython-311.pyc         | Bin 0 -> 5170 bytes
+ backend/scoreboard/cli/refresh_acumatica.py   |  89 ++++
+ .../__pycache__/acumatica.cpython-311.pyc     | Bin 13689 -> 18069 bytes
+ .../acumatica_cache.cpython-311.pyc           | Bin 0 -> 10430 bytes
+ .../__pycache__/auth_guard.cpython-311.pyc    | Bin 0 -> 7233 bytes
+ backend/scoreboard/connectors/acumatica.py    | 141 ++++++-
+ .../scoreboard/connectors/acumatica_cache.py  | 160 ++++++++
+ backend/scoreboard/connectors/auth_guard.py   | 119 ++++++
+ ...a_containment.cpython-311-pytest-9.1.1.pyc | Bin 0 -> 57010 bytes
+ ...st_connectors.cpython-311-pytest-9.1.1.pyc | Bin 23179 -> 5072 bytes
+ tests/test_acumatica_containment.py           | 385 ++++++++++++++++++
+ tests/test_connectors.py                      | 119 ------
+ 15 files changed, 900 insertions(+), 143 deletions(-)
+ create mode 100644 backend/scoreboard/cli/__pycache__/refresh_acumatica.cpython-311.pyc
+ create mode 100644 backend/scoreboard/cli/refresh_acumatica.py
+ create mode 100644 backend/scoreboard/connectors/__pycache__/acumatica_cache.cpython-311.pyc
+ create mode 100644 backend/scoreboard/connectors/__pycache__/auth_guard.cpython-311.pyc
+ create mode 100644 backend/scoreboard/connectors/acumatica_cache.py
+ create mode 100644 backend/scoreboard/connectors/auth_guard.py
+ create mode 100644 tests/__pycache__/test_acumatica_containment.cpython-311-pytest-9.1.1.pyc
+ create mode 100644 tests/test_acumatica_containment.py
+
+diff --git a/artifacts/financial_validation/latest.json b/artifacts/financial_validation/latest.json
+index c747256..5119cb0 100644
+--- a/artifacts/financial_validation/latest.json
++++ b/artifacts/financial_validation/latest.json
+@@ -1,6 +1,6 @@
+ {
+   "blocker_list": [
+-    "acumatica_extraction_failed:Acumatica connector is disabled (SCOREBOARD_ACUMATICA_ENABLED is not \"true\")."
++    "acumatica_extraction_failed:No cached Acumatica data for 'ar_invoices'. Routes never authenticate; run the refresh job to populate the cache."
+   ],
+   "branch_distribution": {},
+   "branch_scope": [
+@@ -27,7 +27,7 @@
+   "rep_attribution_rule": "line_level_rep_required_no_fallback",
+   "rep_distribution": {},
+   "row_count_extracted": 0,
+-  "run_timestamp_utc": "2026-07-31T13:12:56.770308+00:00",
++  "run_timestamp_utc": "2026-07-31T13:27:47.345000+00:00",
+   "signed_amount_policy": "credit_memo_and_return_negative_invoice_positive_void_excluded",
+   "tie_out_status": "not_run",
+   "unmapped_rep_count": 0
+diff --git a/backend/scoreboard/api/__pycache__/routes.cpython-311.pyc b/backend/scoreboard/api/__pycache__/routes.cpython-311.pyc
+index 65246c2b5a12792847b9af06d5166a5dfd2d1f36..a31bbb79bb8ff805d6a6e5dad61fb6edf04231c2 100644
+GIT binary patch
+delta 2888
+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
+G%l{7sY1;+>
+
+delta 2391
+zcmaJ?O>7%Q6yC98d*k>&PU19a;?T6o=D%u7prnPUDs7sOlqR&ut?F#No5YRRHnZ!r
+z5v8s~Aw@zJ?OfVJTTajb1)=l+Cj<vTTnHkFXhqM!1r>>cgb?uF>?U?Nu(F@O`R2{r
+zZ{B+|UVZ-kiNM=_zgK|g$=jJTpS4^K#7OjN+peM}CPX4Ag5t_lYTksGV|S)X^Cf(m
+zKjGH`iGUVN1Uc`?gtTxX3|LenDp6gkQ}wFiw5uK?^Jm(jR9>n`R4ZOJ3SKp8v}~?I
+zse-v$;G^K@16-`L2YwjDY#abwZ{r}~EjA7TZm@9}aHEYQfVbMX8gP@1qkx;0nsGs@
+z{Tanc#1zL>!$@ambil#ERKcgoMmi-Q$fVV*!CodmkXvlh@!hHO!WqA{Awd8fD8s=r
+z94f=%G8|dQ?>XOc3&OkbwVs!pMjKmnwuGg12IHS6Mko8&`4kyt)Lq==rcszR#e%NV
+ztgNY~n3r|^Y>q0XCzaFka(02%qDQ4%FlLi^*_dVjxSNhNAm>i;y+}@qL)ysw)N=-v
+zQ$~(TwbY4>I8Ad}Qq9g&+$P0+P}~4T<+Pg3c$$feEqX?ZW<*XEtSlv`WL-@bXr`Ro
+z5LxE8AvauFYYR8)OO%n;)Lg+x>S`*NRdlnuG_|p@7!^^G2MuOXa@+f2zk6Pd^a6uj
+zt^Wb$qHsT0$KDX<o`|o7>sP~Fn`|hy8tPb!#aCl{*CJb1BRvoNp0N8@0nBe`E)G2m
+z3Be}TSozoXoe+)g!nh7F@i^^)A5%<H5K0xD_QSB9?eq4NzU6|q-$6RqU0*NR%kKN;
+zNH-hu_qkCS?Po>**;yaLDvaQI`q;to!*o9qDBG+$dTi|Y(D=~U=->#gM8;#}l1e&d
+zNFHmS9Y~TS?ZP$PIB+SdoYCnaz&fTSZauVzoetExjsern76N~Rv~$5hhyNfDQh?fe
+zJ`e8<9R`LDp*ezPn0X>Qiz5KdYTb}CYBHD4=crN0rj4|!b6Io@rX{f?i5|tJB~f1J
+zuJpXM;8~pF^00KaJUfRW9bTX(b;zSSm6NGLPl3-Np#nDZBfAi2WZy@=CVh<5Ebm@&
+zj!sZ6zrvD_39>Y!oF#`P0+X^)Cw3*;<eCKL1p6>L#sl4JKMiB4JjO5(d`mP5sI>Tg
+z&DLNF7}P{%G^pgBe^UVVRc%WL3fR0D33c7@wN`-Tnz{*6<Pj?EDxlYKG$+uM%E9-S
+zK#r%|?sV*cvUH!sA*NWz<FH<PB>74-(>S{b22O-D@Qt*8mHiYeLPN~fUmzmSsGIh(
+zU$*Qam8`X)tB$|UWmT6KwiDxZv6+UZ7;k-_ZWK~;NoanR>QsYSjooax3n7OaZ#rYU
+zfmm{wj-Ec#Npoj65_&DZn=G<D@hK?8_4ucC28Nvnv*Cfn0?W6wlgsQz%SrHi*wX4A
+zMEddN=0}>zz5&2?8$|y<e`XNc*C;@DW#zm+n=@!5dvV*IBEQ%05Sn#URL-VmvHkLD
+z5-y$T^h|-O3O}9n8GI`qOFD{%SA%CJRMz)aW^kS-YNHxvsC0Q*GUzMdWkxCMZ5?u7
+z!WEa<h1TX4p3q=EBOB8>swHjb8{klYuYQZLVxVUE+t$|!Z{K>hu;UAn_YW5BaN9`d
+z74Vbna`EoqqPQM@>|8L<8w2iyPugl-w_*GNGuvK}`T&heakG9(PR*%VrKfZdd#rR=
+ze-CZ!PJ453{obc=It3HCrmB285BW;ZtJHN(YI9=`QV;8vb`X(GNZUg^YdncnIOSun
+zN!>+1u6G%Qd`9IZG%N6mqmQBo-lY_8Eq)WwNkn)Ct;5878vBi6f++4}2~H(q%;TTp
+zfR<AV8FfE>2ZjW`dNthH51fRMHKAvPe;TYGuxrABmCYYE)nRlskp0)6d-Jh7$&Yeh
+c7FQ<qm2LX!R^x#H{C~~Bva55LRG@-?0Ti(}cK`qY
+
+diff --git a/backend/scoreboard/api/routes.py b/backend/scoreboard/api/routes.py
+index 06ca84a..162ab62 100644
+--- a/backend/scoreboard/api/routes.py
++++ b/backend/scoreboard/api/routes.py
+@@ -1,5 +1,6 @@
+ from backend.scoreboard.config import Settings
+-from backend.scoreboard.connectors.acumatica import AcumaticaClient
++from backend.scoreboard.connectors.acumatica_cache import CachedAcumaticaReader
++from backend.scoreboard.connectors.auth_guard import AuthLatch
+ from backend.scoreboard.connectors.pipedrive import PipedriveClient
+ from backend.scoreboard.kpis.financial import AcumaticaFinancialExtractor, FinancialKpiService
+ from backend.scoreboard.kpis.services import SalesKpiService
+@@ -7,7 +8,19 @@ from backend.scoreboard.models.types import ApiListResponse, CertificationState,
+ from backend.scoreboard.normalization.mapper import build_normalization_scaffold
+ 
+ 
+-def _build_dependencies() -> tuple[Settings, PipedriveClient, AcumaticaClient, SalesKpiService, FinancialKpiService]:
++def _build_dependencies() -> tuple[Settings, PipedriveClient, CachedAcumaticaReader, SalesKpiService, FinancialKpiService]:
++    """Assemble per-request dependencies.
++
++    The Acumatica dependency is a CACHE-BACKED READER, not a live client. It
++    holds no credential and has no code path that reaches the network, so "no
++    HTTP route authenticates to Acumatica" is a property of the object graph
++    rather than a rule every route author has to remember.
++
++    This covers every externally callable route at once — leadership_flash and
++    the financial endpoints included, since they reach Acumatica only through
++    AcumaticaFinancialExtractor.fetch_ar_invoices. Only the refresh job builds a
++    real AcumaticaClient, and only it may authenticate.
++    """
+     settings = Settings.from_env()
+     normalization = build_normalization_scaffold(
+         branch_entity_mapping=settings.branch_entity_mapping,
+@@ -20,14 +33,7 @@ def _build_dependencies() -> tuple[Settings, PipedriveClient, AcumaticaClient, S
+         api_token=settings.pipedrive_api_token,
+         timeout_seconds=settings.pipedrive_timeout_seconds,
+     )
+-    acumatica = AcumaticaClient(
+-        base_url=settings.acumatica_base_url,
+-        username=settings.acumatica_username,
+-        password=settings.acumatica_password,
+-        company=settings.acumatica_company,
+-        timeout_seconds=settings.acumatica_timeout_seconds,
+-        auth_path=settings.acumatica_auth_path,
+-    )
++    acumatica = CachedAcumaticaReader(latch_state=AuthLatch().read())
+     service = SalesKpiService(settings=settings, normalization=normalization)
+     financial = FinancialKpiService(
+         settings=settings,
+diff --git a/backend/scoreboard/cli/__pycache__/refresh_acumatica.cpython-311.pyc b/backend/scoreboard/cli/__pycache__/refresh_acumatica.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..630c9b803908e30456c481075a61b66a0b4a73f0
+GIT binary patch
+literal 5170
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/backend/scoreboard/cli/refresh_acumatica.py b/backend/scoreboard/cli/refresh_acumatica.py
+new file mode 100644
+index 0000000..3b64282
+--- /dev/null
++++ b/backend/scoreboard/cli/refresh_acumatica.py
+@@ -0,0 +1,89 @@
++"""The ONLY code path permitted to authenticate to Acumatica.
++
++    python -m backend.scoreboard.cli.refresh_acumatica
++
++Every HTTP route serves cached last-known state via ``CachedAcumaticaReader``
++and cannot reach the network. This job holds the credential, authenticates
++once, reads, writes the cache, and exits.
++
++Guards, in order:
++
++  1. ``SCOREBOARD_ACUMATICA_ENABLED`` must be exactly ``"true"``. Fails closed.
++  2. The shared, persistent auth latch must be clear. One rejected credential
++     stops every process and container pointed at the same state directory,
++     across restarts, until an operator clears it deliberately.
++  3. Exactly ONE login attempt. No retry — a rejected credential is a fact, and
++     each repeat spends another attempt against the account lockout threshold.
++
++Exits non-zero on any failure so a scheduler surfaces it rather than swallowing
++it. It does not reschedule itself and does not retry.
++"""
++
++from __future__ import annotations
++
++import sys
++
++from backend.scoreboard.config import Settings
++from backend.scoreboard.connectors.acumatica import AcumaticaClient
++from backend.scoreboard.connectors.acumatica_cache import AcumaticaCache
++from backend.scoreboard.connectors.auth_guard import AuthLatch
++
++
++def refresh(settings: Settings | None = None, cache: AcumaticaCache | None = None) -> int:
++    settings = settings or Settings.from_env()
++    cache = cache or AcumaticaCache()
++    latch = AuthLatch()
++
++    client = AcumaticaClient(
++        base_url=settings.acumatica_base_url,
++        username=settings.acumatica_username,
++        password=settings.acumatica_password,
++        company=settings.acumatica_company,
++        timeout_seconds=settings.acumatica_timeout_seconds,
++        auth_path=settings.acumatica_auth_path,
++        # The single opt-in. No other construction site sets this.
++        allow_authentication=True,
++        latch=latch,
++    )
++
++    print(f"auth latch coordination: {latch.coordination_scope()}")
++
++    auth = client.authenticate()
++    if auth.get("authenticated") is not True:
++        reason = (auth.get("fail_state") or {}).get("reason", "unknown")
++        print(f"REFUSED/FAILED: {reason}", file=sys.stderr)
++        # No retry, no second attempt, no fallback. If this was a rejection the
++        # latch is now set and the next run will refuse before touching the
++        # network.
++        return 1
++
++    domains = [
++        ("branches", lambda: client.fetch_branches(settings.acumatica_branches_path)),
++        ("sales_orders", lambda: client.fetch_sales_orders(settings.acumatica_sales_orders_path)),
++        ("ar_invoices", lambda: client.fetch_ar_invoices(settings.acumatica_ar_invoices_path)),
++        ("inventory_dead_stock", lambda: client.fetch_inventory_dead_stock_candidates(settings.acumatica_inventory_path)),
++    ]
++
++    failures = 0
++    for name, read in domains:
++        payload = read()
++        if "fail_state" in payload:
++            reason = (payload.get("fail_state") or {}).get("reason", "unknown")
++            print(f"  {name}: FAILED — {reason}", file=sys.stderr)
++            failures += 1
++            # Deliberately not cached. Overwriting good cached data with a
++            # failure would turn one bad read into a dashboard outage; routes
++            # keep serving the previous snapshot, labelled with its age.
++            continue
++        cache.write(name, payload)
++        print(f"  {name}: cached {len(payload.get('records', []))} record(s)")
++
++    return 1 if failures else 0
++
++
++def main() -> int:
++    return refresh()
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/backend/scoreboard/connectors/__pycache__/acumatica.cpython-311.pyc b/backend/scoreboard/connectors/__pycache__/acumatica.cpython-311.pyc
+index 4612eaf609cf99840b8451d5b9af8ea41b023eab..f96c841250a7d4415d2e90eeced4689c1b6485c4 100644
+GIT binary patch
+delta 8464
+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
+
+delta 4475
+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
+
+diff --git a/backend/scoreboard/connectors/__pycache__/acumatica_cache.cpython-311.pyc b/backend/scoreboard/connectors/__pycache__/acumatica_cache.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..3c79fda18612b919af1d2574d33dd00bf02697a8
+GIT binary patch
+literal 10430
+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
+O^lP5~?Q=@`p8OAT^vV<f
+
+literal 0
+HcmV?d00001
+
+diff --git a/backend/scoreboard/connectors/__pycache__/auth_guard.cpython-311.pyc b/backend/scoreboard/connectors/__pycache__/auth_guard.cpython-311.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..b78e465df8697334a67f69d65604508794466ca5
+GIT binary patch
+literal 7233
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/backend/scoreboard/connectors/acumatica.py b/backend/scoreboard/connectors/acumatica.py
+index a8c8167..812324c 100644
+--- a/backend/scoreboard/connectors/acumatica.py
++++ b/backend/scoreboard/connectors/acumatica.py
+@@ -3,9 +3,10 @@ import os
+ import time
+ from datetime import datetime, timezone
+ from http import cookiejar
+-from typing import Any
++from typing import Any, NamedTuple
+ from urllib import error, parse, request
+ 
++from backend.scoreboard.connectors.auth_guard import AuthLatch
+ from backend.scoreboard.connectors.base import ConnectorContext
+ from backend.scoreboard.models.types import FailState
+ 
+@@ -15,6 +16,65 @@ def _env_enabled() -> bool:
+     return os.getenv("SCOREBOARD_ACUMATICA_ENABLED", "") == "true"
+ 
+ 
++class _FailureKind(NamedTuple):
++    name: str
++    retryable: bool
++
++
++#: Failure classes are not equivalent, and treating them alike is what turns a
++#: transient blip and a rejected credential into the same code path.
++UNAUTHORIZED = _FailureKind("unauthorized_401", False)
++FORBIDDEN = _FailureKind("forbidden_403", False)
++RATE_LIMITED = _FailureKind("rate_limited_429", True)
++SERVER_ERROR = _FailureKind("server_error_5xx", True)
++TRANSPORT = _FailureKind("transport", True)
++MALFORMED = _FailureKind("malformed_response", False)
++
++#: Ceiling on any server-supplied Retry-After. A cooperative server asking for a
++#: short pause is honoured; one asking us to sleep for an hour inside a request
++#: is not, because that is an outage of our own making.
++MAX_RETRY_AFTER_SECONDS = 30.0
++
++
++def _retry_after_seconds(exc: error.HTTPError) -> float | None:
++    """Parse Retry-After. Seconds form only; HTTP-date form is ignored."""
++    try:
++        raw = exc.headers.get("Retry-After") if exc.headers else None
++    except AttributeError:
++        return None
++    if not raw:
++        return None
++    try:
++        return max(0.0, float(str(raw).strip()))
++    except (TypeError, ValueError):
++        # HTTP-date form. Deliberately not parsed: falling back to normal
++        # backoff is safer than mis-parsing a date into a huge or zero sleep.
++        return None
++
++
++def _classify(exc: Exception, backoff_seconds: float, attempt: int) -> tuple[_FailureKind, float]:
++    """Classify a failure and say how long to wait before any retry."""
++    default_wait = backoff_seconds * (2**attempt)
++    if isinstance(exc, error.HTTPError):
++        if exc.code == 401:
++            return UNAUTHORIZED, 0.0
++        if exc.code == 403:
++            return FORBIDDEN, 0.0
++        if exc.code == 429:
++            # Honour the server's own guidance when it gives any, bounded.
++            supplied = _retry_after_seconds(exc)
++            wait = default_wait if supplied is None else min(supplied, MAX_RETRY_AFTER_SECONDS)
++            return RATE_LIMITED, wait
++        if exc.code >= 500:
++            return SERVER_ERROR, default_wait
++        # 4xx other than the above: a request we built wrong. Repeating it
++        # unchanged cannot succeed.
++        return _FailureKind(f"client_error_{exc.code}", False), 0.0
++    if isinstance(exc, json.JSONDecodeError):
++        return MALFORMED, 0.0
++    return TRANSPORT, default_wait
++
++
+ class AcumaticaClient:
+     """Read-only Acumatica connector for v1 integration plumbing.
+ 
+@@ -58,6 +118,8 @@ class AcumaticaClient:
+         retries: int = 2,
+         backoff_seconds: float = 0.5,
+         enabled: bool | None = None,
++        allow_authentication: bool = False,
++        latch: AuthLatch | None = None,
+     ) -> None:
+         self.context = ConnectorContext(source="acumatica", base_url=base_url.rstrip("/"), timeout_seconds=timeout_seconds)
+         self.username = username
+@@ -69,6 +131,13 @@ class AcumaticaClient:
+         self.retries = retries
+         self.backoff_seconds = backoff_seconds
+         self.enabled = _env_enabled() if enabled is None else enabled
++        # DENY BY DEFAULT. On-demand authentication — a login triggered by an
++        # inbound HTTP request — is prohibited unless a caller explicitly opts
++        # in. Only the refresh job does. Every route builds its client without
++        # this, so no route can produce a login however it is called or however
++        # often it is polled.
++        self.allow_authentication = allow_authentication
++        self.latch = latch if latch is not None else AuthLatch()
+         self._authenticated = False
+         self._auth_failed_reason: str | None = None
+         self._opener = request.build_opener(request.HTTPCookieProcessor(cookiejar.CookieJar()))
+@@ -118,10 +187,24 @@ class AcumaticaClient:
+                     return json.loads(content)
+             except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                 last_error = exc
++                kind, wait_seconds = _classify(exc, self.backoff_seconds, attempt)
++                if not kind.retryable:
++                    # 401 and 403 are terminal. Retrying a 401 is how a lost
++                    # session becomes a stream of unauthenticated requests, and
++                    # a 403 is a permissions fact that will not change on the
++                    # next try. Neither is ever followed by re-authentication:
++                    # this method does not log in, and nothing else retries it.
++                    return self._failure(
++                        f"Acumatica request failed for {domain} ({kind.name}, not retryable): {exc}",
++                        domain,
++                    )
+                 if attempt < attempts:
+-                    time.sleep(self.backoff_seconds * (2**attempt))
++                    time.sleep(wait_seconds)
+                     continue
+-                return self._failure(f"Acumatica request failed for {domain}: {exc}", domain)
++                return self._failure(
++                    f"Acumatica request failed for {domain} ({kind.name}, retries exhausted): {exc}",
++                    domain,
++                )
+ 
+         return self._failure(f"Acumatica request failed for {domain}: {last_error}", domain)
+ 
+@@ -133,15 +216,32 @@ class AcumaticaClient:
+                 "Acumatica connector is disabled (SCOREBOARD_ACUMATICA_ENABLED is not \"true\").",
+                 "auth",
+             )
++        # On-demand authentication is prohibited. A login must be initiated by
++        # the refresh job, never by an inbound HTTP request. This is checked
++        # before the credential is even assembled.
++        if not self.allow_authentication:
++            return self._failure(
++                "On-demand Acumatica authentication is prohibited. Only the refresh job "
++                "may authenticate; routes serve cached last-known state.",
++                "auth",
++            )
+         if not self.context.base_url or not self.username or not self.password or not self.company:
+             return self._failure("Acumatica credentials/base URL are not fully configured.", "auth")
+-        # Latch. Once a credential has been rejected in this process, do not
+-        # present it again — not on the next poll, not on the next request.
+-        # Without this, removing retries would only slow the lockout down.
+-        if self._auth_failed_reason is not None:
++        # SHARED, PERSISTENT latch. Once a credential has been rejected, it is
++        # not presented again — not by the next request, not by the next
++        # process, not by a sibling container, not after a restart.
++        #
++        # An instance attribute is not sufficient here: this client is built per
++        # HTTP request and the service may run several workers, so an in-object
++        # or in-process latch dies before it can protect anything. The thing
++        # being guarded — the account's failed-attempt counter — is global to
++        # the tenant, so the guard is a file that every process shares.
++        if self.latch.is_latched():
++            state = self.latch.read()
+             return self._failure(
+-                f"Acumatica authentication already failed in this process; not retrying. "
+-                f"Original failure: {self._auth_failed_reason}",
++                f"Acumatica authentication is latched off after a previous rejection "
++                f"({state.get('reason', 'unknown')} at {state.get('at', 'unknown')}). "
++                f"This does not clear on its own; an operator must clear it deliberately.",
+                 "auth",
+             )
+         result = self._request_json(
+@@ -159,9 +259,11 @@ class AcumaticaClient:
+             self._authenticated = False
+             fail = result.get("fail_state") or {}
+             self._auth_failed_reason = str(fail.get("reason", "unknown"))
++            self.latch.record_failure(self._auth_failed_reason)
+             return result
+         self._authenticated = True
+         self._auth_failed_reason = None
++        self.latch.record_success()
+         now = datetime.now(timezone.utc)
+         return {
+             "read_only": True,
+@@ -173,10 +275,25 @@ class AcumaticaClient:
+         }
+ 
+     def _read_domain(self, domain: str, path: str, query: dict[str, Any] | None = None) -> dict[str, Any]:
++        if not self.enabled:
++            return self._failure(
++                "Acumatica connector is disabled (SCOREBOARD_ACUMATICA_ENABLED is not \"true\").",
++                domain,
++            )
++        # A read NEVER logs in on its own. Implicit authentication here is what
++        # made every data endpoint a credential attempt: any caller that reached
++        # a read on an unauthenticated client silently triggered a login.
++        #
++        # The caller must authenticate deliberately first, and only the refresh
++        # job is permitted to. A read on an unauthenticated client is a failure
++        # to report, not a login to perform — and it is never followed by
++        # automatic re-authentication either.
+         if not self._authenticated:
+-            auth_result = self.authenticate()
+-            if auth_result.get("authenticated") is not True:
+-                return auth_result
++            return self._failure(
++                "Acumatica read attempted without an established session. Reads never "
++                "authenticate implicitly; the refresh job must call authenticate() first.",
++                domain,
++            )
+ 
+         target_path = path
+         if query:
+diff --git a/backend/scoreboard/connectors/acumatica_cache.py b/backend/scoreboard/connectors/acumatica_cache.py
+new file mode 100644
+index 0000000..412ccba
+--- /dev/null
++++ b/backend/scoreboard/connectors/acumatica_cache.py
+@@ -0,0 +1,160 @@
++"""Last-known Acumatica payloads, so HTTP routes never need to authenticate.
++
++The rule this exists to enforce: **no inbound HTTP request may cause an
++Acumatica login.** Routes read here; only the refresh job writes here, and only
++the refresh job authenticates.
++
++That inverts the previous arrangement, where a dashboard or monitoring poll went
++straight through to a fresh login. It also means a route can now serve stale
++data — which is why every read carries `as_of` and `age_seconds`, and why a
++cache miss is reported as a miss rather than silently returning an empty list. A
++dashboard showing yesterday's numbers labelled as yesterday's is fine; one
++showing them as today's is not.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any
++
++DEFAULT_CACHE_DIR = "/var/lib/scoreboard/acumatica/cache"
++
++
++def cache_dir() -> Path:
++    return Path(os.getenv("SCOREBOARD_ACUMATICA_CACHE_DIR", DEFAULT_CACHE_DIR))
++
++
++class AcumaticaCache:
++    """Read/write last-known payloads by domain name."""
++
++    def __init__(self, directory: Path | None = None) -> None:
++        self.directory = directory or cache_dir()
++
++    def _path(self, domain: str) -> Path:
++        safe = "".join(ch for ch in domain if ch.isalnum() or ch in "-_")
++        return self.directory / f"{safe}.json"
++
++    def write(self, domain: str, payload: dict[str, Any]) -> None:
++        record = dict(payload)
++        record["cached_at"] = datetime.now(timezone.utc).isoformat()
++        try:
++            self.directory.mkdir(parents=True, exist_ok=True)
++            # Write-then-rename so a reader never sees a half-written file.
++            tmp = self._path(domain).with_suffix(".json.tmp")
++            with tmp.open("w", encoding="utf-8") as handle:
++                json.dump(record, handle)
++            tmp.replace(self._path(domain))
++        except OSError:
++            # A cache that cannot be written must not break the refresh job.
++            pass
++
++    def read(self, domain: str) -> dict[str, Any]:
++        """Return the cached payload, or a miss that says so explicitly."""
++        try:
++            with self._path(domain).open("r", encoding="utf-8") as handle:
++                record = json.load(handle)
++        except (OSError, ValueError):
++            now = datetime.now(timezone.utc)
++            return {
++                "read_only": True,
++                "source": "acumatica",
++                "domain": domain,
++                "as_of": now.isoformat(),
++                "records": [],
++                "cache_state": "miss",
++                "fail_state": {
++                    "reason": (
++                        f"No cached Acumatica data for '{domain}'. Routes never authenticate; "
++                        f"run the refresh job to populate the cache."
++                    ),
++                    "source": "acumatica",
++                    "as_of": now.isoformat(),
++                },
++            }
++        record["cache_state"] = "hit"
++        record["age_seconds"] = self._age_seconds(record.get("cached_at"))
++        return record
++
++    @staticmethod
++    def _age_seconds(cached_at: Any) -> float | None:
++        if not isinstance(cached_at, str):
++            return None
++        try:
++            stamp = datetime.fromisoformat(cached_at)
++        except ValueError:
++            return None
++        if stamp.tzinfo is None:
++            stamp = stamp.replace(tzinfo=timezone.utc)
++        return (datetime.now(timezone.utc) - stamp).total_seconds()
++
++
++class CachedAcumaticaReader:
++    """Read-only, cache-backed stand-in for ``AcumaticaClient``.
++
++    Exposes the same read methods, so the KPI layer and every route work
++    unchanged — but it holds no credential, has no opener, and has no code path
++    that can reach the network. That is the point: substituting this in
++    ``_build_dependencies()`` makes "no route authenticates" a property of the
++    object graph rather than a rule each route has to remember.
++
++    ``leadership_flash`` and the financial endpoints reach Acumatica through
++    ``AcumaticaFinancialExtractor``, which only ever calls ``fetch_ar_invoices``.
++    They are covered here too, without touching the KPI code.
++    """
++
++    def __init__(self, cache: AcumaticaCache | None = None, latch_state: dict[str, Any] | None = None) -> None:
++        self.cache = cache or AcumaticaCache()
++        self._latch_state = latch_state or {}
++
++    # --- read interface, mirroring AcumaticaClient ---------------------------
++
++    def fetch_branches(self, path: str) -> dict[str, Any]:  # noqa: ARG002 - interface parity
++        return self.cache.read("branches")
++
++    def fetch_sales_orders(self, path: str, top: int = 200) -> dict[str, Any]:  # noqa: ARG002
++        return self.cache.read("sales_orders")
++
++    def fetch_ar_invoices(self, path: str, top: int = 200) -> dict[str, Any]:  # noqa: ARG002
++        return self.cache.read("ar_invoices")
++
++    def fetch_inventory_dead_stock_candidates(self, path: str, top: int = 200) -> dict[str, Any]:  # noqa: ARG002
++        return self.cache.read("inventory_dead_stock")
++
++    def authenticate(self) -> dict[str, Any]:
++        """Always refuses. A cache-backed reader has no credential to present."""
++        now = datetime.now(timezone.utc)
++        return {
++            "read_only": True,
++            "source": "acumatica",
++            "domain": "auth",
++            "as_of": now.isoformat(),
++            "records": [],
++            "fail_state": {
++                "reason": "Routes never authenticate to Acumatica; this reader serves cached state only.",
++                "source": "acumatica",
++                "as_of": now.isoformat(),
++            },
++        }
++
++    def status_snapshot(self) -> dict[str, Any]:
++        now = datetime.now(timezone.utc)
++        branches = self.cache.read("branches")
++        return {
++            "read_only": True,
++            "source": "acumatica",
++            "domain": "status",
++            "as_of": now.isoformat(),
++            "authenticated": False,
++            "connector_state": "cache_backed_no_authentication",
++            "cache_state": branches.get("cache_state", "miss"),
++            "cache_age_seconds": branches.get("age_seconds"),
++            "auth_latched": bool(self._latch_state.get("latched")),
++            "auth_latch_reason": self._latch_state.get("reason") or None,
++            "note": (
++                "Reported without contacting Acumatica. Routes serve cached last-known "
++                "state; only the refresh job authenticates."
++            ),
++        }
+diff --git a/backend/scoreboard/connectors/auth_guard.py b/backend/scoreboard/connectors/auth_guard.py
+new file mode 100644
+index 0000000..a4a4cd7
+--- /dev/null
++++ b/backend/scoreboard/connectors/auth_guard.py
+@@ -0,0 +1,119 @@
++"""Shared, persistent authentication guard for the Acumatica account.
++
++Why this is a file and not an instance attribute
++------------------------------------------------
++The first containment attempt latched a failed authentication on the client
++object. That was not enough, for a reason worth stating precisely: this service
++constructs a new ``AcumaticaClient`` on every HTTP request, and may run several
++worker processes or containers. A latch that lives on the object dies with the
++request; a latch that lives in module state dies with the process; and neither
++is visible to a sibling container.
++
++The thing being protected — the account's failed-attempt counter — is global to
++the Acumatica tenant. A guard protecting it must be at least as global as it is.
++
++So the latch is a file. Point every process and container at the same path
++(a shared volume, or a host bind mount) and one rejected credential stops all of
++them. If they somehow do not share it, the guard degrades to per-process, which
++is strictly better than nothing but is NOT the intended deployment — see
++``coordination_scope()``.
++
++Nothing in the runtime clears this. No retry, no restart, no redeploy, no later
++success. Only ``clear_by_operator``, invoked deliberately.
++"""
++
++from __future__ import annotations
++
++import json
++import os
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any
++
++DEFAULT_STATE_DIR = "/var/lib/scoreboard/acumatica"
++
++
++def state_path() -> Path:
++    """Where the latch lives. Override with SCOREBOARD_ACUMATICA_STATE_DIR."""
++    return Path(os.getenv("SCOREBOARD_ACUMATICA_STATE_DIR", DEFAULT_STATE_DIR)) / "auth-latch.json"
++
++
++class AuthLatch:
++    """Persistent record of a rejected Acumatica credential."""
++
++    def __init__(self, path: Path | None = None) -> None:
++        self.path = path or state_path()
++
++    def read(self) -> dict[str, Any]:
++        try:
++            with self.path.open("r", encoding="utf-8") as handle:
++                data = json.load(handle)
++            return data if isinstance(data, dict) else {}
++        except (OSError, ValueError):
++            # An unreadable latch is treated as clear rather than crashing the
++            # service. The prohibition on route-initiated authentication is the
++            # primary control; this is the backstop, and a backstop that takes
++            # the service down is its own outage.
++            return {}
++
++    def is_latched(self) -> bool:
++        return bool(self.read().get("latched"))
++
++    def record_failure(self, reason: str) -> dict[str, Any]:
++        state = {
++            "latched": True,
++            "reason": reason,
++            "at": datetime.now(timezone.utc).isoformat(),
++            "pid": os.getpid(),
++        }
++        self._write(state)
++        return state
++
++    def record_success(self) -> None:
++        # A success does NOT clear an existing latch. If a credential was
++        # rejected, an operator decides whether the cause is understood — one
++        # lucky success does not establish that.
++        if self.is_latched():
++            return
++        self._write(
++            {
++                "latched": False,
++                "reason": "",
++                "last_success_at": datetime.now(timezone.utc).isoformat(),
++            }
++        )
++
++    def clear_by_operator(self, who: str) -> dict[str, Any]:
++        """The only way a latch is released. Nothing in the runtime calls this."""
++        state = {
++            "latched": False,
++            "reason": f"cleared by {who} at {datetime.now(timezone.utc).isoformat()}",
++        }
++        self._write(state)
++        return state
++
++    def _write(self, state: dict[str, Any]) -> None:
++        try:
++            self.path.parent.mkdir(parents=True, exist_ok=True)
++            with self.path.open("w", encoding="utf-8") as handle:
++                json.dump(state, handle, indent=2)
++        except OSError:
++            # Best effort. If the latch cannot be persisted, say so loudly via
++            # coordination_scope() rather than pretending coordination exists.
++            pass
++
++    def coordination_scope(self) -> str:
++        """Whether this latch actually coordinates across processes.
++
++        Returned in status payloads so an operator can see, from the running
++        service, whether the guard is shared or has silently degraded to
++        per-process — a distinction that is invisible until it matters.
++        """
++        try:
++            self.path.parent.mkdir(parents=True, exist_ok=True)
++            probe = self.path.parent / ".write-probe"
++            probe.write_text("ok", encoding="utf-8")
++            probe.unlink()
++            return f"shared:{self.path.parent}"
++        except OSError:
++            return "process-local-only:state directory is not writable"
+diff --git a/tests/__pycache__/test_acumatica_containment.cpython-311-pytest-9.1.1.pyc b/tests/__pycache__/test_acumatica_containment.cpython-311-pytest-9.1.1.pyc
+new file mode 100644
+index 0000000000000000000000000000000000000000..0af3dcbd488c6e5dbc886a117eabeb19ff479db0
+GIT binary patch
+literal 57010
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/tests/__pycache__/test_connectors.cpython-311-pytest-9.1.1.pyc b/tests/__pycache__/test_connectors.cpython-311-pytest-9.1.1.pyc
+index 1da7bc0f41dc84218393f01c215e073ecc41d20a..d0c2ed19a6f5c59a4602749eabc14488e53d0b0f 100644
+GIT binary patch
+delta 382
+zcmeC)%6LIteK{{L7XuI&EXv8UWM*J^4C2556O{4UXQH|{Zwg~DgC^TckeHw5#*@cc
+z7^@~vWZlZhyxE;ifss*ba|ZiD_Ifs;bP+p{sAAJEElw>eF5&=kLW(#+;@lvD2So6L
+z2mufw2qbQC7GxHrrW9qCr4|W;1VurF7)XW{Vu%DtKoUeq0SQg^A{LM&cUo#maz;Ev
+zi3~_~vXO;|kRp&(403}41QcmbUdOM?Xt4PX|6?XOZJ>lE?=6m`(#)Ka%)H`TJPrkw
+z@i5-xxe*3jAfs-vWEJP<O@0uez@3;}nwwaXnVeX}Jo#>ft^vsIA}tVM03=p26oHH^
+p(gYH}IBatBQ%ZAE?TV~`Tt*-+E@7CQ6`9M&z|Ls$0YrdR0|2hiS4;o^
+
+literal 23179
+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
+IpRm6BZ|q|8ivR!s
+
+diff --git a/tests/test_acumatica_containment.py b/tests/test_acumatica_containment.py
+new file mode 100644
+index 0000000..347da2c
+--- /dev/null
++++ b/tests/test_acumatica_containment.py
+@@ -0,0 +1,385 @@
++"""Containment tests for the 2026-07-31 Acumatica account lockout.
++
++These assert the number of NETWORK CALLS, not just outcomes. The failure being
++guarded against costs a production ERP account, and "it returned an error" is
++compatible with having spent three login attempts on the way there.
++"""
++
++import json
++from urllib import error
++
++import pytest
++
++from backend.scoreboard.connectors.acumatica import (
++    FORBIDDEN,
++    RATE_LIMITED,
++    SERVER_ERROR,
++    TRANSPORT,
++    UNAUTHORIZED,
++    AcumaticaClient,
++    _classify,
++)
++from backend.scoreboard.connectors.acumatica_cache import AcumaticaCache, CachedAcumaticaReader
++from backend.scoreboard.connectors.auth_guard import AuthLatch
++
++
++class CountingOpener:
++    """Stands in for the urllib opener and counts every request it is given."""
++
++    def __init__(self, exc=None):
++        self.calls = []
++        self._exc = exc
++
++    def open(self, req, timeout=None):  # noqa: A003 - urllib interface
++        self.calls.append(req.full_url)
++        if self._exc is not None:
++            raise self._exc
++        raise AssertionError("unexpected network call")
++
++    @property
++    def login_calls(self):
++        return [c for c in self.calls if "/entity/auth/login" in c]
++
++
++def rejection(code=401):
++    return error.HTTPError(
++        "https://example.acumatica.com/entity/auth/login", code, "Unauthorized", {}, None
++    )
++
++
++@pytest.fixture
++def latch(tmp_path):
++    """A latch isolated to this test, standing in for the shared state file."""
++    return AuthLatch(tmp_path / "auth-latch.json")
++
++
++def make_client(latch, opener=None, **kwargs):
++    defaults = dict(
++        base_url="https://example.acumatica.com",
++        username="svc",
++        password="secret",
++        company="Production",
++        timeout_seconds=5,
++        auth_path="/entity/auth/login",
++        enabled=True,
++        allow_authentication=True,
++        latch=latch,
++    )
++    defaults.update(kwargs)
++    client = AcumaticaClient(**defaults)
++    if opener is not None:
++        client._opener = opener
++    client.backoff_seconds = 0
++    return client
++
++
++# --- gap 1: the latch must survive per-request client construction -----------
++
++
++def test_ten_independent_clients_across_ten_requests_make_one_login(latch, tmp_path):
++    """The real deployment shape: a NEW client per inbound HTTP request.
++
++    This is the test that would have caught the insufficiency of the first fix.
++    An instance-level latch passes 'ten calls on one client'; it fails here,
++    because each simulated request throws its client away. Only shared,
++    persistent state survives.
++    """
++    opener = CountingOpener(rejection(401))
++
++    for _ in range(10):
++        # Each iteration is a separate HTTP request: fresh client, fresh
++        # opener state, nothing carried over but the latch file.
++        client = make_client(latch, opener=CountingOpener(rejection(401)))
++        client._opener = opener
++        result = client.authenticate()
++        assert "fail_state" in result
++
++    assert len(opener.login_calls) == 1, (
++        f"expected exactly ONE network login across ten requests, "
++        f"got {len(opener.login_calls)}"
++    )
++    assert latch.is_latched()
++
++
++def test_latch_survives_a_process_restart(latch, tmp_path):
++    # A new AuthLatch object reading the same path stands in for a restarted
++    # process or a sibling container.
++    make_client(latch, opener=CountingOpener(rejection(401))).authenticate()
++
++    reopened = AuthLatch(latch.path)
++    assert reopened.is_latched()
++
++    opener = CountingOpener(rejection(401))
++    make_client(reopened, opener=opener).authenticate()
++    assert opener.login_calls == []
++
++
++def test_a_later_success_does_not_clear_a_latch(latch):
++    latch.record_failure("credential rejected")
++    latch.record_success()
++    assert latch.is_latched(), "only an operator may clear a latch"
++
++
++def test_only_an_operator_clears_the_latch(latch):
++    latch.record_failure("credential rejected")
++    latch.clear_by_operator("admin")
++    assert not latch.is_latched()
++
++
++def test_login_is_attempted_exactly_once_not_three_times(latch):
++    """The lockout signature: retries=2 fed range(retries+1) via the shared
++    read-retry wrapper, so ONE request produced THREE failed logins."""
++    opener = CountingOpener(rejection(401))
++    make_client(latch, opener=opener).authenticate()
++    assert len(opener.login_calls) == 1
++
++
++# --- gap 2: on-demand authentication is prohibited outright -----------------
++
++
++def test_authentication_is_denied_by_default(latch):
++    opener = CountingOpener(rejection(401))
++    client = make_client(latch, opener=opener, allow_authentication=False)
++    result = client.authenticate()
++    assert "fail_state" in result
++    assert "prohibited" in result["fail_state"]["reason"].lower()
++    assert opener.calls == []
++
++
++def test_reads_never_authenticate_implicitly(latch):
++    """A read on an unauthenticated client must NOT log in.
++
++    Implicit authentication in _read_domain is what made every data endpoint a
++    credential attempt.
++    """
++    opener = CountingOpener(rejection(401))
++    client = make_client(latch, opener=opener)
++    result = client.fetch_branches("/entity/Default/24.200.001/Branch")
++    assert "fail_state" in result
++    assert opener.calls == [], "a read must never trigger a login"
++
++
++def test_disabled_connector_never_touches_the_network(latch):
++    opener = CountingOpener(rejection(401))
++    client = make_client(latch, opener=opener, enabled=False)
++    assert "fail_state" in client.authenticate()
++    assert "fail_state" in client.fetch_branches("/x")
++    assert opener.calls == []
++
++
++def test_enabled_flag_defaults_to_disabled(monkeypatch, latch):
++    monkeypatch.delenv("SCOREBOARD_ACUMATICA_ENABLED", raising=False)
++    assert make_client(latch, enabled=None).enabled is False
++    for value in ["TRUE", "True", "1", "yes", "on", " true", ""]:
++        monkeypatch.setenv("SCOREBOARD_ACUMATICA_ENABLED", value)
++        assert make_client(latch, enabled=None).enabled is False, value
++    monkeypatch.setenv("SCOREBOARD_ACUMATICA_ENABLED", "true")
++    assert make_client(latch, enabled=None).enabled is True
++
++
++# --- gap 4: read retries are classified -------------------------------------
++
++
++def test_401_and_403_are_never_retried(latch):
++    for code in (401, 403):
++        opener = CountingOpener(rejection(code))
++        client = make_client(latch, opener=opener)
++        client._authenticated = True
++        result = client.fetch_branches("/x")
++        assert "fail_state" in result
++        assert len(opener.calls) == 1, f"HTTP {code} must not be retried"
++        assert "not retryable" in result["fail_state"]["reason"]
++
++
++def test_transport_and_server_errors_retry_but_are_bounded(latch):
++    for exc in (rejection(500), error.URLError("connection reset")):
++        opener = CountingOpener(exc)
++        client = make_client(latch, opener=opener)
++        client._authenticated = True
++        client.fetch_branches("/x")
++        # retries=2 → three attempts, and no more.
++        assert len(opener.calls) == 3
++
++
++def test_429_is_retried_using_its_own_retry_after(latch):
++    exc = error.HTTPError("https://x/y", 429, "Too Many", {"Retry-After": "7"}, None)
++    kind, wait = _classify(exc, backoff_seconds=0.5, attempt=0)
++    assert kind is RATE_LIMITED
++    assert kind.retryable
++    assert wait == 7.0
++
++
++def test_429_retry_after_is_capped(latch):
++    exc = error.HTTPError("https://x/y", 429, "Too Many", {"Retry-After": "3600"}, None)
++    _, wait = _classify(exc, backoff_seconds=0.5, attempt=0)
++    assert wait == 30.0, "an hour-long sleep inside a request is our own outage"
++
++
++def test_429_without_retry_after_falls_back_to_backoff(latch):
++    exc = error.HTTPError("https://x/y", 429, "Too Many", {}, None)
++    _, wait = _classify(exc, backoff_seconds=0.5, attempt=1)
++    assert wait == 1.0
++
++
++def test_429_with_http_date_retry_after_falls_back_safely(latch):
++    # HTTP-date form is not parsed; mis-parsing into 0 or a huge value is worse
++    # than using ordinary backoff.
++    exc = error.HTTPError(
++        "https://x/y", 429, "Too Many", {"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, None
++    )
++    _, wait = _classify(exc, backoff_seconds=0.5, attempt=0)
++    assert wait == 0.5
++
++
++def test_classification_of_each_kind():
++    assert _classify(rejection(401), 0.5, 0)[0] is UNAUTHORIZED
++    assert _classify(rejection(403), 0.5, 0)[0] is FORBIDDEN
++    assert _classify(rejection(500), 0.5, 0)[0] is SERVER_ERROR
++    assert _classify(error.URLError("boom"), 0.5, 0)[0] is TRANSPORT
++    assert not UNAUTHORIZED.retryable
++    assert not FORBIDDEN.retryable
++    assert RATE_LIMITED.retryable
++    assert SERVER_ERROR.retryable
++    assert TRANSPORT.retryable
++
++
++# --- gap 3 + 5: no externally callable route may authenticate ---------------
++
++
++ROUTES = [
++    "leadership_flash",
++    "sales_scoreboard",
++    "financial_revenue_by_rep",
++    "financial_margin_by_rep",
++    "financial_validation_status",
++    "stale_opportunities",
++    "stuck_orders",
++    "platform_status",
++    "connector_status",
++]
++
++
++class ExplodingOpener:
++    """Any network call at all is a test failure."""
++
++    def __init__(self):
++        self.calls = []
++
++    def open(self, req, timeout=None):  # noqa: A003
++        self.calls.append(req.full_url)
++        raise AssertionError(f"route made a network call to {req.full_url}")
++
++
++@pytest.fixture
++def no_acumatica_network(monkeypatch, tmp_path):
++    """Make ANY Acumatica network call fail loudly, and isolate all state.
++
++    Acumatica settings are populated with plausible values ON PURPOSE. Without
++    them `Settings.from_env()` yields blanks, `authenticate()` short-circuits on
++    "credentials not fully configured", and the whole suite passes because
++    nothing *could* have reached the network — a test that proves the test
++    environment is empty, not that the routes are safe. Verified by regression:
++    with these set, a route that authenticates is caught; without them, it is
++    not.
++    """
++    monkeypatch.setenv("SCOREBOARD_ACUMATICA_STATE_DIR", str(tmp_path / "state"))
++    monkeypatch.setenv("SCOREBOARD_ACUMATICA_CACHE_DIR", str(tmp_path / "cache"))
++    monkeypatch.setenv("ACUMATICA_BASE_URL", "https://example.acumatica.com")
++    monkeypatch.setenv("ACUMATICA_USERNAME", "svc")
++    monkeypatch.setenv("ACUMATICA_PASSWORD", "secret")
++    monkeypatch.setenv("ACUMATICA_COMPANY", "Production")
++
++    opener = ExplodingOpener()
++    # Every AcumaticaClient built anywhere gets the exploding opener, so a route
++    # that constructs one and authenticates cannot pass this test quietly.
++    original_init = AcumaticaClient.__init__
++
++    def patched_init(self, *args, **kwargs):
++        original_init(self, *args, **kwargs)
++        self._opener = opener
++
++    monkeypatch.setattr(AcumaticaClient, "__init__", patched_init)
++    return opener
++
++
++@pytest.mark.parametrize("route_name", ROUTES)
++@pytest.mark.parametrize("flag", [None, "true"])
++def test_no_route_makes_an_acumatica_request(route_name, flag, no_acumatica_network, monkeypatch):
++    """Gap 5: every externally callable route, zero Acumatica requests.
++
++    Run with the integration flag DISABLED (the required condition) and also
++    ENABLED. The second case is the stronger property and the one that matters
++    long-term: routes must not authenticate even when Acumatica is fully
++    switched on, because the prohibition is structural — they hold a
++    cache-backed reader with no credential — rather than a consequence of the
++    kill switch being off. A guarantee that only holds while the feature is
++    disabled is not a guarantee.
++    """
++    from backend.scoreboard.api import routes
++
++    if flag is None:
++        monkeypatch.delenv("SCOREBOARD_ACUMATICA_ENABLED", raising=False)
++    else:
++        monkeypatch.setenv("SCOREBOARD_ACUMATICA_ENABLED", flag)
++
++    route = getattr(routes, route_name)
++    try:
++        route()
++    except Exception as exc:  # noqa: BLE001 - a route may fail for unrelated reasons
++        assert not isinstance(exc, AssertionError), str(exc)
++
++    assert no_acumatica_network.calls == [], (
++        f"{route_name} made {len(no_acumatica_network.calls)} Acumatica request(s) "
++        f"with SCOREBOARD_ACUMATICA_ENABLED={flag!r}"
++    )
++
++
++def test_route_list_is_complete():
++    """Guard against a new public route escaping the check above."""
++    from backend.scoreboard.api import routes
++
++    public = {
++        name
++        for name in dir(routes)
++        if not name.startswith("_")
++        and callable(getattr(routes, name))
++        and getattr(getattr(routes, name), "__module__", "") == routes.__name__
++    }
++    assert public == set(ROUTES), (
++        f"routes not covered by the no-authentication test: {sorted(public - set(ROUTES))}"
++    )
++
++
++def test_routes_use_a_cache_backed_reader_with_no_credential(no_acumatica_network):
++    from backend.scoreboard.api import routes
++
++    _, _, acumatica, _, _ = routes._build_dependencies()
++    assert isinstance(acumatica, CachedAcumaticaReader)
++    # It structurally cannot authenticate: no credential, no opener.
++    assert not hasattr(acumatica, "password")
++    assert not hasattr(acumatica, "_opener")
++    assert "fail_state" in acumatica.authenticate()
++
++
++def test_status_snapshot_reports_a_cache_miss_rather_than_empty_data(tmp_path):
++    reader = CachedAcumaticaReader(cache=AcumaticaCache(tmp_path / "empty"))
++    branches = reader.fetch_branches("/x")
++    assert branches["cache_state"] == "miss"
++    assert "fail_state" in branches, "a miss must not masquerade as an empty result set"
++
++
++def test_cache_round_trip_reports_age(tmp_path):
++    cache = AcumaticaCache(tmp_path / "cache")
++    cache.write("branches", {"records": [{"BranchCD": "FS"}], "as_of": "2026-07-31T00:00:00+00:00"})
++    reader = CachedAcumaticaReader(cache=cache)
++    payload = reader.fetch_branches("/x")
++    assert payload["cache_state"] == "hit"
++    assert payload["records"] == [{"BranchCD": "FS"}]
++    assert payload["age_seconds"] is not None
++
++
++def test_status_snapshot_discloses_no_credential(tmp_path):
++    reader = CachedAcumaticaReader(cache=AcumaticaCache(tmp_path / "c"))
++    blob = json.dumps(reader.status_snapshot())
++    for secret in ("secret", "svc", "password"):
++        assert secret not in blob
+diff --git a/tests/test_connectors.py b/tests/test_connectors.py
+index cc8324c..b6bd51c 100644
+--- a/tests/test_connectors.py
++++ b/tests/test_connectors.py
+@@ -22,122 +22,3 @@ def test_pipedrive_connector_requires_token():
+     assert payload["domain"] == "users"
+     assert payload["fail_state"]["state"] == "FAIL"
+ 
+-
+-# --- 2026-07-31 lockout containment -----------------------------------------
+-# These lock in the behaviour that stopped an Acumatica account lockout. A
+-# regression here costs a production ERP account, so they assert the exact
+-# number of network calls, not just the outcome.
+-
+-class _CountingOpener:
+-    """Stands in for the urllib opener and counts login attempts."""
+-
+-    def __init__(self, exc):
+-        self.calls = []
+-        self._exc = exc
+-
+-    def open(self, req, timeout=None):  # noqa: A003 - urllib interface
+-        self.calls.append(req.full_url)
+-        raise self._exc
+-
+-
+-def _client(**kwargs):
+-    from backend.scoreboard.connectors.acumatica import AcumaticaClient
+-
+-    defaults = dict(
+-        base_url="https://example.acumatica.com",
+-        username="svc",
+-        password="secret",
+-        company="Production",
+-        timeout_seconds=5,
+-        auth_path="/entity/auth/login",
+-        enabled=True,
+-    )
+-    defaults.update(kwargs)
+-    return AcumaticaClient(**defaults)
+-
+-
+-def _rejection():
+-    from urllib import error
+-
+-    return error.HTTPError(
+-        "https://example.acumatica.com/entity/auth/login", 401, "Unauthorized", {}, None
+-    )
+-
+-
+-def test_login_is_attempted_exactly_once_not_three_times():
+-    # The signature of the lockout: retries=2 fed range(retries+1), and
+-    # authenticate() shared the read retry wrapper, so ONE request produced
+-    # THREE failed logins.
+-    client = _client()
+-    opener = _CountingOpener(_rejection())
+-    client._opener = opener
+-
+-    result = client.authenticate()
+-
+-    assert "fail_state" in result
+-    assert len(opener.calls) == 1, f"expected 1 login attempt, got {len(opener.calls)}"
+-
+-
+-def test_data_read_retries_are_unaffected():
+-    # Reads still retry; only authentication opted out.
+-    client = _client()
+-    opener = _CountingOpener(_rejection())
+-    client._opener = opener
+-    client._authenticated = True  # skip the login path
+-    client.backoff_seconds = 0
+-
+-    client.fetch_branches("/entity/Default/24.200.001/Branch")
+-
+-    assert len(opener.calls) == 3
+-
+-
+-def test_failed_authentication_latches_for_the_process():
+-    # Removing retries alone is not enough: the client is built per HTTP
+-    # request, so a polled endpoint would still spend one attempt per poll.
+-    client = _client()
+-    opener = _CountingOpener(_rejection())
+-    client._opener = opener
+-
+-    client.authenticate()
+-    for _ in range(10):
+-        result = client.authenticate()
+-        assert "fail_state" in result
+-
+-    assert len(opener.calls) == 1, "a rejected credential must never be presented twice"
+-
+-
+-def test_disabled_connector_never_touches_the_network():
+-    client = _client(enabled=False)
+-    opener = _CountingOpener(_rejection())
+-    client._opener = opener
+-
+-    assert "fail_state" in client.authenticate()
+-    assert "fail_state" in client.fetch_branches("/entity/Default/24.200.001/Branch")
+-    assert opener.calls == []
+-
+-
+-def test_enabled_flag_defaults_to_disabled(monkeypatch):
+-    # Fails closed: anything other than the exact string "true" is off.
+-    monkeypatch.delenv("SCOREBOARD_ACUMATICA_ENABLED", raising=False)
+-    assert _client(enabled=None).enabled is False
+-    for value in ["TRUE", "True", "1", "yes", "on", ""]:
+-        monkeypatch.setenv("SCOREBOARD_ACUMATICA_ENABLED", value)
+-        assert _client(enabled=None).enabled is False
+-    monkeypatch.setenv("SCOREBOARD_ACUMATICA_ENABLED", "true")
+-    assert _client(enabled=None).enabled is True
+-
+-
+-def test_status_snapshot_does_not_authenticate():
+-    # The endpoints most likely to be polled must never spend a credential.
+-    client = _client()
+-    opener = _CountingOpener(_rejection())
+-    client._opener = opener
+-
+-    snapshot = client.status_snapshot()
+-
+-    assert opener.calls == []
+-    assert snapshot["connector_state"] == "not_attempted"
+-    assert snapshot["authenticated"] is False
+-    # And it discloses no credential material.
+-    assert "secret" not in json.dumps(snapshot)
+-    assert "svc" not in json.dumps(snapshot)
 -- 
 2.43.0
 
