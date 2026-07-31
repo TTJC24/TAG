@@ -322,31 +322,55 @@ export async function checkAcumatica(
     ];
   }
 
+  // Once the session is gone, every further request is another failed auth
+  // attempt against the account's lockout counter. Stop the section instead.
+  let sessionLost = false;
+  const abortIfSessionLost = (result: CheckResult): CheckResult => {
+    if (/no longer authenticated|\b401\b/i.test(result.detail))
+      sessionLost = true;
+    return result;
+  };
+
   try {
     // Field presence, per entity, against the live instance — a wrong $select
     // fails as an opaque 500, so confirm before depending.
     for (const [entity, required] of Object.entries(REQUIRED_FIELDS)) {
+      if (sessionLost) break;
       results.push(
-        await check(section, `${entity} fields present`, async () => {
-          const rows = await client.probeEntity(entity, 1);
-          if (rows.length === 0) {
+        abortIfSessionLost(
+          await check(section, `${entity} fields present`, async () => {
+            const rows = await client.probeEntity(entity, 1);
+            if (rows.length === 0) {
+              return {
+                status: "warn",
+                detail: `no ${entity} records returned; cannot confirm fields`,
+              };
+            }
+            const keys = Object.keys(rows[0]!);
+            const missing = required.filter((f) => !keys.includes(f));
             return {
-              status: "warn",
-              detail: `no ${entity} records returned; cannot confirm fields`,
+              status: missing.length === 0 ? "pass" : "fail",
+              detail:
+                missing.length === 0
+                  ? `all ${required.length} required fields present`
+                  : `missing: ${missing.join(", ")}`,
+              evidence: { fieldCount: keys.length, missing },
             };
-          }
-          const keys = Object.keys(rows[0]!);
-          const missing = required.filter((f) => !keys.includes(f));
-          return {
-            status: missing.length === 0 ? "pass" : "fail",
-            detail:
-              missing.length === 0
-                ? `all ${required.length} required fields present`
-                : `missing: ${missing.join(", ")}`,
-            evidence: { fieldCount: keys.length, missing },
-          };
-        }),
+          }),
+        ),
       );
+    }
+    if (sessionLost) {
+      return [
+        ...results,
+        {
+          section,
+          name: "remaining acumatica checks",
+          status: "skip",
+          detail:
+            "stopped after the session was lost — further requests would count against the account lockout threshold",
+        },
+      ];
     }
 
     let invoices: Awaited<ReturnType<AcumaticaProbe["fetchOpenArInvoices"]>> =

@@ -206,6 +206,18 @@ export class AcumaticaTruncatedError extends Error {
   }
 }
 
+/**
+ * The session was lost mid-run and the client has stopped making requests.
+ * Distinct from AcumaticaUnavailableError so callers can tell "the server is
+ * unhappy" apart from "we deliberately stopped to protect the account".
+ */
+export class AcumaticaSessionInvalidatedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AcumaticaSessionInvalidatedError";
+  }
+}
+
 export class AcumaticaUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -246,6 +258,17 @@ export class AcumaticaClient {
    * read succeeding and every read after it returning 401.
    */
   private cookies = new Map<string, string>();
+  /**
+   * Set once a request comes back 401. Every further request is then refused
+   * LOCALLY, without touching the network.
+   *
+   * This is a safety interlock, not an optimisation. An unauthenticated request
+   * to /entity counts against Acumatica's failed-login threshold, so a client
+   * that keeps making calls after losing its session will lock the service
+   * account out — which is exactly what happened here, twice. One bad request
+   * is a bug; four in a row is an outage.
+   */
+  private sessionInvalidated = false;
 
   constructor(options: AcumaticaClientOptions) {
     if (!options.baseUrl) throw new Error("Acumatica baseUrl is required");
@@ -266,6 +289,11 @@ export class AcumaticaClient {
     path: string,
     init: RequestInit & { rawBase?: boolean; consumeJson?: boolean } = {},
   ): Promise<Response> {
+    if (this.sessionInvalidated && !path.includes("/entity/auth/")) {
+      throw new AcumaticaSessionInvalidatedError(
+        "Acumatica session is no longer authenticated; refusing further requests so they cannot count against the account lockout threshold",
+      );
+    }
     const url = init.rawBase
       ? `${this.baseUrl}${path}`
       : `${this.baseUrl}${path}`;
@@ -286,6 +314,9 @@ export class AcumaticaClient {
         headers,
         signal: controller.signal,
       });
+      // A 401 means the session is gone. Latch it so nothing else is sent.
+      if (response.status === 401) this.sessionInvalidated = true;
+
       // Merge any Set-Cookie into the jar by name. Never replace the jar: a
       // response that re-sets one cookie must not evict the others.
       const set =
@@ -336,6 +367,7 @@ export class AcumaticaClient {
 
   /** Establish a read session. The client owns its own login. */
   async login(): Promise<void> {
+    this.sessionInvalidated = false;
     const response = await this.request("/entity/auth/login", {
       method: "POST",
       headers: { "content-type": "application/json" },

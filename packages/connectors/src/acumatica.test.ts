@@ -381,3 +381,82 @@ describe("session cookie handling", () => {
     expect(lastSent).not.toContain("Temp=");
   });
 });
+
+describe("account lockout interlock", () => {
+  it("stops making requests after a 401 instead of burning login attempts", async () => {
+    // An unauthenticated request to /entity counts against Acumatica's
+    // failed-login threshold. A client that keeps calling after losing its
+    // session locks the service account out — this latch is what prevents that.
+    let entityCalls = 0;
+    const fetchImpl = (async (url: URL | string) => {
+      if (String(url).includes("/entity/auth/login")) {
+        return {
+          ok: true,
+          status: 204,
+          text: async () => "",
+          headers: { getSetCookie: () => ["ASP.NET_SessionId=s1"] },
+        } as unknown as Response;
+      }
+      entityCalls += 1;
+      return {
+        ok: false,
+        status: 401,
+        text: async () => "",
+        headers: { getSetCookie: () => [] },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const client = new AcumaticaClient({
+      baseUrl: "https://example.acumatica.com",
+      username: "svc",
+      password: "secret",
+      company: "Production",
+      fetchImpl,
+    });
+    await client.login();
+
+    await expect(client.probeEntity("Invoice", 1)).rejects.toThrow();
+    // every later call must be refused locally, without reaching the server
+    await expect(client.probeEntity("Customer", 1)).rejects.toThrow(
+      /refusing further requests/i,
+    );
+    await expect(client.fetchOpenArInvoices()).rejects.toThrow(
+      /refusing further requests/i,
+    );
+    expect(entityCalls).toBe(1);
+  });
+
+  it("clears the latch on a fresh login", async () => {
+    let unauthorized = true;
+    const fetchImpl = (async (url: URL | string) => {
+      if (String(url).includes("/entity/auth/login")) {
+        unauthorized = false;
+        return {
+          ok: true,
+          status: 204,
+          text: async () => "",
+          headers: { getSetCookie: () => ["ASP.NET_SessionId=s1"] },
+        } as unknown as Response;
+      }
+      return {
+        ok: !unauthorized,
+        status: unauthorized ? 401 : 200,
+        text: async () => (unauthorized ? "" : "[]"),
+        headers: { getSetCookie: () => [] },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const client = new AcumaticaClient({
+      baseUrl: "https://example.acumatica.com",
+      username: "svc",
+      password: "secret",
+      company: "Production",
+      fetchImpl,
+    });
+    await client.login();
+    unauthorized = true;
+    await expect(client.probeEntity("Invoice", 1)).rejects.toThrow();
+    await client.login();
+    await expect(client.probeEntity("Invoice", 1)).resolves.toEqual([]);
+  });
+});
