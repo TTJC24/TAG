@@ -33,14 +33,59 @@ a session count that another process is concurrently changing cannot serve as a
 baseline for anything.
 
 Three codebases read this instance: TAG (this repo), company-brain, scoreboard.
-The real `.env` files live on their hosts, not in any repo, so this cannot be
-answered from code:
+The real `.env` files live on the droplet, not in any repo, so this cannot be
+answered from code or by anyone without server access.
+
+**This is a task for whoever administers the droplet.** They run one command and
+return one word-pair. Nobody needs to read, interpret, or forward a
+configuration file.
+
+If the repo is checked out on the droplet:
 
 ```bash
-# TAG
-sudo grep -h '^ACUMATICA_USERNAME=' /opt/operating-layer/.env.production
-# company-brain
-sudo grep -h '^ACUMATICA_USERNAME=' /opt/company-brain/infra/.env
+sudo sh /opt/operating-layer/scripts/acumatica-account-check.sh
+```
+
+Otherwise, paste this verbatim — it is self-contained:
+
+```bash
+sudo sh -s <<'EOF'
+get() { sed -n "s/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}ACUMATICA_USERNAME[[:space:]]*=[[:space:]]*//p" "$1" 2>/dev/null \
+  | tr -d '\r' | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'\$//" -e 's/[[:space:]]*$//' \
+  | tail -n 1 | tr '[:upper:]' '[:lower:]'; }
+A=/opt/operating-layer/.env.production
+B=/opt/company-brain/infra/.env
+[ -r "$A" ] || { echo "CANNOT DETERMINE: cannot read $A"; exit 2; }
+[ -r "$B" ] || { echo "CANNOT DETERMINE: cannot read $B"; exit 2; }
+a=$(get "$A"); b=$(get "$B")
+[ -n "$a" ] || { echo "CANNOT DETERMINE: ACUMATICA_USERNAME not set in $A"; exit 2; }
+[ -n "$b" ] || { echo "CANNOT DETERMINE: ACUMATICA_USERNAME not set in $B"; exit 2; }
+[ "$a" = "$b" ] && echo "SAME ACCOUNT" || echo "DIFFERENT ACCOUNTS"
+EOF
+```
+
+It prints exactly one of:
+
+- `SAME ACCOUNT`
+- `DIFFERENT ACCOUNTS`
+- `CANNOT DETERMINE: <reason>`
+
+**and nothing else.** No usernames, no passwords, no file contents. Verified:
+run against fixtures containing both usernames and passwords, the entire output
+was the two-word answer. It is read-only, contacts nothing, and does not touch
+Acumatica.
+
+The comparison is case-insensitive, because Acumatica logins are not
+case-sensitive — `Agent.Scoreboard` and `agent.scoreboard` are one account
+competing for one set of seats. It handles `export` prefixes, quotes, spaces
+around `=`, CRLF endings, commented-out old values, and a key defined twice
+(last definition wins, as the shell would).
+
+If the deployments live at other paths, set them explicitly:
+
+```bash
+sudo OL_ENV=/path/to/.env.production CB_ENV=/path/to/.env \
+  sh /opt/operating-layer/scripts/acumatica-account-check.sh
 ```
 
 The username alone answers it. Do not paste passwords anywhere.
