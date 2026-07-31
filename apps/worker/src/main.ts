@@ -23,6 +23,37 @@ import {
 } from "@operating-layer/executors";
 import { RsaEnvelopeCredentialDecryptor } from "@operating-layer/connectors";
 
+// Scheduled feed refreshes. Empty unless *_SCHEDULE_UTC is set explicitly, so
+// this ships inert and an unconfigured deploy behaves exactly as before.
+const feedSchedules = resolveFeedSchedules();
+
+// Stated FIRST, before the database and credential checks, and unconditionally.
+//
+// The worker is the only component that can authenticate against Acumatica with
+// no human present, so its effective environment is the authoritative answer to
+// "is unattended operation disabled?". `docker compose exec worker …` reports
+// the container's environment — what a RESTART would produce. This line reports
+// what the process actually running right now decided, and the two differ
+// whenever the environment changed without a restart.
+//
+// Before the startup assertions on purpose: a worker crash-looping on a
+// database or credential problem is not scheduling anything, but an operator
+// still needs to see that stated rather than inferred from a silent log.
+// Absence of a log line is not evidence — a rotated log, a failed startup and a
+// correctly-disabled feed all look identical.
+console.info(
+  JSON.stringify({
+    event: "acumatica.unattended.status",
+    unattendedEnvRaw: process.env.ACUMATICA_UNATTENDED_ENABLED ?? null,
+    // The only accepted value is the exact string "true".
+    unattendedPermitted: process.env.ACUMATICA_UNATTENDED_ENABLED === "true",
+    collectionsScheduleUtc: process.env.COLLECTIONS_SCHEDULE_UTC ?? null,
+    collectionsScheduled: feedSchedules.some((f) => f.name === "collections"),
+    startedAt: new Date().toISOString(),
+    pid: process.pid,
+  }),
+);
+
 const databaseUrl = process.env.WORKER_DATABASE_URL ?? process.env.DATABASE_URL;
 if (!databaseUrl) {
   throw new Error("DATABASE_URL is required");
@@ -56,9 +87,6 @@ const mailDraftProvider = networkEnabled
   ? new MailDraftExecutionProvider(new GraphMailDraftCreateTransport())
   : new DisabledMailDraftExecutionProvider();
 const pollIntervalMs = Number(process.env.WORKER_POLL_INTERVAL_MS ?? 1_000);
-// Scheduled feed refreshes. Empty unless *_SCHEDULE_UTC is set explicitly, so
-// this ships inert and an unconfigured deploy behaves exactly as before.
-const feedSchedules = resolveFeedSchedules();
 const feedRunLog = new FeedRunLog();
 // Wall-clock budget for one refresh. Generous by default — a real pull is
 // minutes — but bounded so a stalled source cannot run indefinitely.
