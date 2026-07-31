@@ -98,11 +98,14 @@ describe("normalizeArInvoice", () => {
 });
 
 describe("AcumaticaClient", () => {
+  // The client reads the body as TEXT and parses it, so a non-JSON response can
+  // report what it actually was. The fake has to do the same or it tests a
+  // code path that does not exist.
   function fakeResponse(body: unknown, cookies: string[] = []): Response {
     return {
       ok: true,
       status: 200,
-      json: async () => body,
+      text: async () => (body === null ? "" : JSON.stringify(body)),
       headers: { getSetCookie: () => cookies },
     } as unknown as Response;
   }
@@ -195,35 +198,34 @@ describe("normalizeCustomerLocation", () => {
   it("maps a location and pulls city/state out of the nested address", () => {
     expect(
       normalizeCustomerLocation({
-        CustomerID: { value: "TIBBETTS" },
+        Customer: { value: "TIBBETTS" },
         LocationID: { value: "CRYSTALRIV" },
         LocationName: { value: "Crystal River" },
         Active: { value: true },
-        Address: { City: { value: "Crystal River" }, State: { value: "FL" } },
+        Status: { value: "Active" },
+        ShippingBranch: { value: "BLC" },
       }),
     ).toEqual({
       customerId: "TIBBETTS",
       locationId: "CRYSTALRIV",
       locationName: "Crystal River",
-      city: "Crystal River",
-      state: "FL",
+      status: "Active",
+      shippingBranch: "BLC",
       active: true,
     });
   });
 
-  it("degrades when the address is absent rather than failing", () => {
+  it("degrades when optional fields are absent rather than failing", () => {
     expect(
       normalizeCustomerLocation({
-        CustomerID: { value: "C1" },
+        Customer: { value: "C1" },
         LocationID: { value: "MAIN" },
       }),
-    ).toMatchObject({ city: null, state: null, active: null });
+    ).toMatchObject({ status: null, shippingBranch: null, active: null });
   });
 
   it("drops a record missing either half of its identity", () => {
-    expect(
-      normalizeCustomerLocation({ CustomerID: { value: "C1" } }),
-    ).toBeNull();
+    expect(normalizeCustomerLocation({ Customer: { value: "C1" } })).toBeNull();
     expect(
       normalizeCustomerLocation({ LocationID: { value: "MAIN" } }),
     ).toBeNull();
@@ -237,30 +239,31 @@ describe("fetchCustomerLocations", () => {
         return {
           ok: true,
           status: 200,
-          json: async () => null,
+          text: async () => "",
           headers: { getSetCookie: () => ["ASP.NET_SessionId=abc"] },
         } as unknown as Response;
       }
+      const rows = [
+        {
+          Customer: { value: "TIBBETTS" },
+          LocationID: { value: "OCALA" },
+          LocationName: { value: "Ocala" },
+        },
+        {
+          Customer: { value: "TIBBETTS" },
+          LocationID: { value: "LUTZ" },
+          LocationName: { value: "Lutz" },
+        },
+        {
+          Customer: { value: "OTHER" },
+          LocationID: { value: "MAIN" },
+          LocationName: { value: "Main" },
+        },
+      ];
       return {
         ok: true,
         status: 200,
-        json: async () => [
-          {
-            CustomerID: { value: "TIBBETTS" },
-            LocationID: { value: "OCALA" },
-            LocationName: { value: "Ocala" },
-          },
-          {
-            CustomerID: { value: "TIBBETTS" },
-            LocationID: { value: "LUTZ" },
-            LocationName: { value: "Lutz" },
-          },
-          {
-            CustomerID: { value: "OTHER" },
-            LocationID: { value: "MAIN" },
-            LocationName: { value: "Main" },
-          },
-        ],
+        text: async () => JSON.stringify(rows),
         headers: { getSetCookie: () => [] },
       } as unknown as Response;
     }) as unknown as typeof fetch;

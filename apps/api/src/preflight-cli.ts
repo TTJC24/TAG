@@ -32,6 +32,52 @@ function envFlag(name: string): boolean {
   return process.env[name] === "true";
 }
 
+/** Preview what Collections would raise. Reads only; writes nothing. */
+async function runDryRun(client: AcumaticaClient): Promise<void> {
+  await client.login();
+  let invoices;
+  let contacts;
+  try {
+    invoices = await client.fetchOpenArInvoices();
+    contacts = await client.fetchCustomers();
+  } finally {
+    await client.logout();
+  }
+  const asOf =
+    process.env.COLLECTIONS_ASOF ?? new Date().toISOString().slice(0, 10);
+  const aging = buildAgingFromInvoices(invoices, asOf, { contacts });
+
+  console.log("\n══ DRY RUN — what Collections would raise ══");
+  console.log("(nothing below has been created; this is a preview)\n");
+  for (const company of aging) {
+    const drafts = buildCollectionsDrafts(company, {
+      minPastDue: Number.parseFloat(
+        process.env.COLLECTIONS_MIN_PAST_DUE ?? "0",
+      ),
+    });
+    const total = drafts.reduce((sum, d) => sum + d.pastDue, 0);
+    const addressable = drafts.filter((d) => d.email.recipient).length;
+    const byStep = drafts.reduce<Record<number, number>>((acc, d) => {
+      acc[d.step] = (acc[d.step] ?? 0) + 1;
+      return acc;
+    }, {});
+    console.log(
+      `${company.company}: ${drafts.length} chases · ${money(total)} past due (net of credits)`,
+    );
+    console.log(
+      `  addressable ${addressable}/${drafts.length} · by ladder step ${JSON.stringify(byStep)}`,
+    );
+    for (const d of [...drafts]
+      .sort((a, b) => b.pastDue - a.pastDue)
+      .slice(0, 5)) {
+      console.log(
+        `    ${money(d.pastDue).padStart(14)}  step ${d.step}  ${d.customerName}${d.email.recipient ? "" : "  [no email on file]"}`,
+      );
+    }
+    console.log("");
+  }
+}
+
 async function main(): Promise<void> {
   const dryRun = process.argv.includes("--dry-run");
   const results: CheckResult[] = [];
@@ -80,49 +126,22 @@ async function main(): Promise<void> {
       results.push(...(await checkAcumatica(client)));
 
       // Dry run: show exactly what Collections WOULD raise, writing nothing.
+      //
+      // Fault-isolated deliberately. This runs BEFORE the report is printed, so
+      // an unhandled failure here would discard every check that already
+      // passed — which is exactly what a preflight must never do.
       if (dryRun) {
-        await client.login();
-        let invoices;
-        let contacts;
         try {
-          invoices = await client.fetchOpenArInvoices();
-          contacts = await client.fetchCustomers();
-        } finally {
-          await client.logout();
-        }
-        const asOf =
-          process.env.COLLECTIONS_ASOF ?? new Date().toISOString().slice(0, 10);
-        const aging = buildAgingFromInvoices(invoices, asOf, { contacts });
-
-        console.log("\n══ DRY RUN — what Collections would raise ══");
-        console.log("(nothing below has been created; this is a preview)\n");
-        for (const company of aging) {
-          const drafts = buildCollectionsDrafts(company, {
-            minPastDue: Number.parseFloat(
-              process.env.COLLECTIONS_MIN_PAST_DUE ?? "0",
-            ),
+          await runDryRun(client);
+        } catch (error) {
+          results.push({
+            section: "acumatica",
+            name: "dry run",
+            status: "fail",
+            detail: `preview failed: ${
+              error instanceof Error ? error.message : "unknown"
+            }`,
           });
-          const total = drafts.reduce((sum, d) => sum + d.pastDue, 0);
-          const addressable = drafts.filter((d) => d.email.recipient).length;
-          const byStep = drafts.reduce<Record<number, number>>((acc, d) => {
-            acc[d.step] = (acc[d.step] ?? 0) + 1;
-            return acc;
-          }, {});
-          console.log(
-            `${company.company}: ${drafts.length} chases · ${money(total)} past due (net of credits)`,
-          );
-          console.log(
-            `  addressable ${addressable}/${drafts.length} · by ladder step ${JSON.stringify(byStep)}`,
-          );
-          const worst = [...drafts]
-            .sort((a, b) => b.pastDue - a.pastDue)
-            .slice(0, 5);
-          for (const d of worst) {
-            console.log(
-              `    ${money(d.pastDue).padStart(14)}  step ${d.step}  ${d.customerName}${d.email.recipient ? "" : "  [no email on file]"}`,
-            );
-          }
-          console.log("");
         }
       }
     }

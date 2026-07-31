@@ -42,8 +42,8 @@ interface ExportedCustomer {
   locations: Array<{
     locationId: string;
     name: string | null;
-    city: string | null;
-    state: string | null;
+    status: string | null;
+    shippingBranch: string | null;
     active: boolean | null;
   }>;
 }
@@ -73,8 +73,8 @@ function toCsv(customers: ExportedCustomer[]): string {
       "email",
       "location_id",
       "location_name",
-      "city",
-      "state",
+      "location_status",
+      "shipping_branch",
       "location_active",
     ].join(","),
   ];
@@ -106,8 +106,8 @@ function toCsv(customers: ExportedCustomer[]): string {
           customer.email,
           location.locationId,
           location.name,
-          location.city,
-          location.state,
+          location.status,
+          location.shippingBranch,
           location.active,
         ]
           .map(escape)
@@ -162,8 +162,8 @@ async function main(): Promise<void> {
         (location) => ({
           locationId: location.locationId,
           name: location.locationName,
-          city: location.city,
-          state: location.state,
+          status: location.status,
+          shippingBranch: location.shippingBranch,
           active: location.active,
         }),
       ),

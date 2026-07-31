@@ -66,8 +66,9 @@ export interface AcumaticaCustomerLocation {
   customerId: string;
   locationId: string;
   locationName: string | null;
-  city: string | null;
-  state: string | null;
+  status: string | null;
+  /** Which of our branches serves this site. */
+  shippingBranch: string | null;
   active: boolean | null;
 }
 
@@ -147,18 +148,19 @@ const AR_FILTER = "Status eq 'Open'";
 // Field names are confirmed against the live instance by acumatica-probe-cli.
 const CUSTOMER_SELECT = "CustomerID,CustomerName,Status,MainContact/Email";
 
-// Kept deliberately minimal. A wrong $select fails as an opaque 500, and the
-// location entity varies more between instances than Customer does — so ask for
-// only what identity resolution actually needs, and let the probe CLI report
-// what else is available.
+// Confirmed against the live instance by acumatica-probe-cli. Two corrections
+// from the first guess: the customer reference is `Customer`, not `CustomerID`,
+// and the entity exposes NO address object — so location city/state are simply
+// not available here. `ShippingBranch` is, and is more useful for identity
+// anyway, since it says which of our branches serves that site.
 const CUSTOMER_LOCATION_SELECT =
-  "CustomerID,LocationID,LocationName,Active,Address/City,Address/State";
+  "Customer,LocationID,LocationName,Active,Status,ShippingBranch";
 
 /** Map one contract-API CustomerLocation record to the normalized shape. */
 export function normalizeCustomerLocation(
   record: Record<string, unknown>,
 ): AcumaticaCustomerLocation | null {
-  const customerId = asStr(val(record, "CustomerID"));
+  const customerId = asStr(val(record, "Customer"));
   const locationId = asStr(val(record, "LocationID"));
   if (!customerId || !locationId) return null;
   const active = val(record, "Active");
@@ -166,8 +168,8 @@ export function normalizeCustomerLocation(
     customerId,
     locationId,
     locationName: asStr(val(record, "LocationName")),
-    city: asStr(nested(record, "Address", "City")),
-    state: asStr(nested(record, "Address", "State")),
+    status: asStr(val(record, "Status")),
+    shippingBranch: asStr(val(record, "ShippingBranch")),
     active: typeof active === "boolean" ? active : null,
   };
 }
@@ -284,7 +286,22 @@ export class AcumaticaClient {
         // timeout as soon as headers arrive would leave a server that sends
         // 200 and then stalls the body hanging forever, with no abort and no
         // error — which in a scheduled worker is a silent, permanent outage.
-        (response as ResponseWithJson).parsedJson = await response.json();
+        //
+        // Parse from text rather than response.json() so a non-JSON body says
+        // what it actually was. Bare `.json()` reports "Unexpected end of JSON
+        // input", which tells an operator nothing about whether the server
+        // returned empty, an HTML error page, or a truncated response.
+        const text = await response.text();
+        try {
+          (response as ResponseWithJson).parsedJson =
+            text.length === 0 ? null : JSON.parse(text);
+        } catch {
+          throw new AcumaticaUnavailableError(
+            `Acumatica returned a non-JSON body (HTTP ${response.status}, ${text.length} bytes): ${
+              text.length === 0 ? "<empty>" : `${text.slice(0, 200)}…`
+            }`,
+          );
+        }
       }
       return response;
     } catch (error) {
@@ -343,12 +360,19 @@ export class AcumaticaClient {
         `Acumatica ${entity} read failed (${response.status})`,
       );
     }
-    const parsed = recordArraySchema.safeParse(
-      (response as ResponseWithJson).parsedJson,
-    );
+    const body = (response as ResponseWithJson).parsedJson;
+    const parsed = recordArraySchema.safeParse(body);
     if (!parsed.success) {
+      // Say what came back. "failed validation" alone leaves an operator with
+      // no way to tell an empty response from a wrong-shaped one.
+      const shape =
+        body === null || body === undefined
+          ? "empty body"
+          : Array.isArray(body)
+            ? "an array with unexpected element types"
+            : `a ${typeof body}: ${JSON.stringify(body).slice(0, 200)}`;
       throw new AcumaticaUnavailableError(
-        `Acumatica ${entity} response failed validation`,
+        `Acumatica ${entity} returned ${shape} where a record array was expected`,
       );
     }
     return parsed.data;
@@ -423,33 +447,13 @@ export class AcumaticaClient {
    * instead of guessing an address).
    */
   async fetchCustomers(): Promise<Map<string, AcumaticaCustomer>> {
+    const rows = await this.readAllPages("Customer", {
+      $select: CUSTOMER_SELECT,
+    });
     const byId = new Map<string, AcumaticaCustomer>();
-    for (let page = 0; page < this.maxPages; page += 1) {
-      const params = new URLSearchParams({
-        $top: String(this.pageSize),
-        $skip: String(page * this.pageSize),
-        $select: CUSTOMER_SELECT,
-      });
-      const response = await this.request(
-        `/entity/Default/${this.version}/Customer?${params.toString()}`,
-      );
-      if (!response.ok) {
-        throw new AcumaticaUnavailableError(
-          `Acumatica customer read failed (${response.status})`,
-        );
-      }
-      const parsed = recordArraySchema.safeParse(await response.json());
-      if (!parsed.success) {
-        throw new AcumaticaUnavailableError(
-          "Acumatica customer response failed validation",
-        );
-      }
-      const batch = parsed.data;
-      for (const raw of batch) {
-        const normalized = normalizeCustomer(raw);
-        if (normalized) byId.set(normalized.customerId, normalized);
-      }
-      if (batch.length < this.pageSize) break;
+    for (const raw of rows) {
+      const normalized = normalizeCustomer(raw);
+      if (normalized) byId.set(normalized.customerId, normalized);
     }
     return byId;
   }
