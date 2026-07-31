@@ -32,15 +32,46 @@ describe("resolveFeedSchedules", () => {
   });
 
   it("schedules only what is explicitly set", () => {
-    expect(resolveFeedSchedules({ COLLECTIONS_SCHEDULE_UTC: "11:00" })).toEqual(
-      [{ name: "collections", hourUtc: 11, minuteUtc: 0 }],
-    );
+    expect(
+      resolveFeedSchedules({
+        COLLECTIONS_SCHEDULE_UTC: "11:00",
+        ACUMATICA_UNATTENDED_ENABLED: "true",
+      }),
+    ).toEqual([{ name: "collections", hourUtc: 11, minuteUtc: 0 }]);
     expect(
       resolveFeedSchedules({
         COLLECTIONS_SCHEDULE_UTC: "11:00",
         SALES_SCHEDULE_UTC: "12:30",
+        ACUMATICA_UNATTENDED_ENABLED: "true",
       }),
     ).toHaveLength(2);
+  });
+
+  it("refuses to schedule the Acumatica feed without the unattended interlock", () => {
+    // A schedule time alone is not consent to authenticate unattended. This is
+    // the state production must stay in during controlled validation.
+    expect(resolveFeedSchedules({ COLLECTIONS_SCHEDULE_UTC: "11:00" })).toEqual(
+      [],
+    );
+  });
+
+  it("fails closed on anything that is not exactly \"true\"", () => {
+    for (const value of ["TRUE", "True", "1", "yes", "on", " true", ""]) {
+      expect(
+        resolveFeedSchedules({
+          COLLECTIONS_SCHEDULE_UTC: "11:00",
+          ACUMATICA_UNATTENDED_ENABLED: value,
+        }),
+      ).toEqual([]);
+    }
+  });
+
+  it("does not gate sales, which never touches Acumatica", () => {
+    // Pipedrive uses an API token with no lockout policy; holding it hostage to
+    // an ERP interlock would be theatre.
+    expect(resolveFeedSchedules({ SALES_SCHEDULE_UTC: "12:30" })).toEqual([
+      { name: "sales", hourUtc: 12, minuteUtc: 30 },
+    ]);
   });
 });
 

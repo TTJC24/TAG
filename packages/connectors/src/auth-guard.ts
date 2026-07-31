@@ -31,13 +31,21 @@ export type AuthFailureKind =
   | "rate_limited" // 429 — back-pressure, not an auth problem
   | "server_error" // 5xx — may be a lockout; body usually says
   | "locked_out" // the server explicitly said the account is locked
-  | "transport"; // network/timeout; never reached the server
+  | "login_transport" // a LOGIN that got no answer; may still have landed
+  | "transport"; // a read that got no answer; never reached the server
 
 /** Kinds that plausibly increment a server-side authentication counter. */
 const TRIPPING_KINDS: ReadonlySet<AuthFailureKind> = new Set<AuthFailureKind>([
   "unauthorized",
   "locked_out",
   "server_error",
+  // A login that timed out or was aborted may still have REACHED the server and
+  // counted against the lockout threshold — we simply never saw the answer.
+  // Treating that as harmless is the assumption that cannot be verified from
+  // this side, so it is not made: an unanswered login stops the next one.
+  // A read that got no answer is different and stays non-tripping, since it
+  // carries a session rather than a credential.
+  "login_transport",
 ]);
 
 export interface BreakerState {

@@ -430,11 +430,17 @@ describe("account lockout interlock", () => {
     expect(entityCalls).toBe(1);
   });
 
-  it("clears the latch on a fresh login", async () => {
-    let unauthorized = true;
+  it("refuses to re-authenticate after a lost session, in the same instance", async () => {
+    // This replaces an earlier test that asserted a second login CLEARS the
+    // latch and resumes reading. That contract is now wrong: recovering from a
+    // lost session by logging in again is precisely the automatic
+    // re-authentication that must never happen while the lockout mechanism is
+    // unproven. Recovery requires a new client, which re-checks the breaker.
+    let logins = 0;
+    let unauthorized = false;
     const fetchImpl = (async (url: URL | string) => {
       if (String(url).includes("/entity/auth/login")) {
-        unauthorized = false;
+        logins += 1;
         return {
           ok: true,
           status: 204,
@@ -460,8 +466,32 @@ describe("account lockout interlock", () => {
     await client.login();
     unauthorized = true;
     await expect(client.probeEntity("Invoice", 1)).rejects.toThrow();
-    await client.login();
-    await expect(client.probeEntity("Invoice", 1)).resolves.toEqual([]);
+
+    await expect(client.login()).rejects.toThrow(/already attempted a login/);
+    // The credential was presented exactly once, no matter what happened after.
+    expect(logins).toBe(1);
+  });
+
+  it("counts a failed login as an attempt, so a retry cannot slip through", async () => {
+    let logins = 0;
+    const client = new AcumaticaClient({
+      baseUrl: "https://example.acumatica.com",
+      username: "svc",
+      password: "secret",
+      company: "Production",
+      fetchImpl: (async () => {
+        logins += 1;
+        return {
+          ok: false,
+          status: 500,
+          text: async () => "boom",
+          headers: { getSetCookie: () => [] },
+        } as unknown as Response;
+      }) as unknown as typeof fetch,
+    });
+    await expect(client.login()).rejects.toThrow();
+    await expect(client.login()).rejects.toThrow(/already attempted a login/);
+    expect(logins).toBe(1);
   });
 });
 

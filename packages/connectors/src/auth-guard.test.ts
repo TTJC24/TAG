@@ -234,3 +234,21 @@ describe("classifyAuthFailure", () => {
     expect(classifyAuthFailure(404, "")).toBe("transport");
   });
 });
+
+describe("login transport failures", () => {
+  it("trips, because an unanswered login may still have reached the server", () => {
+    const breaker = new AuthCircuitBreaker(join(dir, "login-transport.json"));
+    const state = breaker.recordFailure("login_transport", "login timed out");
+    expect(state.tripped).toBe(true);
+    expect(() => breaker.assertMayAuthenticate()).toThrow(AuthCircuitOpenError);
+  });
+
+  it("is distinct from a read that got no answer, which does not trip", () => {
+    const breaker = new AuthCircuitBreaker(join(dir, "read-transport.json"));
+    // A read carries a session, not a credential, so it cannot count against
+    // an authentication threshold.
+    expect(breaker.recordFailure("transport", "read timed out").tripped).toBe(
+      false,
+    );
+  });
+});

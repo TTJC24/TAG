@@ -1,4 +1,4 @@
-# Acumatica authentication: guard, and the sandbox validation that must precede production
+# Acumatica authentication: the guard, and the controlled production validation
 
 ## Why this document exists
 
@@ -9,8 +9,11 @@ in the abstract — it is a specific response to a specific, repeated failure th
 had a real cost: an ERP account unusable for everyone who shares it, cleared by
 hand, twice.
 
-Production work is halted by operator direction until the items below are
-complete and the lifecycle has been validated in a sandbox.
+Unattended production work stays halted. Validation now proceeds against
+production directly — controlled, incremental, one operator-initiated request at
+a time — because other integrations already read this instance successfully and
+no sandbox is being provisioned. See the comparison against those integrations
+in [`acumatica-integration-comparison.md`](acumatica-integration-comparison.md).
 
 ## What is established as fact, and what is not
 
@@ -25,7 +28,9 @@ asserted with more confidence than the evidence supported.
   `workflows/issue-intake/src/feed-runner.ts`,
   `workflows/issue-intake/src/preflight.ts`.
 - **No retry logic exists anywhere in the client.** No backoff loop, no
-  re-authentication on 401, no automatic session refresh.
+  re-authentication on 401, no automatic session refresh. This was true by
+  inspection and is now true by construction: one login per client instance,
+  latched before the network call.
 - In the run that preceded a lockout, exactly one `/auth/login` was issued, and
   it **succeeded**. The failures that followed were `401`s on `/entity` reads.
 - The root cause of those 401s is known and fixed: the cookie jar was being
@@ -72,16 +77,20 @@ Failure kinds are **not** equivalent:
 | `unauthorized` | 401 | **yes** | The shape that preceded the lockout |
 | `locked_out` | body says so | **yes** | Explicit; no ambiguity |
 | `server_error` | 5xx | **yes** | May be a lockout wearing a 500 |
+| `login_transport` | login got no answer | **yes** | May have reached the server anyway |
 | `forbidden` | 403 | no | A permissions fact for a human to fix |
 | `rate_limited` | 429 | no | Back-pressure is not a security event |
-| `transport` | no response | no | See the caveat below |
+| `transport` | a *read* got no answer | no | Carries a session, not a credential |
 
-**Known limitation, stated plainly:** an aborted or timed-out login may still
-have reached the server and counted against the threshold, yet `transport` does
-not trip. Tripping on every network blip would turn a transient outage into a
-manual reset. This trade is only acceptable because a real lockout also produces
-a 401 or a 5xx, both of which *do* trip. If sandbox testing shows a timed-out
-login increments the counter, move `transport` into the tripping set.
+An unanswered **login** trips. We cannot tell from this side whether it reached
+the server and counted, so the assumption is not made. An unanswered **read**
+does not trip: it presents a session rather than a credential, so it cannot
+count against an authentication threshold.
+
+**One login per client instance, enforced.** The latch is set before the network
+call, so even a failed login cannot be retried. Recovery requires constructing a
+new client, which re-checks the breaker. "There is no retry logic" was true by
+inspection; this makes it true by construction.
 
 One request records **one** failure. The classification from the status code
 wins; the catch block only records when no response arrived at all.
@@ -102,6 +111,11 @@ This fails safe: a host that forgot the variable is the production host.
 Sandbox and production keep entirely separate state and lock files, so a sandbox
 trip cannot block production and, more importantly, **clearing a sandbox breaker
 cannot be mistaken for clearing the production one.**
+
+No sandbox tenant exists today, so in practice this always resolves to
+production and enforcement is always on. The mechanism stays because the cost of
+keeping it is nil and the cost of a future host quietly defaulting to
+unenforced is an account.
 
 ## Operator commands
 
@@ -125,42 +139,80 @@ Environment:
 | `ACUMATICA_ENVIRONMENT` | `production` | `sandbox` disables enforcement |
 | `ACUMATICA_GUARD_DIR` | `/var/lib/operating-layer/acumatica` | Breaker + lock state |
 
-## Sandbox validation — required before any production attempt
+## Controlled production validation
 
-Run against a **sandbox tenant with a throwaway account**, never production.
-Set `ACUMATICA_ENVIRONMENT=sandbox` so a trip is recorded but does not block,
-and the lifecycle can be exercised repeatedly.
+**Superseded:** an earlier version of this document required a sandbox tenant.
+No sandbox is being provisioned. Other Acumatica integrations already operate
+successfully against this production instance, so validation proceeds against
+production — controlled, incremental, and operator-initiated.
 
-The point is to answer the open questions above with evidence, from a place
-where being wrong is free.
+**Read [`acumatica-integration-comparison.md`](acumatica-integration-comparison.md)
+first.** It compares our client against the two working integrations field by
+field and identifies every difference. The headline: the deployed integration
+defends itself not by authenticating carefully but by **almost never
+authenticating** — it caches its session cookie to disk and reuses it. We log in
+fresh on every command, against an instance that enforces a per-user Contract
+API seat limit.
 
-1. **Happy path.** Log in, read, log out. Confirm the breaker stays clear and
-   `lastSuccessAt` advances.
-2. **Wrong password, once.** Confirm: the client sends exactly **one** login
-   request; the breaker trips as `unauthorized`; `consecutiveFailures` is `1`,
-   not 2.
-3. **Blocked state.** With the breaker tripped, confirm a run makes **zero**
-   network calls and exits non-zero. This is the behaviour that would have
-   prevented the second lockout.
-4. **Operator clear.** Confirm the breaker refuses to clear without both
-   `--who` and the confirmation phrase, and that clearing is durable.
-5. **Concurrency.** Start two runs at once. Confirm the second refuses with
-   `ConcurrentRunError` and names the first as holder.
-6. **Stale lock.** Kill a run mid-flight. Confirm the next run reclaims the lock
-   after the stale window rather than wedging forever.
-7. **Answer the open question.** Issue a plain unauthenticated `/entity` GET
-   with **no login attempt**, then read Access History and the account's failed
-   attempt counter. Does it increment? Record the answer here — it determines
-   whether the 401 storm could have caused the lockout at all.
-8. **Deliberate lockout.** Exhaust the sandbox account's attempt threshold on
-   purpose. Confirm what the server returns (status and body), and that
-   `classifyAuthFailure` sees it as `locked_out` rather than something softer.
-   This is the only way to know the detection string is right.
-9. **Timed-out login.** Force a login to time out. Read Access History: did it
-   count? If yes, `transport` must become a tripping kind.
+### Preconditions
 
-Record the outcomes of 7, 8 and 9 in this document. They are the facts the
-production decision depends on.
+- All scheduled and background Acumatica jobs are off.
+  `ACUMATICA_UNATTENDED_ENABLED` is unset, which leaves the collections feed
+  unscheduled no matter what `COLLECTIONS_SCHEDULE_UTC` says.
+- The breaker reports clear: `acumatica-breaker status`.
+- The dedicated read-only account has been unlocked by the operator.
+
+### The steps
+
+Each step is **one login and at most one read**, then stop. Run them in order.
+
+```bash
+pnpm --filter @operating-layer/api acumatica-validate --step 1 --operator "Tim Clark"
+```
+
+| Step | What it sends | What it isolates |
+|---|---|---|
+| 1 | Login, logout. No read. | The login alone. If the counter moves here, no read is implicated. |
+| 2 | Login + `Customer?$top=1` | The smallest read — the exact shape company-brain runs against this tenant without incident. |
+| 3 | Login + `Invoice?$top=1` | First contact with the AR entity Collections needs, still one record, no filter or projection. |
+
+The command refuses to run without `--operator`, refuses to run while the
+breaker is tripped, sends exactly one login, and **stops on the first
+non-success response**, reporting it verbatim with no retry and no further
+request.
+
+### After every single step, before the next one
+
+1. **Acumatica → Access History** for this user: confirm exactly one login,
+   and note how each request was recorded.
+2. **Acumatica → Users**: confirm the failed-attempt counter did **not** move.
+3. Only if both are clean, run the next step.
+
+Record the outcome of each step below as it happens. These are the facts the
+next decision depends on — not inference from our own logs, which is what went
+wrong the first time.
+
+| Step | Date | Access History | Failed-attempt counter | Verdict |
+|---|---|---|---|---|
+| 1 | | | | not yet run |
+| 2 | | | | not yet run |
+| 3 | | | | not yet run |
+
+### The questions these steps answer
+
+- Does a plain unauthenticated `/entity` GET, with no login attempt, increment
+  the counter? **Still the crux.** If it does not, the 401 storm did not cause
+  the lockout and seat contention becomes the leading explanation.
+- Is `agent.scoreboard` shared with company-brain or scoreboard? If so, the
+  integrations compete for the same seats, and a dedicated API user per
+  integration is the fix — which is what company-brain's own README recommends.
+
+### Only then, the unattended feed
+
+Do **not** set `ACUMATICA_UNATTENDED_ENABLED=true` until multiple manual runs
+across several days show no increase in failed-login activity. The interlock is
+separate from the schedule precisely so that restoring a schedule time from an
+old `.env` cannot switch unattended authentication back on by accident.
 
 ## The preferred structural fix
 

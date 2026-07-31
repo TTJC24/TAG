@@ -32,6 +32,21 @@ export interface FeedScheduleEnv {
   /** "HH:MM" in UTC, e.g. "11:00". Unset means the feed is not scheduled. */
   COLLECTIONS_SCHEDULE_UTC?: string;
   SALES_SCHEDULE_UTC?: string;
+  /**
+   * Second, independent interlock on the ONE scheduled feed that authenticates
+   * against Acumatica. Must be exactly "true" or collections is never
+   * scheduled, whatever COLLECTIONS_SCHEDULE_UTC says.
+   *
+   * Two switches rather than one because they answer different questions.
+   * The schedule says *when* the feed would run; this says whether unattended
+   * ERP authentication is permitted at all. During controlled production
+   * validation the answer is no, and it must stay no even if somebody restores
+   * a schedule time from an old .env while chasing something unrelated.
+   *
+   * Sales (Pipedrive) is not gated: it uses an API token with no lockout
+   * policy and was never implicated.
+   */
+  ACUMATICA_UNATTENDED_ENABLED?: string;
 }
 
 /** Parse "HH:MM" into hour/minute, or null when absent or malformed. */
@@ -58,7 +73,13 @@ export function resolveFeedSchedules(
 ): FeedSchedule[] {
   const schedules: FeedSchedule[] = [];
   const collections = parseScheduleTime(env.COLLECTIONS_SCHEDULE_UTC);
-  if (collections) schedules.push({ name: "collections", ...collections });
+  // Fails closed: anything other than the exact string "true" leaves the
+  // Acumatica feed unscheduled. A missing variable, a typo, "TRUE", "1" and
+  // "yes" all mean no.
+  const unattendedPermitted = env.ACUMATICA_UNATTENDED_ENABLED === "true";
+  if (collections && unattendedPermitted) {
+    schedules.push({ name: "collections", ...collections });
+  }
   const sales = parseScheduleTime(env.SALES_SCHEDULE_UTC);
   if (sales) schedules.push({ name: "sales", ...sales });
   return schedules;

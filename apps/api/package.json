@@ -17,7 +17,8 @@
     "preflight": "node dist/preflight-cli.js",
     "acumatica-customers:export": "node dist/acumatica-customer-export-cli.js",
     "acumatica-probe": "node dist/acumatica-probe-cli.js",
-    "acumatica-breaker": "node dist/acumatica-breaker-cli.js"
+    "acumatica-breaker": "node dist/acumatica-breaker-cli.js",
+    "acumatica-validate": "node dist/acumatica-validate-cli.js"
   },
   "dependencies": {
     "@operating-layer/audit": "workspace:*",

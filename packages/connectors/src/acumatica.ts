@@ -280,6 +280,12 @@ export class AcumaticaClient {
    * is a bug; four in a row is an outage.
    */
   private sessionInvalidated = false;
+  /**
+   * Latched the moment login() is entered — before the network call, so a
+   * login that fails still counts as attempted. One credential presentation per
+   * client instance, no exceptions.
+   */
+  private loginAttempted = false;
 
   constructor(options: AcumaticaClientOptions) {
     if (!options.baseUrl) throw new Error("Acumatica baseUrl is required");
@@ -391,16 +397,17 @@ export class AcumaticaClient {
       }
       return response;
     } catch (error) {
-      // A request that never got an answer is recorded but does NOT trip the
-      // breaker. Note the honest limitation: an aborted login may still have
-      // reached the server and counted against the lockout threshold, so this
-      // is a judgement call — tripping on every network blip would turn a
-      // transient outage into a manual reset, and that trade is only acceptable
-      // because a real lockout also produces a 401 or a 5xx, both of which do
-      // trip. An operator reviewing a lockout should still read these.
+      // A request that never got an answer is recorded. Whether it TRIPS
+      // depends on what was sent:
+      //
+      //  - A login that got no answer may still have reached the server and
+      //    counted against the lockout threshold. We cannot tell from this
+      //    side, so it trips. The next attempt is an operator decision.
+      //  - A read that got no answer carries a session, not a credential, and
+      //    does not count. It is recorded and does not trip.
       if (!responded) {
         this.options.breaker?.recordFailure(
-          "transport",
+          path.includes("/entity/auth/login") ? "login_transport" : "transport",
           `no response from ${path.split("?")[0]}: ${
             error instanceof Error ? error.message : "unknown"
           }`,
@@ -416,6 +423,26 @@ export class AcumaticaClient {
 
   /** Establish a read session. The client owns its own login. */
   async login(): Promise<void> {
+    // ONE login per client instance, enforced, not merely intended.
+    //
+    // "There is no retry logic" was true by inspection, and that is a weaker
+    // guarantee than it sounds: it holds until somebody adds a loop, or calls
+    // login() twice believing the first attempt is refreshable. Making a second
+    // login structurally impossible removes the whole class. A process that
+    // genuinely needs a new session constructs a new client, which passes the
+    // breaker again — the point at which an operator decision belongs.
+    //
+    // This is where we deliberately diverge from company-brain, which does one
+    // re-login and one GET retry on a 401. That is a reasonable design for an
+    // ingest job with a cached session; it is the wrong one here, while the
+    // lockout mechanism is still unproven.
+    if (this.loginAttempted) {
+      throw new AcumaticaUnavailableError(
+        "This Acumatica client has already attempted a login. Re-authentication " +
+          "is not permitted; construct a new client, which re-checks the circuit breaker.",
+      );
+    }
+    this.loginAttempted = true;
     // Refuse before touching the network. A blocked breaker means a previous
     // run ended in a way that may have counted against the account, and only a
     // deliberate operator action may start another attempt.
