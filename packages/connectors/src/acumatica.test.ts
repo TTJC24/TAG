@@ -283,3 +283,101 @@ describe("fetchCustomerLocations", () => {
     expect(byCustomer.get("OTHER")).toHaveLength(1);
   });
 });
+
+describe("session cookie handling", () => {
+  it("keeps every login cookie when a later response re-sets only one", async () => {
+    // Regression guard for the failure seen in production: login succeeded, the
+    // first read succeeded, and every read after it returned 401. The jar was
+    // being REPLACED wholesale, so a response that re-set one cookie evicted the
+    // auth cookie alongside it.
+    const sentCookies: string[] = [];
+    let call = 0;
+    const fetchImpl = (async (url: URL | string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      if (headers.cookie) sentCookies.push(headers.cookie);
+      call += 1;
+      if (String(url).includes("/entity/auth/login")) {
+        return {
+          ok: true,
+          status: 204,
+          text: async () => "",
+          headers: {
+            getSetCookie: () => [
+              "ASP.NET_SessionId=sess-1; path=/; HttpOnly",
+              ".ASPXAUTH=auth-1; path=/; HttpOnly",
+              "CompanyID=Production; path=/",
+            ],
+          },
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify([]),
+        headers: {
+          // the server re-sets ONLY the session id on this response
+          getSetCookie: () => ["ASP.NET_SessionId=sess-2; path=/; HttpOnly"],
+        },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const client = new AcumaticaClient({
+      baseUrl: "https://example.acumatica.com",
+      username: "svc",
+      password: "secret",
+      company: "Production",
+      fetchImpl,
+    });
+    await client.login();
+    await client.probeEntity("Invoice", 1);
+    await client.probeEntity("Customer", 1);
+
+    expect(call).toBe(3);
+    // the second read must still carry the auth cookie, with the session id
+    // updated to the value the server most recently issued
+    const lastSent = sentCookies.at(-1)!;
+    expect(lastSent).toContain(".ASPXAUTH=auth-1");
+    expect(lastSent).toContain("CompanyID=Production");
+    expect(lastSent).toContain("ASP.NET_SessionId=sess-2");
+    expect(lastSent).not.toContain("sess-1");
+  });
+
+  it("drops a cookie the server explicitly blanks", async () => {
+    const sentCookies: string[] = [];
+    const fetchImpl = (async (url: URL | string, init?: RequestInit) => {
+      const headers = (init?.headers ?? {}) as Record<string, string>;
+      if (headers.cookie) sentCookies.push(headers.cookie);
+      if (String(url).includes("/entity/auth/login")) {
+        return {
+          ok: true,
+          status: 204,
+          text: async () => "",
+          headers: {
+            getSetCookie: () => ["ASP.NET_SessionId=sess-1", "Temp=x"],
+          },
+        } as unknown as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify([]),
+        headers: { getSetCookie: () => ["Temp=; expires=Thu, 01 Jan 1970"] },
+      } as unknown as Response;
+    }) as unknown as typeof fetch;
+
+    const client = new AcumaticaClient({
+      baseUrl: "https://example.acumatica.com",
+      username: "svc",
+      password: "secret",
+      company: "Production",
+      fetchImpl,
+    });
+    await client.login();
+    await client.probeEntity("Invoice", 1);
+    await client.probeEntity("Customer", 1);
+
+    const lastSent = sentCookies.at(-1)!;
+    expect(lastSent).toContain("ASP.NET_SessionId=sess-1");
+    expect(lastSent).not.toContain("Temp=");
+  });
+});

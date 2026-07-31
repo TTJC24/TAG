@@ -236,7 +236,16 @@ export class AcumaticaClient {
   private readonly version: string;
   private readonly pageSize: number;
   private readonly maxPages: number;
-  private cookies: string[] = [];
+  /**
+   * Cookie jar keyed by NAME, deliberately.
+   *
+   * Acumatica's login sets several cookies (session id, auth token, branch,
+   * company). A later response often re-sets only one of them. Storing the jar
+   * as a flat list and replacing it wholesale therefore discarded the auth
+   * cookie the moment any single cookie came back — which looked like the first
+   * read succeeding and every read after it returning 401.
+   */
+  private cookies = new Map<string, string>();
 
   constructor(options: AcumaticaClientOptions) {
     if (!options.baseUrl) throw new Error("Acumatica baseUrl is required");
@@ -267,19 +276,31 @@ export class AcumaticaClient {
         accept: "application/json",
         ...(init.headers as Record<string, string>),
       };
-      if (this.cookies.length > 0) headers.cookie = this.cookies.join("; ");
+      if (this.cookies.size > 0) {
+        headers.cookie = [...this.cookies]
+          .map(([name, value]) => `${name}=${value}`)
+          .join("; ");
+      }
       const response = await this.fetchImpl(url, {
         ...init,
         headers,
         signal: controller.signal,
       });
-      // capture any session cookies
+      // Merge any Set-Cookie into the jar by name. Never replace the jar: a
+      // response that re-sets one cookie must not evict the others.
       const set =
         typeof response.headers.getSetCookie === "function"
           ? response.headers.getSetCookie()
           : [];
-      if (set.length > 0) {
-        this.cookies = set.map((c) => c.split(";")[0]!);
+      for (const raw of set) {
+        const pair = raw.split(";")[0] ?? "";
+        const separator = pair.indexOf("=");
+        if (separator <= 0) continue;
+        const name = pair.slice(0, separator).trim();
+        const value = pair.slice(separator + 1);
+        // An expired/blanked cookie is the server dropping it; honour that.
+        if (value === "") this.cookies.delete(name);
+        else this.cookies.set(name, value);
       }
       if (init.consumeJson) {
         // Read the body while the abort timer is still armed. Clearing the
@@ -342,7 +363,7 @@ export class AcumaticaClient {
         `Acumatica login failed (${response.status})${detail}`,
       );
     }
-    if (this.cookies.length === 0) {
+    if (this.cookies.size === 0) {
       throw new AcumaticaUnavailableError(
         "Acumatica login returned no session cookie",
       );
@@ -355,7 +376,7 @@ export class AcumaticaClient {
     } catch {
       // best-effort; freeing the session must never fail the run
     }
-    this.cookies = [];
+    this.cookies.clear();
   }
 
   /** One page of records, with the body read inside the timeout window. */
