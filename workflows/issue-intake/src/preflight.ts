@@ -293,6 +293,14 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
 
 export async function checkAcumatica(
   client: AcumaticaProbe,
+  opts: {
+    /**
+     * Leave the session open for the caller to reuse. Acumatica limits
+     * concurrent API sessions, so a command that checks AND previews should
+     * hold one session rather than opening a second alongside the first.
+     */
+    keepSessionOpen?: boolean;
+  } = {},
 ): Promise<CheckResult[]> {
   const section = "acumatica";
   const results: CheckResult[] = [];
@@ -392,7 +400,7 @@ export async function checkAcumatica(
       }),
     );
   } finally {
-    await client.logout();
+    if (!opts.keepSessionOpen) await client.logout();
   }
 
   return results;

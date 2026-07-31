@@ -326,8 +326,20 @@ export class AcumaticaClient {
       }),
     });
     if (!response.ok && response.status !== 204) {
+      // Include what the server actually said. Acumatica returns a JSON body on
+      // a failed login naming the real cause — most often a concurrent-session
+      // or licence limit rather than a bad credential — and a bare status code
+      // sends an operator hunting the wrong problem. The credential itself is
+      // never in that body, so this is safe to surface.
+      let detail = "";
+      try {
+        const text = await response.text();
+        if (text) detail = `: ${text.slice(0, 300)}`;
+      } catch {
+        // body already consumed or unreadable; the status alone will have to do
+      }
       throw new AcumaticaUnavailableError(
-        `Acumatica login failed (${response.status})`,
+        `Acumatica login failed (${response.status})${detail}`,
       );
     }
     if (this.cookies.length === 0) {

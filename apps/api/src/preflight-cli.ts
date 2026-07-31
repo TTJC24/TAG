@@ -34,15 +34,10 @@ function envFlag(name: string): boolean {
 
 /** Preview what Collections would raise. Reads only; writes nothing. */
 async function runDryRun(client: AcumaticaClient): Promise<void> {
-  await client.login();
-  let invoices;
-  let contacts;
-  try {
-    invoices = await client.fetchOpenArInvoices();
-    contacts = await client.fetchCustomers();
-  } finally {
-    await client.logout();
-  }
+  // Reuses the session checkAcumatica opened. Logging in again here would hold
+  // two concurrent sessions for one command, against a server that caps them.
+  const invoices = await client.fetchOpenArInvoices();
+  const contacts = await client.fetchCustomers();
   const asOf =
     process.env.COLLECTIONS_ASOF ?? new Date().toISOString().slice(0, 10);
   const aging = buildAgingFromInvoices(invoices, asOf, { contacts });
@@ -123,7 +118,9 @@ async function main(): Promise<void> {
           ? { endpointVersion: process.env.ACUMATICA_ENDPOINT_VERSION }
           : {}),
       });
-      results.push(...(await checkAcumatica(client)));
+      results.push(
+        ...(await checkAcumatica(client, { keepSessionOpen: dryRun })),
+      );
 
       // Dry run: show exactly what Collections WOULD raise, writing nothing.
       //
@@ -142,6 +139,9 @@ async function main(): Promise<void> {
               error instanceof Error ? error.message : "unknown"
             }`,
           });
+        } finally {
+          // The checks handed us the session; releasing it is ours to do.
+          await client.logout();
         }
       }
     }
