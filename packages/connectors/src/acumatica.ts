@@ -54,6 +54,23 @@ export interface AcumaticaCustomer {
   status: string | null;
 }
 
+/**
+ * A ship-to location under a customer.
+ *
+ * This matters for identity, not just delivery: one legal customer can have
+ * many physical yards, and downstream systems tend to flatten that into many
+ * look-alike company records. Keeping locations as children of a single
+ * customer id is what makes those records resolvable instead of ambiguous.
+ */
+export interface AcumaticaCustomerLocation {
+  customerId: string;
+  locationId: string;
+  locationName: string | null;
+  city: string | null;
+  state: string | null;
+  active: boolean | null;
+}
+
 /** Contract-API fields arrive wrapped as {"Field": {"value": ...}}. */
 function val(record: Record<string, unknown>, field: string): unknown {
   const cell = record[field];
@@ -129,6 +146,31 @@ const AR_FILTER = "Status eq 'Open'";
 // MainContact.Email is the standard location; a top-level Email is tolerated.
 // Field names are confirmed against the live instance by acumatica-probe-cli.
 const CUSTOMER_SELECT = "CustomerID,CustomerName,Status,MainContact/Email";
+
+// Kept deliberately minimal. A wrong $select fails as an opaque 500, and the
+// location entity varies more between instances than Customer does — so ask for
+// only what identity resolution actually needs, and let the probe CLI report
+// what else is available.
+const CUSTOMER_LOCATION_SELECT =
+  "CustomerID,LocationID,LocationName,Active,Address/City,Address/State";
+
+/** Map one contract-API CustomerLocation record to the normalized shape. */
+export function normalizeCustomerLocation(
+  record: Record<string, unknown>,
+): AcumaticaCustomerLocation | null {
+  const customerId = asStr(val(record, "CustomerID"));
+  const locationId = asStr(val(record, "LocationID"));
+  if (!customerId || !locationId) return null;
+  const active = val(record, "Active");
+  return {
+    customerId,
+    locationId,
+    locationName: asStr(val(record, "LocationName")),
+    city: asStr(nested(record, "Address", "City")),
+    state: asStr(nested(record, "Address", "State")),
+    active: typeof active === "boolean" ? active : null,
+  };
+}
 
 /** Map one contract-API Customer record to the normalized contact shape. */
 export function normalizeCustomer(
@@ -410,5 +452,30 @@ export class AcumaticaClient {
       if (batch.length < this.pageSize) break;
     }
     return byId;
+  }
+
+  /**
+   * Read ship-to locations, grouped by customer id. Read-only GET.
+   *
+   * Separate from fetchCustomers because this entity is more instance-specific:
+   * a tenant that does not use multi-location customers may not expose it at
+   * all. The caller decides whether an absent location entity is fatal — for an
+   * identity export it is a degradation worth reporting, not a failure.
+   */
+  async fetchCustomerLocations(): Promise<
+    Map<string, AcumaticaCustomerLocation[]>
+  > {
+    const rows = await this.readAllPages("CustomerLocation", {
+      $select: CUSTOMER_LOCATION_SELECT,
+    });
+    const byCustomer = new Map<string, AcumaticaCustomerLocation[]>();
+    for (const raw of rows) {
+      const normalized = normalizeCustomerLocation(raw);
+      if (!normalized) continue;
+      const existing = byCustomer.get(normalized.customerId);
+      if (existing) existing.push(normalized);
+      else byCustomer.set(normalized.customerId, [normalized]);
+    }
+    return byCustomer;
   }
 }

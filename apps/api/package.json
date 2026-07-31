@@ -14,7 +14,8 @@
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "preflight": "node dist/preflight-cli.js"
+    "preflight": "node dist/preflight-cli.js",
+    "acumatica-customers:export": "node dist/acumatica-customer-export-cli.js"
   },
   "dependencies": {
     "@operating-layer/audit": "workspace:*",

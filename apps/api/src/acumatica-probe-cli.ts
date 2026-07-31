@@ -43,6 +43,9 @@ function describeShape(record: Record<string, unknown>): string[] {
 /** Fields Collections depends on, per entity. */
 const EXPECTED: Record<string, string[]> = {
   Customer: ["CustomerID", "CustomerName", "Status", "MainContact"],
+  // Ship-to locations. Identity resolution depends on these staying distinct
+  // under one customer id, so confirm the entity exists before relying on it.
+  CustomerLocation: ["CustomerID", "LocationID", "LocationName"],
   Invoice: [
     "Type",
     "ReferenceNbr",
